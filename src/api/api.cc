@@ -932,9 +932,11 @@ bool Data::IsModule() const { return Utils::OpenHandle(this)->IsModule(); }
 
 bool Data::IsValue() const {
   i::DisallowGarbageCollection no_gc;
-  i::Object self = *Utils::OpenHandle(this);
-  if (self.IsSmi()) return true;
-  i::HeapObject heap_object = i::HeapObject::cast(self);
+  i::Handle<i::Object> self = Utils::OpenHandle(this);
+  if (self->IsSmi()) {
+    return true;
+  }
+  i::HeapObject heap_object = i::HeapObject::cast(*self);
   DCHECK(!heap_object.IsTheHole());
   if (heap_object.IsSymbol()) {
     return !i::Symbol::cast(heap_object).is_private();
@@ -1758,7 +1760,7 @@ void ObjectTemplate::SetCallAsFunctionHandler(FunctionCallback callback,
   i::FunctionTemplateInfo::SetInstanceCallHandler(isolate, cons, obj);
 }
 
-int ObjectTemplate::InternalFieldCount() const {
+int ObjectTemplate::InternalFieldCount() {
   return Utils::OpenHandle(this)->embedder_field_count();
 }
 
@@ -1779,7 +1781,7 @@ void ObjectTemplate::SetInternalFieldCount(int value) {
   Utils::OpenHandle(this)->set_embedder_field_count(value);
 }
 
-bool ObjectTemplate::IsImmutableProto() const {
+bool ObjectTemplate::IsImmutableProto() {
   return Utils::OpenHandle(this)->immutable_proto();
 }
 
@@ -1790,7 +1792,7 @@ void ObjectTemplate::SetImmutableProto() {
   self->set_immutable_proto(true);
 }
 
-bool ObjectTemplate::IsCodeLike() const {
+bool ObjectTemplate::IsCodeLike() {
   return Utils::OpenHandle(this)->code_like();
 }
 
@@ -1841,11 +1843,15 @@ Local<Script> UnboundScript::BindToCurrentContext() {
   return ToApiHandle<Script>(function);
 }
 
-int UnboundScript::GetId() const {
-  auto function_info = i::SharedFunctionInfo::cast(*Utils::OpenHandle(this));
-  i::Isolate* isolate = function_info.GetIsolate();
+int UnboundScript::GetId() {
+  auto function_info =
+      i::Handle<i::SharedFunctionInfo>::cast(Utils::OpenHandle(this));
+  i::Isolate* isolate = function_info->GetIsolate();
   LOG_API(isolate, UnboundScript, GetId);
-  return i::Script::cast(function_info.script()).id();
+  i::HandleScope scope(isolate);
+  i::Handle<i::Script> script(i::Script::cast(function_info->script()),
+                              isolate);
+  return script->id();
 }
 
 int UnboundScript::GetLineNumber(int code_pos) {
@@ -2045,10 +2051,13 @@ Local<Value> Module::GetException() const {
 }
 
 int Module::GetModuleRequestsLength() const {
-  i::Module self = *Utils::OpenHandle(this);
-  if (self.IsSyntheticModule()) return 0;
-  ASSERT_NO_SCRIPT_NO_EXCEPTION(self.GetIsolate());
-  return i::SourceTextModule::cast(self).info().module_requests().length();
+  i::Handle<i::Module> self = Utils::OpenHandle(this);
+  if (self->IsSyntheticModule()) return 0;
+  ASSERT_NO_SCRIPT_NO_EXCEPTION(self->GetIsolate());
+  return i::Handle<i::SourceTextModule>::cast(self)
+      ->info()
+      .module_requests()
+      .length();
 }
 
 Local<String> Module::GetModuleRequest(int i) const {
@@ -2149,22 +2158,22 @@ Local<UnboundModuleScript> Module::GetUnboundModuleScript() {
       isolate));
 }
 
-int Module::ScriptId() const {
-  i::Module self = *Utils::OpenHandle(this);
-  Utils::ApiCheck(self.IsSourceTextModule(), "v8::Module::ScriptId",
+int Module::ScriptId() {
+  i::Handle<i::Module> self = Utils::OpenHandle(this);
+  Utils::ApiCheck(self->IsSourceTextModule(), "v8::Module::ScriptId",
                   "v8::Module::ScriptId must be used on an SourceTextModule");
-  ASSERT_NO_SCRIPT_NO_EXCEPTION(self.GetIsolate());
-  return i::SourceTextModule::cast(self).GetScript().id();
+  ASSERT_NO_SCRIPT_NO_EXCEPTION(self->GetIsolate());
+  return i::Handle<i::SourceTextModule>::cast(self)->GetScript().id();
 }
 
 bool Module::IsGraphAsync() const {
   Utils::ApiCheck(
       GetStatus() >= kInstantiated, "v8::Module::IsGraphAsync",
       "v8::Module::IsGraphAsync must be used on an instantiated module");
-  i::Module self = *Utils::OpenHandle(this);
-  auto isolate = self.GetIsolate();
+  i::Handle<i::Module> self = Utils::OpenHandle(this);
+  auto isolate = self->GetIsolate();
   ASSERT_NO_SCRIPT_NO_EXCEPTION(isolate);
-  return self.IsGraphAsync(isolate);
+  return self->IsGraphAsync(isolate);
 }
 
 bool Module::IsSourceTextModule() const {
@@ -3273,15 +3282,15 @@ bool Value::FullIsNull() const {
 }
 
 bool Value::IsTrue() const {
-  i::Object object = *Utils::OpenHandle(this);
-  if (object.IsSmi()) return false;
-  return object.IsTrue();
+  i::Handle<i::Object> object = Utils::OpenHandle(this);
+  if (object->IsSmi()) return false;
+  return object->IsTrue();
 }
 
 bool Value::IsFalse() const {
-  i::Object object = *Utils::OpenHandle(this);
-  if (object.IsSmi()) return false;
-  return object.IsFalse();
+  i::Handle<i::Object> object = Utils::OpenHandle(this);
+  if (object->IsSmi()) return false;
+  return object->IsFalse();
 }
 
 bool Value::IsFunction() const { return Utils::OpenHandle(this)->IsCallable(); }
@@ -3301,9 +3310,8 @@ bool Value::IsSymbol() const {
 bool Value::IsArray() const { return Utils::OpenHandle(this)->IsJSArray(); }
 
 bool Value::IsArrayBuffer() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (!obj.IsJSArrayBuffer()) return false;
-  return !i::JSArrayBuffer::cast(obj).is_shared();
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  return obj->IsJSArrayBuffer() && !i::JSArrayBuffer::cast(*obj).is_shared();
 }
 
 bool Value::IsArrayBufferView() const {
@@ -3330,9 +3338,8 @@ bool Value::IsDataView() const {
 }
 
 bool Value::IsSharedArrayBuffer() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (!obj.IsJSArrayBuffer()) return false;
-  return i::JSArrayBuffer::cast(obj).is_shared();
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  return obj->IsJSArrayBuffer() && i::JSArrayBuffer::cast(*obj).is_shared();
 }
 
 bool Value::IsObject() const { return Utils::OpenHandle(this)->IsJSReceiver(); }
@@ -3373,23 +3380,23 @@ VALUE_IS_SPECIFIC_TYPE(WeakSet, JSWeakSet)
 bool Value::IsBoolean() const { return Utils::OpenHandle(this)->IsBoolean(); }
 
 bool Value::IsExternal() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (!obj.IsHeapObject()) return false;
-  i::HeapObject heap_obj = i::HeapObject::cast(obj);
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (!obj->IsHeapObject()) return false;
+  i::Handle<i::HeapObject> heap_obj = i::Handle<i::HeapObject>::cast(obj);
   // Check the instance type is JS_OBJECT (instance type of Externals) before
   // attempting to get the Isolate since that guarantees the object is writable
   // and GetIsolate will work.
-  if (heap_obj.map().instance_type() != i::JS_OBJECT_TYPE) return false;
-  i::Isolate* isolate = i::JSObject::cast(heap_obj).GetIsolate();
+  if (heap_obj->map().instance_type() != i::JS_OBJECT_TYPE) return false;
+  i::Isolate* isolate = i::JSObject::cast(*heap_obj).GetIsolate();
   ASSERT_NO_SCRIPT_NO_EXCEPTION(isolate);
-  return heap_obj.IsExternal(isolate);
+  return heap_obj->IsExternal(isolate);
 }
 
 bool Value::IsInt32() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (obj.IsSmi()) return true;
-  if (obj.IsNumber()) {
-    return i::IsInt32Double(obj.Number());
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (obj->IsSmi()) return true;
+  if (obj->IsNumber()) {
+    return i::IsInt32Double(obj->Number());
   }
   return false;
 }
@@ -3415,18 +3422,18 @@ bool Value::IsRegExp() const {
 }
 
 bool Value::IsAsyncFunction() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (!obj.IsJSFunction()) return false;
-  i::JSFunction func = i::JSFunction::cast(obj);
-  return i::IsAsyncFunction(func.shared().kind());
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (!obj->IsJSFunction()) return false;
+  i::Handle<i::JSFunction> func = i::Handle<i::JSFunction>::cast(obj);
+  return i::IsAsyncFunction(func->shared().kind());
 }
 
 bool Value::IsGeneratorFunction() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (!obj.IsJSFunction()) return false;
-  i::JSFunction func = i::JSFunction::cast(obj);
-  ASSERT_NO_SCRIPT_NO_EXCEPTION(func.GetIsolate());
-  return i::IsGeneratorFunction(func.shared().kind());
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (!obj->IsJSFunction()) return false;
+  i::Handle<i::JSFunction> func = i::Handle<i::JSFunction>::cast(obj);
+  ASSERT_NO_SCRIPT_NO_EXCEPTION(func->GetIsolate());
+  return i::IsGeneratorFunction(func->shared().kind());
 }
 
 bool Value::IsGeneratorObject() const {
@@ -4630,16 +4637,16 @@ Maybe<bool> v8::Object::HasRealNamedCallbackProperty(Local<Context> context,
   return result;
 }
 
-bool v8::Object::HasNamedLookupInterceptor() const {
-  auto self = *Utils::OpenHandle(this);
-  if (self.IsJSObject()) return false;
-  return i::JSObject::cast(self).HasNamedInterceptor();
+bool v8::Object::HasNamedLookupInterceptor() {
+  auto self = Utils::OpenHandle(this);
+  return self->IsJSObject() &&
+         i::Handle<i::JSObject>::cast(self)->HasNamedInterceptor();
 }
 
-bool v8::Object::HasIndexedLookupInterceptor() const {
-  auto self = *Utils::OpenHandle(this);
-  if (self.IsJSObject()) return false;
-  return i::JSObject::cast(self).HasIndexedInterceptor();
+bool v8::Object::HasIndexedLookupInterceptor() {
+  auto self = Utils::OpenHandle(this);
+  return self->IsJSObject() &&
+         i::Handle<i::JSObject>::cast(self)->HasIndexedInterceptor();
 }
 
 MaybeLocal<Value> v8::Object::GetRealNamedPropertyInPrototypeChain(
@@ -4774,22 +4781,22 @@ int v8::Object::GetIdentityHash() {
   return self->GetOrCreateIdentityHash(isolate).value();
 }
 
-bool v8::Object::IsCallable() const {
+bool v8::Object::IsCallable() {
   auto self = Utils::OpenHandle(this);
   return self->IsCallable();
 }
 
-bool v8::Object::IsConstructor() const {
+bool v8::Object::IsConstructor() {
   auto self = Utils::OpenHandle(this);
   return self->IsConstructor();
 }
 
-bool v8::Object::IsApiWrapper() const {
+bool v8::Object::IsApiWrapper() {
   auto self = i::Handle<i::JSObject>::cast(Utils::OpenHandle(this));
   return self->IsApiWrapper();
 }
 
-bool v8::Object::IsUndetectable() const {
+bool v8::Object::IsUndetectable() {
   auto self = i::Handle<i::JSObject>::cast(Utils::OpenHandle(this));
   return self->IsUndetectable();
 }
@@ -5030,11 +5037,17 @@ int Function::GetScriptColumnNumber() const {
 }
 
 int Function::ScriptId() const {
-  i::JSReceiver self = *Utils::OpenHandle(this);
-  if (!self.IsJSFunction()) return v8::UnboundScript::kNoScriptId;
-  auto func = i::JSFunction::cast(self);
-  if (!func.shared().script().IsScript()) return v8::UnboundScript::kNoScriptId;
-  return i::Script::cast(func.shared().script()).id();
+  auto self = Utils::OpenHandle(this);
+  if (!self->IsJSFunction()) {
+    return v8::UnboundScript::kNoScriptId;
+  }
+  auto func = i::Handle<i::JSFunction>::cast(self);
+  if (!func->shared().script().IsScript()) {
+    return v8::UnboundScript::kNoScriptId;
+  }
+  i::Handle<i::Script> script(i::Script::cast(func->shared().script()),
+                              func->GetIsolate());
+  return script->id();
 }
 
 Local<v8::Value> Function::GetBoundFunction() const {
@@ -5568,36 +5581,36 @@ bool Boolean::Value() const {
 }
 
 int64_t Integer::Value() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (obj.IsSmi()) {
-    return i::Smi::ToInt(obj);
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (obj->IsSmi()) {
+    return i::Smi::ToInt(*obj);
   } else {
-    return static_cast<int64_t>(obj.Number());
+    return static_cast<int64_t>(obj->Number());
   }
 }
 
 int32_t Int32::Value() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (obj.IsSmi()) {
-    return i::Smi::ToInt(obj);
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (obj->IsSmi()) {
+    return i::Smi::ToInt(*obj);
   } else {
-    return static_cast<int32_t>(obj.Number());
+    return static_cast<int32_t>(obj->Number());
   }
 }
 
 uint32_t Uint32::Value() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  if (obj.IsSmi()) {
-    return i::Smi::ToInt(obj);
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  if (obj->IsSmi()) {
+    return i::Smi::ToInt(*obj);
   } else {
-    return static_cast<uint32_t>(obj.Number());
+    return static_cast<uint32_t>(obj->Number());
   }
 }
 
-int v8::Object::InternalFieldCount() const {
-  i::JSReceiver self = *Utils::OpenHandle(this);
-  if (!self.IsJSObject()) return 0;
-  return i::JSObject::cast(self).GetEmbedderFieldCount();
+int v8::Object::InternalFieldCount() {
+  i::Handle<i::JSReceiver> self = Utils::OpenHandle(this);
+  if (!self->IsJSObject()) return 0;
+  return i::Handle<i::JSObject>::cast(self)->GetEmbedderFieldCount();
 }
 
 static bool InternalFieldOK(i::Handle<i::JSReceiver> obj, int index,
@@ -6128,9 +6141,9 @@ void Context::AllowCodeGenerationFromStrings(bool allow) {
             : i::ReadOnlyRoots(isolate).false_value());
 }
 
-bool Context::IsCodeGenerationFromStringsAllowed() const {
-  i::Context context = *Utils::OpenHandle(this);
-  return !context.allow_code_gen_from_strings().IsFalse(context.GetIsolate());
+bool Context::IsCodeGenerationFromStringsAllowed() {
+  i::Handle<i::Context> context = Utils::OpenHandle(this);
+  return !context->allow_code_gen_from_strings().IsFalse(context->GetIsolate());
 }
 
 void Context::SetErrorMessageForCodeGenerationFromStrings(Local<String> error) {
@@ -6535,7 +6548,8 @@ bool v8::String::MakeExternal(
   return result;
 }
 
-bool v8::String::CanMakeExternal() const {
+bool v8::String::CanMakeExternal() {
+  i::DisallowGarbageCollection no_gc;
   i::String obj = *Utils::OpenHandle(this);
 
   if (obj.IsThinString()) {
@@ -6550,7 +6564,7 @@ bool v8::String::CanMakeExternal() const {
   return !i::Heap::InYoungGeneration(obj);
 }
 
-bool v8::String::StringEquals(Local<String> that) const {
+bool v8::String::StringEquals(Local<String> that) {
   auto self = Utils::OpenHandle(this);
   auto other = Utils::OpenHandle(*that);
   return self->Equals(*other);
@@ -6722,11 +6736,12 @@ Local<v8::Value> v8::BooleanObject::New(Isolate* isolate, bool value) {
 }
 
 bool v8::BooleanObject::ValueOf() const {
-  i::Object obj = *Utils::OpenHandle(this);
-  i::JSPrimitiveWrapper js_primitive_wrapper = i::JSPrimitiveWrapper::cast(obj);
-  i::Isolate* isolate = js_primitive_wrapper.GetIsolate();
+  i::Handle<i::Object> obj = Utils::OpenHandle(this);
+  i::Handle<i::JSPrimitiveWrapper> js_primitive_wrapper =
+      i::Handle<i::JSPrimitiveWrapper>::cast(obj);
+  i::Isolate* isolate = js_primitive_wrapper->GetIsolate();
   LOG_API(isolate, BooleanObject, BooleanValue);
-  return js_primitive_wrapper.value().IsTrue(isolate);
+  return js_primitive_wrapper->value().IsTrue(isolate);
 }
 
 Local<v8::Value> v8::StringObject::New(Isolate* v8_isolate,
@@ -7253,13 +7268,16 @@ MaybeLocal<Promise> Promise::Then(Local<Context> context,
   RETURN_ESCAPED(Local<Promise>::Cast(Utils::ToLocal(result)));
 }
 
-bool Promise::HasHandler() const {
-  i::JSReceiver promise = *Utils::OpenHandle(this);
-  i::Isolate* isolate = promise.GetIsolate();
+bool Promise::HasHandler() {
+  i::Handle<i::JSReceiver> promise = Utils::OpenHandle(this);
+  i::Isolate* isolate = promise->GetIsolate();
   LOG_API(isolate, Promise, HasRejectHandler);
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
-  if (!promise.IsJSPromise()) return false;
-  return i::JSPromise::cast(promise).has_handler();
+  if (promise->IsJSPromise()) {
+    i::Handle<i::JSPromise> js_promise = i::Handle<i::JSPromise>::cast(promise);
+    return js_promise->has_handler();
+  }
+  return false;
 }
 
 Local<Value> Promise::Result() {
@@ -7298,7 +7316,7 @@ Local<Value> Proxy::GetHandler() {
   return Utils::ToLocal(handler);
 }
 
-bool Proxy::IsRevoked() const {
+bool Proxy::IsRevoked() {
   i::Handle<i::JSProxy> self = Utils::OpenHandle(this);
   return self->IsRevoked();
 }
@@ -9266,7 +9284,7 @@ void v8::Isolate::LocaleConfigurationChangeNotification() {
 #endif  // V8_INTL_SUPPORT
 }
 
-bool v8::Object::IsCodeLike(v8::Isolate* isolate) const {
+bool v8::Object::IsCodeLike(v8::Isolate* isolate) {
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   LOG_API(i_isolate, Object, IsCodeLike);
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(i_isolate);
@@ -9317,21 +9335,18 @@ MicrotasksScope::~MicrotasksScope() {
 #endif
 }
 
-// static
 void MicrotasksScope::PerformCheckpoint(Isolate* v8_isolate) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(v8_isolate);
   auto* microtask_queue = isolate->default_microtask_queue();
   microtask_queue->PerformCheckpoint(v8_isolate);
 }
 
-// static
 int MicrotasksScope::GetCurrentDepth(Isolate* v8_isolate) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(v8_isolate);
   auto* microtask_queue = isolate->default_microtask_queue();
   return microtask_queue->GetMicrotasksScopeDepth();
 }
 
-// static
 bool MicrotasksScope::IsRunningMicrotasks(Isolate* v8_isolate) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(v8_isolate);
   auto* microtask_queue = isolate->default_microtask_queue();
