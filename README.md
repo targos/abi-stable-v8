@@ -1,6 +1,15 @@
 # abi-stable-v8
 
+## Documentation
+
 Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
+
+### List commits to audit
+
+```bash
+git fetch v8 master
+git log HEAD..v8/master --reverse -- include
+```
 
 ## V8 9.0
 
