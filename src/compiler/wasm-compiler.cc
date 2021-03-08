@@ -53,6 +53,7 @@
 #include "src/wasm/object-access.h"
 #include "src/wasm/wasm-code-manager.h"
 #include "src/wasm/wasm-constants.h"
+#include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-limits.h"
 #include "src/wasm/wasm-linkage.h"
 #include "src/wasm/wasm-module.h"
@@ -3006,28 +3007,35 @@ Node* WasmGraphBuilder::BuildIndirectCall(uint32_t table_index,
     key = gasm_->Word32And(key, mask);
   }
 
-  Node* int32_scaled_key =
-      Uint32ToUintptr(gasm_->Word32Shl(key, Int32Constant(2)));
+  const wasm::ValueType table_type = env_->module->tables[table_index].type;
+  // Check that the table entry is not null and that the type of the function is
+  // a subtype of the function type declared at the call site. In the absence of
+  // function subtyping, the latter can only happen if the table type is (ref
+  // null? func). Also, subtyping reduces to normalized signature equality
+  // checking.
+  // TODO(7748): Expand this with function subtyping once we have that.
+  const bool needs_signature_check =
+      table_type.is_reference_to(wasm::HeapType::kFunc) ||
+      table_type.is_nullable();
+  if (needs_signature_check) {
+    Node* int32_scaled_key =
+        Uint32ToUintptr(gasm_->Word32Shl(key, Int32Constant(2)));
 
-  Node* loaded_sig =
-      gasm_->Load(MachineType::Int32(), ift_sig_ids, int32_scaled_key);
-  // Check that the dynamic type of the function is a subtype of its static
-  // (table) type. Currently, the only subtyping between function types is
-  // $t <: funcref for all $t: function_type.
-  // TODO(7748): Expand this with function subtyping.
-  const bool needs_typechecking =
-      env_->module->tables[table_index].type == wasm::kWasmFuncRef;
-  if (needs_typechecking) {
-    int32_t expected_sig_id = env_->module->canonicalized_type_ids[sig_index];
-    Node* sig_match =
-        gasm_->Word32Equal(loaded_sig, Int32Constant(expected_sig_id));
-    TrapIfFalse(wasm::kTrapFuncSigMismatch, sig_match, position);
-  } else {
-    // We still have to check that the entry is initialized.
-    // TODO(9495): Skip this check for non-nullable tables when they are
-    // allowed.
-    Node* function_is_null = gasm_->Word32Equal(loaded_sig, Int32Constant(-1));
-    TrapIfTrue(wasm::kTrapNullDereference, function_is_null, position);
+    Node* loaded_sig =
+        gasm_->Load(MachineType::Int32(), ift_sig_ids, int32_scaled_key);
+
+    if (table_type.is_reference_to(wasm::HeapType::kFunc)) {
+      int32_t expected_sig_id = env_->module->canonicalized_type_ids[sig_index];
+      Node* sig_match =
+          gasm_->Word32Equal(loaded_sig, Int32Constant(expected_sig_id));
+      TrapIfFalse(wasm::kTrapFuncSigMismatch, sig_match, position);
+    } else {
+      // If the table entries are nullable, we still have to check that the
+      // entry is initialized.
+      Node* function_is_null =
+          gasm_->Word32Equal(loaded_sig, Int32Constant(-1));
+      TrapIfTrue(wasm::kTrapNullDereference, function_is_null, position);
+    }
   }
 
   Node* key_intptr = Uint32ToUintptr(key);
@@ -4632,9 +4640,6 @@ Node* WasmGraphBuilder::SimdOp(wasm::WasmOpcode opcode, Node* const* inputs) {
     case wasm::kExprF32x4Add:
       return graph()->NewNode(mcgraph()->machine()->F32x4Add(), inputs[0],
                               inputs[1]);
-    case wasm::kExprF32x4AddHoriz:
-      return graph()->NewNode(mcgraph()->machine()->F32x4AddHoriz(), inputs[0],
-                              inputs[1]);
     case wasm::kExprF32x4Sub:
       return graph()->NewNode(mcgraph()->machine()->F32x4Sub(), inputs[0],
                               inputs[1]);
@@ -4799,9 +4804,6 @@ Node* WasmGraphBuilder::SimdOp(wasm::WasmOpcode opcode, Node* const* inputs) {
     case wasm::kExprI32x4Add:
       return graph()->NewNode(mcgraph()->machine()->I32x4Add(), inputs[0],
                               inputs[1]);
-    case wasm::kExprI32x4AddHoriz:
-      return graph()->NewNode(mcgraph()->machine()->I32x4AddHoriz(), inputs[0],
-                              inputs[1]);
     case wasm::kExprI32x4Sub:
       return graph()->NewNode(mcgraph()->machine()->I32x4Sub(), inputs[0],
                               inputs[1]);
@@ -4914,9 +4916,6 @@ Node* WasmGraphBuilder::SimdOp(wasm::WasmOpcode opcode, Node* const* inputs) {
                               inputs[1]);
     case wasm::kExprI16x8AddSatS:
       return graph()->NewNode(mcgraph()->machine()->I16x8AddSatS(), inputs[0],
-                              inputs[1]);
-    case wasm::kExprI16x8AddHoriz:
-      return graph()->NewNode(mcgraph()->machine()->I16x8AddHoriz(), inputs[0],
                               inputs[1]);
     case wasm::kExprI16x8Sub:
       return graph()->NewNode(mcgraph()->machine()->I16x8Sub(), inputs[0],
@@ -5521,12 +5520,10 @@ Node* WasmGraphBuilder::TableCopy(uint32_t table_dst_index,
 
 Node* WasmGraphBuilder::TableGrow(uint32_t table_index, Node* value,
                                   Node* delta) {
-  Node* args[] = {
-      gasm_->NumberConstant(table_index), value,
-      BuildConvertUint32ToSmiWithSaturation(delta, FLAG_wasm_max_table_size)};
-  Node* result =
-      BuildCallToRuntime(Runtime::kWasmTableGrow, args, arraysize(args));
-  return BuildChangeSmiToInt32(result);
+  return BuildChangeSmiToInt32(gasm_->CallRuntimeStub(
+      wasm::WasmCode::kWasmTableGrow,
+      graph()->NewNode(mcgraph()->common()->NumberConstant(table_index)), delta,
+      value));
 }
 
 Node* WasmGraphBuilder::TableSize(uint32_t table_index) {
@@ -5544,13 +5541,10 @@ Node* WasmGraphBuilder::TableSize(uint32_t table_index) {
 
 Node* WasmGraphBuilder::TableFill(uint32_t table_index, Node* start,
                                   Node* value, Node* count) {
-  Node* args[] = {
-      gasm_->NumberConstant(table_index),
-      BuildConvertUint32ToSmiWithSaturation(start, FLAG_wasm_max_table_size),
-      value,
-      BuildConvertUint32ToSmiWithSaturation(count, FLAG_wasm_max_table_size)};
-
-  return BuildCallToRuntime(Runtime::kWasmTableFill, args, arraysize(args));
+  return gasm_->CallRuntimeStub(
+      wasm::WasmCode::kWasmTableFill,
+      graph()->NewNode(mcgraph()->common()->NumberConstant(table_index)), start,
+      count, value);
 }
 
 Node* WasmGraphBuilder::StructNewWithRtt(uint32_t struct_index,
@@ -7962,8 +7956,9 @@ class LinkageLocationAllocator {
  public:
   template <size_t kNumGpRegs, size_t kNumFpRegs>
   constexpr LinkageLocationAllocator(const Register (&gp)[kNumGpRegs],
-                                     const DoubleRegister (&fp)[kNumFpRegs])
-      : allocator_(wasm::LinkageAllocator(gp, fp)) {}
+                                     const DoubleRegister (&fp)[kNumFpRegs],
+                                     int slot_offset)
+      : allocator_(wasm::LinkageAllocator(gp, fp)), slot_offset_(slot_offset) {}
 
   LinkageLocation Next(MachineRepresentation rep) {
     MachineType type = MachineType::TypeForRepresentation(rep);
@@ -7977,15 +7972,19 @@ class LinkageLocationAllocator {
       return LinkageLocation::ForRegister(reg_code, type);
     }
     // Cannot use register; use stack slot.
-    int index = -1 - allocator_.NextStackSlot(rep);
+    int index = -1 - (slot_offset_ + allocator_.NextStackSlot(rep));
     return LinkageLocation::ForCallerFrameSlot(index, type);
   }
 
-  void SetStackOffset(int offset) { allocator_.SetStackOffset(offset); }
   int NumStackSlots() const { return allocator_.NumStackSlots(); }
+  void EndSlotArea() { allocator_.EndSlotArea(); }
 
  private:
   wasm::LinkageAllocator allocator_;
+  // Since params and returns are in different stack frames, we must allocate
+  // them separately. Parameter slots don't need an offset, but return slots
+  // must be offset to just before the param slots, using this |slot_offset_|.
+  int slot_offset_;
 };
 }  // namespace
 
@@ -8003,8 +8002,8 @@ CallDescriptor* GetWasmCallDescriptor(
                                        fsig->parameter_count() + extra_params);
 
   // Add register and/or stack parameter(s).
-  LinkageLocationAllocator params(wasm::kGpParamRegisters,
-                                  wasm::kFpParamRegisters);
+  LinkageLocationAllocator params(
+      wasm::kGpParamRegisters, wasm::kFpParamRegisters, 0 /* no slot offset */);
 
   // The instance object.
   locations.AddParam(params.Next(MachineRepresentation::kTaggedPointer));
@@ -8021,6 +8020,10 @@ CallDescriptor* GetWasmCallDescriptor(
     auto l = params.Next(param);
     locations.AddParamAt(i + param_offset, l);
   }
+
+  // End the untagged area, so tagged slots come after.
+  params.EndSlotArea();
+
   for (size_t i = 0; i < parameter_count; i++) {
     MachineRepresentation param = fsig->GetParam(i).machine_representation();
     // Skip untagged parameters.
@@ -8036,21 +8039,19 @@ CallDescriptor* GetWasmCallDescriptor(
         kJSFunctionRegister.code(), MachineType::TaggedPointer()));
   }
 
+  int parameter_slots = AddArgumentPaddingSlots(params.NumStackSlots());
+
   // Add return location(s).
   LinkageLocationAllocator rets(wasm::kGpReturnRegisters,
-                                wasm::kFpReturnRegisters);
-
-  int parameter_slots = params.NumStackSlots();
-  if (ShouldPadArguments(parameter_slots)) parameter_slots++;
-
-  rets.SetStackOffset(parameter_slots);
+                                wasm::kFpReturnRegisters, parameter_slots);
 
   const int return_count = static_cast<int>(locations.return_count_);
   for (int i = 0; i < return_count; i++) {
     MachineRepresentation ret = fsig->GetReturn(i).machine_representation();
-    auto l = rets.Next(ret);
-    locations.AddReturn(l);
+    locations.AddReturn(rets.Next(ret));
   }
+
+  int return_slots = rets.NumStackSlots();
 
   const RegList kCalleeSaveRegisters = 0;
   const RegList kCalleeSaveFPRegisters = 0;
@@ -8078,7 +8079,7 @@ CallDescriptor* GetWasmCallDescriptor(
       target_type,                        // target MachineType
       target_loc,                         // target location
       locations.Build(),                  // location_sig
-      parameter_slots,                    // stack_parameter_count
+      parameter_slots,                    // parameter slot count
       compiler::Operator::kNoProperties,  // properties
       kCalleeSaveRegisters,               // callee-saved registers
       kCalleeSaveFPRegisters,             // callee-saved fp regs
@@ -8086,7 +8087,7 @@ CallDescriptor* GetWasmCallDescriptor(
       "wasm-call",                        // debug name
       StackArgumentOrder::kDefault,       // order of the arguments in the stack
       0,                                  // allocatable registers
-      rets.NumStackSlots() - parameter_slots);  // stack_return_count
+      return_slots);                      // return slot count
 }
 
 namespace {
@@ -8119,8 +8120,9 @@ CallDescriptor* ReplaceTypeInCallDescriptorWith(
       (call_descriptor->GetInputLocation(call_descriptor->InputCount() - 1) ==
        LinkageLocation::ForRegister(kJSFunctionRegister.code(),
                                     MachineType::TaggedPointer()));
-  LinkageLocationAllocator params(wasm::kGpParamRegisters,
-                                  wasm::kFpParamRegisters);
+  LinkageLocationAllocator params(
+      wasm::kGpParamRegisters, wasm::kFpParamRegisters, 0 /* no slot offset */);
+
   for (size_t i = 0, e = call_descriptor->ParameterCount() -
                          (has_callable_param ? 1 : 0);
        i < e; i++) {
@@ -8138,9 +8140,11 @@ CallDescriptor* ReplaceTypeInCallDescriptorWith(
         kJSFunctionRegister.code(), MachineType::TaggedPointer()));
   }
 
+  int parameter_slots = AddArgumentPaddingSlots(params.NumStackSlots());
+
   LinkageLocationAllocator rets(wasm::kGpReturnRegisters,
-                                wasm::kFpReturnRegisters);
-  rets.SetStackOffset(params.NumStackSlots());
+                                wasm::kFpReturnRegisters, parameter_slots);
+
   for (size_t i = 0; i < call_descriptor->ReturnCount(); i++) {
     if (call_descriptor->GetReturnType(i) == input_type) {
       for (size_t j = 0; j < num_replacements; j++) {
@@ -8152,20 +8156,22 @@ CallDescriptor* ReplaceTypeInCallDescriptorWith(
     }
   }
 
-  return zone->New<CallDescriptor>(                    // --
-      call_descriptor->kind(),                         // kind
-      call_descriptor->GetInputType(0),                // target MachineType
-      call_descriptor->GetInputLocation(0),            // target location
-      locations.Build(),                               // location_sig
-      params.NumStackSlots(),                          // stack_parameter_count
-      call_descriptor->properties(),                   // properties
-      call_descriptor->CalleeSavedRegisters(),         // callee-saved registers
-      call_descriptor->CalleeSavedFPRegisters(),       // callee-saved fp regs
-      call_descriptor->flags(),                        // flags
-      call_descriptor->debug_name(),                   // debug name
-      call_descriptor->GetStackArgumentOrder(),        // stack order
-      call_descriptor->AllocatableRegisters(),         // allocatable registers
-      rets.NumStackSlots() - params.NumStackSlots());  // stack_return_count
+  int return_slots = rets.NumStackSlots();
+
+  return zone->New<CallDescriptor>(               // --
+      call_descriptor->kind(),                    // kind
+      call_descriptor->GetInputType(0),           // target MachineType
+      call_descriptor->GetInputLocation(0),       // target location
+      locations.Build(),                          // location_sig
+      parameter_slots,                            // parameter slot count
+      call_descriptor->properties(),              // properties
+      call_descriptor->CalleeSavedRegisters(),    // callee-saved registers
+      call_descriptor->CalleeSavedFPRegisters(),  // callee-saved fp regs
+      call_descriptor->flags(),                   // flags
+      call_descriptor->debug_name(),              // debug name
+      call_descriptor->GetStackArgumentOrder(),   // stack order
+      call_descriptor->AllocatableRegisters(),    // allocatable registers
+      return_slots);                              // return slot count
 }
 }  // namespace
 

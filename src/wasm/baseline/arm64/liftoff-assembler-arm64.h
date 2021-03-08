@@ -1845,14 +1845,14 @@ void LiftoffAssembler::emit_f64x2_pmax(LiftoffRegister dst, LiftoffRegister lhs,
 
 void LiftoffAssembler::emit_f64x2_convert_low_i32x4_s(LiftoffRegister dst,
                                                       LiftoffRegister src) {
-  Sxtl(dst.fp(), src.fp().V2S());
-  Scvtf(dst.fp(), dst.fp());
+  Sxtl(dst.fp().V2D(), src.fp().V2S());
+  Scvtf(dst.fp().V2D(), dst.fp().V2D());
 }
 
 void LiftoffAssembler::emit_f64x2_convert_low_i32x4_u(LiftoffRegister dst,
                                                       LiftoffRegister src) {
-  Uxtl(dst.fp(), src.fp().V2S());
-  Ucvtf(dst.fp(), dst.fp());
+  Uxtl(dst.fp().V2D(), src.fp().V2S());
+  Ucvtf(dst.fp().V2D(), dst.fp().V2D());
 }
 
 void LiftoffAssembler::emit_f64x2_promote_low_f32x4(LiftoffRegister dst,
@@ -2984,7 +2984,7 @@ void LiftoffAssembler::emit_i32x4_trunc_sat_f64x2_s_zero(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i32x4_trunc_sat_f64x2_u_zero(LiftoffRegister dst,
                                                          LiftoffRegister src) {
-  Fcvtzs(dst.fp().V2D(), src.fp().V2D());
+  Fcvtzu(dst.fp().V2D(), src.fp().V2D());
   Uqxtn(dst.fp().V2S(), dst.fp().V2D());
 }
 
@@ -3209,16 +3209,12 @@ void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
   Drop(size, 1);
 }
 
-void LiftoffStackSlots::Construct() {
-  size_t num_slots = 0;
-  for (auto& slot : slots_) {
-    num_slots += slot.src_.kind() == kS128 ? 2 : 1;
-  }
+void LiftoffStackSlots::Construct(int param_slots) {
+  DCHECK_LT(0, slots_.size());
   // The stack pointer is required to be quadword aligned.
-  asm_->Claim(RoundUp(num_slots, 2));
-  size_t poke_offset = num_slots * kXRegSize;
+  asm_->Claim(RoundUp(param_slots, 2));
   for (auto& slot : slots_) {
-    poke_offset -= slot.src_.kind() == kS128 ? kXRegSize * 2 : kXRegSize;
+    int poke_offset = slot.dst_slot_ * kSystemPointerSize;
     switch (slot.src_.loc()) {
       case LiftoffAssembler::VarState::kStack: {
         UseScratchRegisterScope temps(asm_);

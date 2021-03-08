@@ -118,27 +118,30 @@ inline void Store(LiftoffAssembler* assm, Register base, int32_t offset,
   }
 }
 
-inline void push(LiftoffAssembler* assm, LiftoffRegister reg, ValueKind kind) {
+inline void push(LiftoffAssembler* assm, LiftoffRegister reg, ValueKind kind,
+                 int padding = 0) {
   switch (kind) {
     case kI32:
     case kRef:
     case kOptRef:
+      assm->AllocateStackSpace(padding);
       assm->push(reg.gp());
       break;
     case kI64:
+      assm->AllocateStackSpace(padding);
       assm->push(reg.high_gp());
       assm->push(reg.low_gp());
       break;
     case kF32:
-      assm->AllocateStackSpace(sizeof(float));
+      assm->AllocateStackSpace(sizeof(float) + padding);
       assm->movss(Operand(esp, 0), reg.fp());
       break;
     case kF64:
-      assm->AllocateStackSpace(sizeof(double));
+      assm->AllocateStackSpace(sizeof(double) + padding);
       assm->movsd(Operand(esp, 0), reg.fp());
       break;
     case kS128:
-      assm->AllocateStackSpace(sizeof(double) * 2);
+      assm->AllocateStackSpace(sizeof(double) * 2 + padding);
       assm->movdqu(Operand(esp, 0), reg.fp());
       break;
     default:
@@ -2881,13 +2884,9 @@ void LiftoffAssembler::emit_i8x16_shuffle(LiftoffRegister dst,
 void LiftoffAssembler::emit_i8x16_swizzle(LiftoffRegister dst,
                                           LiftoffRegister lhs,
                                           LiftoffRegister rhs) {
-  XMMRegister mask = liftoff::kScratchDoubleReg;
-  // Out-of-range indices should return 0, add 112 (0x70) so that any value > 15
-  // saturates to 128 (top bit set), so pshufb will zero that lane.
-  TurboAssembler::Move(mask, uint32_t{0x70707070});
-  Pshufd(mask, mask, uint8_t{0x0});
-  Paddusb(mask, rhs.fp());
-  Pshufb(dst.fp(), lhs.fp(), mask);
+  Register scratch = GetUnusedRegister(RegClass::kGpReg, {}).gp();
+  I8x16Swizzle(dst.fp(), lhs.fp(), rhs.fp(), liftoff::kScratchDoubleReg,
+               scratch);
 }
 
 void LiftoffAssembler::emit_i8x16_popcnt(LiftoffRegister dst,
@@ -4909,36 +4908,49 @@ void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
   add(esp, Immediate(size));
 }
 
-void LiftoffStackSlots::Construct() {
+void LiftoffStackSlots::Construct(int param_slots) {
+  DCHECK_LT(0, slots_.size());
+  SortInPushOrder();
+  int last_stack_slot = param_slots;
   for (auto& slot : slots_) {
+    const int stack_slot = slot.dst_slot_;
+    int stack_decrement = (last_stack_slot - stack_slot) * kSystemPointerSize;
+    DCHECK_LT(0, stack_decrement);
+    last_stack_slot = stack_slot;
     const LiftoffAssembler::VarState& src = slot.src_;
     switch (src.loc()) {
       case LiftoffAssembler::VarState::kStack:
         // The combination of AllocateStackSpace and 2 movdqu is usually smaller
         // in code size than doing 4 pushes.
         if (src.kind() == kS128) {
-          asm_->AllocateStackSpace(sizeof(double) * 2);
+          asm_->AllocateStackSpace(stack_decrement);
           asm_->movdqu(liftoff::kScratchDoubleReg,
                        liftoff::GetStackSlot(slot.src_offset_));
           asm_->movdqu(Operand(esp, 0), liftoff::kScratchDoubleReg);
           break;
         }
         if (src.kind() == kF64) {
+          asm_->AllocateStackSpace(stack_decrement - kDoubleSize);
           DCHECK_EQ(kLowWord, slot.half_);
           asm_->push(liftoff::GetHalfStackSlot(slot.src_offset_, kHighWord));
+          stack_decrement = kSystemPointerSize;
         }
+        asm_->AllocateStackSpace(stack_decrement - kSystemPointerSize);
         asm_->push(liftoff::GetHalfStackSlot(slot.src_offset_, slot.half_));
         break;
       case LiftoffAssembler::VarState::kRegister:
         if (src.kind() == kI64) {
           liftoff::push(
               asm_, slot.half_ == kLowWord ? src.reg().low() : src.reg().high(),
-              kI32);
+              kI32, stack_decrement - kSystemPointerSize);
         } else {
-          liftoff::push(asm_, src.reg(), src.kind());
+          int pushed_bytes = SlotSizeInBytes(slot);
+          liftoff::push(asm_, src.reg(), src.kind(),
+                        stack_decrement - pushed_bytes);
         }
         break;
       case LiftoffAssembler::VarState::kIntConst:
+        asm_->AllocateStackSpace(stack_decrement - kSystemPointerSize);
         // The high word is the sign extension of the low word.
         asm_->push(Immediate(slot.half_ == kLowWord ? src.i32_const()
                                                     : src.i32_const() >> 31));

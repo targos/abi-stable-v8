@@ -74,7 +74,7 @@ Factory::CodeBuilder::CodeBuilder(Isolate* isolate, const CodeDesc& desc,
     : isolate_(isolate),
       code_desc_(desc),
       kind_(kind),
-      source_position_table_(isolate_->factory()->empty_byte_array()) {}
+      position_table_(isolate_->factory()->empty_byte_array()) {}
 
 MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     bool retry_allocation_or_fail) {
@@ -167,7 +167,11 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     code->set_inlined_bytecode_size(inlined_bytecode_size_);
     code->set_code_data_container(*data_container, kReleaseStore);
     code->set_deoptimization_data(*deoptimization_data_);
-    code->set_source_position_table(*source_position_table_);
+    if (kind_ == CodeKind::BASELINE) {
+      code->set_bytecode_offset_table(*position_table_);
+    } else {
+      code->set_source_position_table(*position_table_);
+    }
     code->set_handler_table_offset(code_desc_.handler_table_offset_relative());
     code->set_constant_pool_offset(code_desc_.constant_pool_offset_relative());
     code->set_code_comments_offset(code_desc_.code_comments_offset_relative());
@@ -1602,13 +1606,15 @@ Handle<JSObject> Factory::CopyJSObjectWithAllocationSite(
       clone->set_raw_properties_or_hash(*prop);
     }
   } else {
-    Handle<FixedArray> properties =
-        handle(V8_DICT_MODE_PROTOTYPES_BOOL
-                   ? FixedArray::cast(source->property_dictionary_ordered())
-                   : FixedArray::cast(source->property_dictionary()),
-               isolate());
-    Handle<FixedArray> prop = CopyFixedArray(properties);
-    clone->set_raw_properties_or_hash(*prop);
+    Handle<Object> copied_properties;
+    if (V8_DICT_MODE_PROTOTYPES_BOOL) {
+      copied_properties = SwissNameDictionary::ShallowCopy(
+          isolate(), handle(source->property_dictionary_swiss(), isolate()));
+    } else {
+      copied_properties =
+          CopyFixedArray(handle(source->property_dictionary(), isolate()));
+    }
+    clone->set_raw_properties_or_hash(*copied_properties);
   }
   return clone;
 }
@@ -2190,8 +2196,7 @@ Handle<JSObject> Factory::NewSlowJSObjectFromMap(
   DCHECK(map->is_dictionary_map());
   Handle<HeapObject> object_properties;
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    object_properties =
-        OrderedNameDictionary::Allocate(isolate(), capacity).ToHandleChecked();
+    object_properties = NewSwissNameDictionary(capacity, allocation);
   } else {
     object_properties = NameDictionary::New(isolate(), capacity);
   }
@@ -2205,7 +2210,7 @@ Handle<JSObject> Factory::NewSlowJSObjectWithPropertiesAndElements(
     Handle<HeapObject> prototype, Handle<HeapObject> properties,
     Handle<FixedArrayBase> elements) {
   DCHECK_IMPLIES(V8_DICT_MODE_PROTOTYPES_BOOL,
-                 properties->IsOrderedNameDictionary());
+                 properties->IsSwissNameDictionary());
   DCHECK_IMPLIES(!V8_DICT_MODE_PROTOTYPES_BOOL, properties->IsNameDictionary());
 
   Handle<Map> object_map = isolate()->slow_object_with_object_prototype_map();

@@ -1184,10 +1184,17 @@ void V8HeapExplorer::ExtractCodeReferences(HeapEntry* entry, Code code) {
   TagObject(code.deoptimization_data(), "(code deopt data)");
   SetInternalReference(entry, "deoptimization_data", code.deoptimization_data(),
                        Code::kDeoptimizationDataOffset);
-  TagObject(code.source_position_table(), "(source position table)");
-  SetInternalReference(entry, "source_position_table",
-                       code.source_position_table(),
-                       Code::kSourcePositionTableOffset);
+  if (code.kind() == CodeKind::BASELINE) {
+    TagObject(code.bytecode_offset_table(), "(bytecode offset table)");
+    SetInternalReference(entry, "bytecode_offset_table",
+                         code.bytecode_offset_table(),
+                         Code::kPositionTableOffset);
+  } else {
+    TagObject(code.source_position_table(), "(source position table)");
+    SetInternalReference(entry, "source_position_table",
+                         code.source_position_table(),
+                         Code::kPositionTableOffset);
+  }
 }
 
 void V8HeapExplorer::ExtractCellReferences(HeapEntry* entry, Cell cell) {
@@ -1371,7 +1378,7 @@ void V8HeapExplorer::ExtractPropertyReferences(JSObject js_obj,
       SetDataOrAccessorPropertyReference(details.kind(), entry, name, value);
     }
   } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    OrderedNameDictionary dictionary = js_obj.property_dictionary_ordered();
+    SwissNameDictionary dictionary = js_obj.property_dictionary_swiss();
     ReadOnlyRoots roots(isolate);
     for (InternalIndex i : dictionary.IterateEntries()) {
       Object k = dictionary.KeyAt(i);

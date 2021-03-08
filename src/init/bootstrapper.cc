@@ -60,10 +60,14 @@
 #include "src/objects/ordered-hash-table.h"
 #include "src/objects/property-cell.h"
 #include "src/objects/slots-inl.h"
+#include "src/objects/swiss-name-dictionary-inl.h"
 #include "src/objects/templates.h"
 #include "src/snapshot/snapshot.h"
-#include "src/wasm/wasm-js.h"
 #include "src/zone/zone-hashmap.h"
+
+#if V8_ENABLE_WEBASSEMBLY
+#include "src/wasm/wasm-js.h"
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
@@ -4944,6 +4948,7 @@ bool Genesis::InstallSpecialObjects(Isolate* isolate,
   Handle<Smi> stack_trace_limit(Smi::FromInt(FLAG_stack_trace_limit), isolate);
   JSObject::AddProperty(isolate, Error, name, stack_trace_limit, NONE);
 
+#if V8_ENABLE_WEBASSEMBLY
   if (FLAG_expose_wasm) {
     // Install the internal data structures into the isolate and expose on
     // the global object.
@@ -4953,6 +4958,7 @@ bool Genesis::InstallSpecialObjects(Isolate* isolate,
     // translated to Wasm to work correctly.
     WasmJs::Install(isolate, false);
   }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   return true;
 }
@@ -5202,10 +5208,10 @@ void Genesis::TransferNamedProperties(Handle<JSObject> from,
 
   } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
     // Copy all keys and values in enumeration order.
-    Handle<OrderedNameDictionary> properties = Handle<OrderedNameDictionary>(
-        from->property_dictionary_ordered(), isolate());
+    Handle<SwissNameDictionary> properties = Handle<SwissNameDictionary>(
+        from->property_dictionary_swiss(), isolate());
     ReadOnlyRoots roots(isolate());
-    for (InternalIndex entry : properties->IterateEntries()) {
+    for (InternalIndex entry : properties->IterateEntriesOrdered()) {
       Object raw_key;
       if (!properties->ToKey(roots, entry, &raw_key)) continue;
 

@@ -338,7 +338,7 @@ ArchOpcode GetStoreOpcode(StoreRepresentation store_rep) {
 
 void InstructionSelector::VisitStackSlot(Node* node) {
   StackSlotRepresentation rep = StackSlotRepresentationOf(node->op());
-  int slot = frame_->AllocateSpillSlot(rep.size());
+  int slot = frame_->AllocateSpillSlot(rep.size(), rep.alignment());
   OperandGenerator g(this);
 
   Emit(kArchStackSlot, g.DefineAsRegister(node),
@@ -2853,7 +2853,6 @@ VISIT_ATOMIC_BINOP(Xor)
   V(I64x2ExtMulLowI32x4U)          \
   V(I64x2ExtMulHighI32x4U)         \
   V(I32x4Add)                      \
-  V(I32x4AddHoriz)                 \
   V(I32x4Sub)                      \
   V(I32x4Mul)                      \
   V(I32x4MinS)                     \
@@ -2871,7 +2870,6 @@ VISIT_ATOMIC_BINOP(Xor)
   V(I16x8UConvertI32x4)            \
   V(I16x8Add)                      \
   V(I16x8AddSatS)                  \
-  V(I16x8AddHoriz)                 \
   V(I16x8Sub)                      \
   V(I16x8SubSatS)                  \
   V(I16x8Mul)                      \
@@ -2911,7 +2909,6 @@ VISIT_ATOMIC_BINOP(Xor)
 #define SIMD_BINOP_LIST(V) \
   V(F64x2Min)              \
   V(F64x2Max)              \
-  V(F32x4AddHoriz)         \
   V(F32x4Min)              \
   V(F32x4Max)              \
   V(I64x2Ne)               \
@@ -3257,6 +3254,7 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   UNREACHABLE();
 }
 
+#if V8_ENABLE_WEBASSEMBLY
 namespace {
 
 // Returns true if shuffle can be decomposed into two 16x4 half shuffles
@@ -3562,6 +3560,9 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
   }
   Emit(opcode, 1, &dst, input_count, inputs, temp_count, temps);
 }
+#else
+void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 void InstructionSelector::VisitI8x16Swizzle(Node* node) {
   X64OperandGenerator g(this);
@@ -3576,8 +3577,10 @@ void VisitPminOrPmax(InstructionSelector* selector, Node* node,
   // Due to the way minps/minpd work, we want the dst to be same as the second
   // input: b = pmin(a, b) directly maps to minps b a.
   X64OperandGenerator g(selector);
-  selector->Emit(opcode, g.DefineSameAsFirst(node),
-                 g.UseRegister(node->InputAt(1)),
+  InstructionOperand dst = selector->IsSupported(AVX)
+                               ? g.DefineAsRegister(node)
+                               : g.DefineSameAsFirst(node);
+  selector->Emit(opcode, dst, g.UseRegister(node->InputAt(1)),
                  g.UseRegister(node->InputAt(0)));
 }
 }  // namespace

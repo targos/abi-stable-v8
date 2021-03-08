@@ -126,10 +126,10 @@ class DebugInfoImpl {
   }
 
   WasmValue GetLocalValue(int local, Address pc, Address fp,
-                          Address debug_break_fp) {
+                          Address debug_break_fp, Isolate* isolate) {
     FrameInspectionScope scope(this, pc);
     return GetValue(scope.debug_side_table, scope.debug_side_table_entry, local,
-                    fp, debug_break_fp);
+                    fp, debug_break_fp, isolate);
   }
 
   int GetStackDepth(Address pc) {
@@ -141,13 +141,13 @@ class DebugInfoImpl {
   }
 
   WasmValue GetStackValue(int index, Address pc, Address fp,
-                          Address debug_break_fp) {
+                          Address debug_break_fp, Isolate* isolate) {
     FrameInspectionScope scope(this, pc);
     int num_locals = scope.debug_side_table->num_locals();
     int value_count = scope.debug_side_table_entry->stack_height();
     if (num_locals + index >= value_count) return {};
     return GetValue(scope.debug_side_table, scope.debug_side_table_entry,
-                    num_locals + index, fp, debug_break_fp);
+                    num_locals + index, fp, debug_break_fp, isolate);
   }
 
   const WasmFunction& GetFunctionAtAddress(Address pc) {
@@ -189,13 +189,31 @@ class DebugInfoImpl {
     return {};
   }
 
+  WireBytesRef GetTypeName(int type_index) {
+    base::MutexGuard guard(&mutex_);
+    if (!type_names_) {
+      type_names_ = std::make_unique<NameMap>(DecodeNameMap(
+          native_module_->wire_bytes(), NameSectionKindCode::kType));
+    }
+    return type_names_->GetName(type_index);
+  }
+
   WireBytesRef GetLocalName(int func_index, int local_index) {
     base::MutexGuard guard(&mutex_);
     if (!local_names_) {
-      local_names_ = std::make_unique<LocalNames>(
-          DecodeLocalNames(native_module_->wire_bytes()));
+      local_names_ = std::make_unique<IndirectNameMap>(DecodeIndirectNameMap(
+          native_module_->wire_bytes(), NameSectionKindCode::kLocal));
     }
     return local_names_->GetName(func_index, local_index);
+  }
+
+  WireBytesRef GetFieldName(int struct_index, int field_index) {
+    base::MutexGuard guard(&mutex_);
+    if (!field_names_) {
+      field_names_ = std::make_unique<IndirectNameMap>(DecodeIndirectNameMap(
+          native_module_->wire_bytes(), NameSectionKindCode::kField));
+    }
+    return field_names_->GetName(struct_index, field_index);
   }
 
   // If the top frame is a Wasm frame and its position is not in the list of
@@ -219,6 +237,28 @@ class DebugInfoImpl {
                                             Vector<const int> offsets,
                                             int dead_breakpoint) {
     DCHECK(!mutex_.TryLock());  // Mutex is held externally.
+
+    ForDebugging for_debugging = offsets.size() == 1 && offsets[0] == 0
+                                     ? kForStepping
+                                     : kWithBreakpoints;
+
+    // Check the cache first.
+    for (auto begin = cached_debugging_code_.begin(), it = begin,
+              end = cached_debugging_code_.end();
+         it != end; ++it) {
+      if (it->func_index == func_index &&
+          it->breakpoint_offsets.as_vector() == offsets &&
+          it->dead_breakpoint == dead_breakpoint) {
+        // Rotate the cache entry to the front (for LRU).
+        for (; it != begin; --it) std::iter_swap(it, it - 1);
+        if (for_debugging == kWithBreakpoints) {
+          // Re-install the code, in case it was replaced in the meantime.
+          native_module_->ReinstallDebugCode(it->code);
+        }
+        return it->code;
+      }
+    }
+
     // Recompile the function with Liftoff, setting the new breakpoints.
     // Not thread-safe. The caller is responsible for locking {mutex_}.
     CompilationEnv env = native_module_->CreateCompilationEnv();
@@ -229,9 +269,6 @@ class DebugInfoImpl {
                       wire_bytes.begin() + function->code.end_offset()};
     std::unique_ptr<DebugSideTable> debug_sidetable;
 
-    ForDebugging for_debugging = offsets.size() == 1 && offsets[0] == 0
-                                     ? kForStepping
-                                     : kWithBreakpoints;
     // Debug side tables for stepping are generated lazily.
     bool generate_debug_sidetable = for_debugging == kWithBreakpoints;
     Counters* counters = nullptr;
@@ -254,6 +291,23 @@ class DebugInfoImpl {
       DCHECK_EQ(0, debug_side_tables_.count(new_code));
       debug_side_tables_.emplace(new_code, std::move(debug_sidetable));
     }
+
+    // Insert new code into the cache. Insert before existing elements for LRU.
+    cached_debugging_code_.insert(
+        cached_debugging_code_.begin(),
+        CachedDebuggingCode{func_index, OwnedVector<int>::Of(offsets),
+                            dead_breakpoint, new_code});
+    // Increase the ref count (for the cache entry).
+    new_code->IncRef();
+    // Remove exceeding element.
+    if (cached_debugging_code_.size() > kMaxCachedDebuggingCode) {
+      // Put the code in the surrounding CodeRefScope to delay deletion until
+      // after the mutex is released.
+      WasmCodeRefScope::AddRef(cached_debugging_code_.back().code);
+      cached_debugging_code_.back().code->DecRefOnLiveCode();
+      cached_debugging_code_.pop_back();
+    }
+    DCHECK_GE(kMaxCachedDebuggingCode, cached_debugging_code_.size());
 
     return new_code;
   }
@@ -506,7 +560,7 @@ class DebugInfoImpl {
   WasmValue GetValue(const DebugSideTable* debug_side_table,
                      const DebugSideTable::Entry* debug_side_table_entry,
                      int index, Address stack_frame_base,
-                     Address debug_break_fp) const {
+                     Address debug_break_fp, Isolate* isolate) const {
     const auto* value =
         debug_side_table->FindValue(debug_side_table_entry, index);
     if (value->is_constant()) {
@@ -530,9 +584,17 @@ class DebugInfoImpl {
         return WasmValue((uint64_t{high_word} << 32) | low_word);
       }
       if (reg.is_gp()) {
-        return value->type == kWasmI32
-                   ? WasmValue(ReadUnalignedValue<uint32_t>(gp_addr(reg.gp())))
-                   : WasmValue(ReadUnalignedValue<uint64_t>(gp_addr(reg.gp())));
+        if (value->type == kWasmI32) {
+          return WasmValue(ReadUnalignedValue<uint32_t>(gp_addr(reg.gp())));
+        } else if (value->type == kWasmI64) {
+          return WasmValue(ReadUnalignedValue<uint64_t>(gp_addr(reg.gp())));
+        } else if (value->type.is_reference()) {
+          Handle<Object> obj(
+              Object(ReadUnalignedValue<Address>(gp_addr(reg.gp()))), isolate);
+          return WasmValue(obj, value->type);
+        } else {
+          UNREACHABLE();
+        }
       }
       DCHECK(reg.is_fp() || reg.is_fp_pair());
       // ifdef here to workaround unreachable code for is_fp_pair.
@@ -567,11 +629,21 @@ class DebugInfoImpl {
         return WasmValue(ReadUnalignedValue<float>(stack_address));
       case kF64:
         return WasmValue(ReadUnalignedValue<double>(stack_address));
-      case kS128: {
+      case kS128:
         return WasmValue(Simd128(ReadUnalignedValue<int16>(stack_address)));
+      case kRef:
+      case kOptRef:
+      case kRtt:
+      case kRttWithDepth: {
+        Handle<Object> obj(Object(ReadUnalignedValue<Address>(stack_address)),
+                           isolate);
+        return WasmValue(obj, value->type);
       }
-      default:
-        UNIMPLEMENTED();
+      case kI8:
+      case kI16:
+      case kStmt:
+      case kBottom:
+        UNREACHABLE();
     }
   }
 
@@ -649,6 +721,19 @@ class DebugInfoImpl {
   // {mutex_} protects all fields below.
   mutable base::Mutex mutex_;
 
+  // Cache a fixed number of WasmCode objects that were generated for debugging.
+  // This is useful especially in stepping, because stepping code is cleared on
+  // every pause and re-installed on the next step.
+  // This is a LRU cache (most recently used entries first).
+  static constexpr size_t kMaxCachedDebuggingCode = 3;
+  struct CachedDebuggingCode {
+    int func_index;
+    OwnedVector<const int> breakpoint_offsets;
+    int dead_breakpoint;
+    WasmCode* code;
+  };
+  std::vector<CachedDebuggingCode> cached_debugging_code_;
+
   // Names of exports, lazily derived from the exports table.
   std::unique_ptr<std::map<ImportExportKey, wasm::WireBytesRef>> export_names_;
 
@@ -657,8 +742,12 @@ class DebugInfoImpl {
                            std::pair<wasm::WireBytesRef, wasm::WireBytesRef>>>
       import_names_;
 
+  // Names of types, lazily decoded from the wire bytes.
+  std::unique_ptr<NameMap> type_names_;
   // Names of locals, lazily decoded from the wire bytes.
-  std::unique_ptr<LocalNames> local_names_;
+  std::unique_ptr<IndirectNameMap> local_names_;
+  // Names of struct fields, lazily decoded from the wire bytes.
+  std::unique_ptr<IndirectNameMap> field_names_;
 
   // Isolate-specific data.
   std::unordered_map<Isolate*, PerIsolateDebugData> per_isolate_data_;
@@ -672,15 +761,15 @@ DebugInfo::~DebugInfo() = default;
 int DebugInfo::GetNumLocals(Address pc) { return impl_->GetNumLocals(pc); }
 
 WasmValue DebugInfo::GetLocalValue(int local, Address pc, Address fp,
-                                   Address debug_break_fp) {
-  return impl_->GetLocalValue(local, pc, fp, debug_break_fp);
+                                   Address debug_break_fp, Isolate* isolate) {
+  return impl_->GetLocalValue(local, pc, fp, debug_break_fp, isolate);
 }
 
 int DebugInfo::GetStackDepth(Address pc) { return impl_->GetStackDepth(pc); }
 
 WasmValue DebugInfo::GetStackValue(int index, Address pc, Address fp,
-                                   Address debug_break_fp) {
-  return impl_->GetStackValue(index, pc, fp, debug_break_fp);
+                                   Address debug_break_fp, Isolate* isolate) {
+  return impl_->GetStackValue(index, pc, fp, debug_break_fp, isolate);
 }
 
 const wasm::WasmFunction& DebugInfo::GetFunctionAtAddress(Address pc) {
@@ -697,8 +786,16 @@ std::pair<WireBytesRef, WireBytesRef> DebugInfo::GetImportName(
   return impl_->GetImportName(code, index);
 }
 
+WireBytesRef DebugInfo::GetTypeName(int type_index) {
+  return impl_->GetTypeName(type_index);
+}
+
 WireBytesRef DebugInfo::GetLocalName(int func_index, int local_index) {
   return impl_->GetLocalName(func_index, local_index);
+}
+
+WireBytesRef DebugInfo::GetFieldName(int struct_index, int field_index) {
+  return impl_->GetFieldName(struct_index, field_index);
 }
 
 void DebugInfo::SetBreakpoint(int func_index, int offset,

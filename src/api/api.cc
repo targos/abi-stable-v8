@@ -1182,15 +1182,16 @@ void FunctionTemplate::SetPrototypeProviderTemplate(
                                                         result);
 }
 
-static void EnsureNotInstantiated(i::Handle<i::FunctionTemplateInfo> info,
-                                  const char* func) {
-  Utils::ApiCheck(!info->instantiated(), func,
+static void EnsureNotPublished(i::Handle<i::FunctionTemplateInfo> info,
+                               const char* func) {
+  DCHECK_IMPLIES(info->instantiated(), info->published());
+  Utils::ApiCheck(!info->published(), func,
                   "FunctionTemplate already instantiated");
 }
 
 void FunctionTemplate::Inherit(v8::Local<FunctionTemplate> value) {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::Inherit");
+  EnsureNotPublished(info, "v8::FunctionTemplate::Inherit");
   i::Isolate* i_isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(i_isolate);
   Utils::ApiCheck(info->GetPrototypeProviderTemplate().IsUndefined(i_isolate),
@@ -1290,7 +1291,7 @@ void FunctionTemplate::SetCallHandler(FunctionCallback callback,
                                       SideEffectType side_effect_type,
                                       const CFunction* c_function) {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::SetCallHandler");
+  EnsureNotPublished(info, "v8::FunctionTemplate::SetCallHandler");
   i::Isolate* isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
@@ -1380,7 +1381,7 @@ Local<ObjectTemplate> FunctionTemplate::InstanceTemplate() {
 
 void FunctionTemplate::SetLength(int length) {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::SetLength");
+  EnsureNotPublished(info, "v8::FunctionTemplate::SetLength");
   auto isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   info->set_length(length);
@@ -1388,7 +1389,7 @@ void FunctionTemplate::SetLength(int length) {
 
 void FunctionTemplate::SetClassName(Local<String> name) {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::SetClassName");
+  EnsureNotPublished(info, "v8::FunctionTemplate::SetClassName");
   auto isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   info->set_class_name(*Utils::OpenHandle(*name));
@@ -1396,7 +1397,7 @@ void FunctionTemplate::SetClassName(Local<String> name) {
 
 void FunctionTemplate::SetAcceptAnyReceiver(bool value) {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::SetAcceptAnyReceiver");
+  EnsureNotPublished(info, "v8::FunctionTemplate::SetAcceptAnyReceiver");
   auto isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   info->set_accept_any_receiver(value);
@@ -1404,7 +1405,7 @@ void FunctionTemplate::SetAcceptAnyReceiver(bool value) {
 
 void FunctionTemplate::ReadOnlyPrototype() {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::ReadOnlyPrototype");
+  EnsureNotPublished(info, "v8::FunctionTemplate::ReadOnlyPrototype");
   auto isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   info->set_read_only_prototype(true);
@@ -1412,7 +1413,7 @@ void FunctionTemplate::ReadOnlyPrototype() {
 
 void FunctionTemplate::RemovePrototype() {
   auto info = Utils::OpenHandle(this);
-  EnsureNotInstantiated(info, "v8::FunctionTemplate::RemovePrototype");
+  EnsureNotPublished(info, "v8::FunctionTemplate::RemovePrototype");
   auto isolate = info->GetIsolate();
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   info->set_remove_prototype(true);
@@ -1640,7 +1641,7 @@ static void ObjectTemplateSetNamedPropertyHandler(
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, templ);
-  EnsureNotInstantiated(cons, "ObjectTemplateSetNamedPropertyHandler");
+  EnsureNotPublished(cons, "ObjectTemplateSetNamedPropertyHandler");
   auto obj =
       CreateNamedInterceptorInfo(isolate, getter, setter, query, descriptor,
                                  remover, enumerator, definer, data, flags);
@@ -1660,7 +1661,7 @@ void ObjectTemplate::MarkAsUndetectable() {
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, this);
-  EnsureNotInstantiated(cons, "v8::ObjectTemplate::MarkAsUndetectable");
+  EnsureNotPublished(cons, "v8::ObjectTemplate::MarkAsUndetectable");
   cons->set_undetectable(true);
 }
 
@@ -1670,7 +1671,7 @@ void ObjectTemplate::SetAccessCheckCallback(AccessCheckCallback callback,
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, this);
-  EnsureNotInstantiated(cons, "v8::ObjectTemplate::SetAccessCheckCallback");
+  EnsureNotPublished(cons, "v8::ObjectTemplate::SetAccessCheckCallback");
 
   i::Handle<i::Struct> struct_info = isolate->factory()->NewStruct(
       i::ACCESS_CHECK_INFO_TYPE, i::AllocationType::kOld);
@@ -1699,8 +1700,8 @@ void ObjectTemplate::SetAccessCheckCallbackAndHandler(
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, this);
-  EnsureNotInstantiated(
-      cons, "v8::ObjectTemplate::SetAccessCheckCallbackWithHandler");
+  EnsureNotPublished(cons,
+                     "v8::ObjectTemplate::SetAccessCheckCallbackWithHandler");
 
   i::Handle<i::Struct> struct_info = isolate->factory()->NewStruct(
       i::ACCESS_CHECK_INFO_TYPE, i::AllocationType::kOld);
@@ -1735,7 +1736,7 @@ void ObjectTemplate::SetHandler(
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, this);
-  EnsureNotInstantiated(cons, "v8::ObjectTemplate::SetHandler");
+  EnsureNotPublished(cons, "v8::ObjectTemplate::SetHandler");
   auto obj = CreateIndexedInterceptorInfo(
       isolate, config.getter, config.setter, config.query, config.descriptor,
       config.deleter, config.enumerator, config.definer, config.data,
@@ -1749,7 +1750,7 @@ void ObjectTemplate::SetCallAsFunctionHandler(FunctionCallback callback,
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope scope(isolate);
   auto cons = EnsureConstructor(isolate, this);
-  EnsureNotInstantiated(cons, "v8::ObjectTemplate::SetCallAsFunctionHandler");
+  EnsureNotPublished(cons, "v8::ObjectTemplate::SetCallAsFunctionHandler");
   i::Handle<i::CallHandlerInfo> obj = isolate->factory()->NewCallHandlerInfo();
   SET_FIELD_WRAPPED(isolate, obj, set_callback, callback);
   SET_FIELD_WRAPPED(isolate, obj, set_js_callback, obj->redirected_callback());
@@ -1824,6 +1825,10 @@ ScriptCompiler::CachedData::~CachedData() {
 bool ScriptCompiler::ExternalSourceStream::SetBookmark() { return false; }
 
 void ScriptCompiler::ExternalSourceStream::ResetToBookmark() { UNREACHABLE(); }
+
+ScriptCompiler::StreamedSource::StreamedSource(ExternalSourceStream* stream,
+                                               Encoding encoding)
+    : StreamedSource(std::unique_ptr<ExternalSourceStream>(stream), encoding) {}
 
 ScriptCompiler::StreamedSource::StreamedSource(
     std::unique_ptr<ExternalSourceStream> stream, Encoding encoding)
@@ -2270,6 +2275,21 @@ Maybe<bool> Module::SetSyntheticModuleExport(Isolate* isolate,
   return Just(true);
 }
 
+void Module::SetSyntheticModuleExport(Local<String> export_name,
+                                      Local<v8::Value> export_value) {
+  i::Handle<i::String> i_export_name = Utils::OpenHandle(*export_name);
+  i::Handle<i::Object> i_export_value = Utils::OpenHandle(*export_value);
+  i::Handle<i::Module> self = Utils::OpenHandle(this);
+  ASSERT_NO_SCRIPT_NO_EXCEPTION(self->GetIsolate());
+  Utils::ApiCheck(self->IsSyntheticModule(),
+                  "v8::Module::SetSyntheticModuleExport",
+                  "v8::Module::SetSyntheticModuleExport must only be called on "
+                  "a SyntheticModule");
+  i::SyntheticModule::SetExportStrict(self->GetIsolate(),
+                                      i::Handle<i::SyntheticModule>::cast(self),
+                                      i_export_name, i_export_value);
+}
+
 namespace {
 
 i::Compiler::ScriptDetails GetScriptDetails(
@@ -2483,6 +2503,14 @@ MaybeLocal<Function> ScriptCompiler::CompileFunctionInContext(
 }
 
 void ScriptCompiler::ScriptStreamingTask::Run() { data_->task->Run(); }
+
+ScriptCompiler::ScriptStreamingTask* ScriptCompiler::StartStreamingScript(
+    Isolate* v8_isolate, StreamedSource* source, CompileOptions options) {
+  // We don't support other compile options on streaming background compiles.
+  // TODO(rmcilroy): remove CompileOptions from the API.
+  CHECK(options == ScriptCompiler::kNoCompileOptions);
+  return StartStreaming(v8_isolate, source);
+}
 
 ScriptCompiler::ScriptStreamingTask* ScriptCompiler::StartStreaming(
     Isolate* v8_isolate, StreamedSource* source, v8::ScriptType type) {
@@ -6662,9 +6690,8 @@ Local<v8::Object> v8::Object::New(Isolate* isolate,
   // large enough to hold all of them, while we start with no elements
   // (see http://bit.ly/v8-fast-object-create-cpp for the motivation).
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    i::Handle<i::OrderedNameDictionary> properties =
-        i::OrderedNameDictionary::Allocate(i_isolate, static_cast<int>(length))
-            .ToHandleChecked();
+    i::Handle<i::SwissNameDictionary> properties =
+        i_isolate->factory()->NewSwissNameDictionary(static_cast<int>(length));
     AddPropertiesAndElementsToObject(i_isolate, properties, elements, names,
                                      values, length);
     i::Handle<i::JSObject> obj =
@@ -8783,6 +8810,11 @@ bool Isolate::GetHeapCodeAndMetadataStatistics(
   return true;
 }
 
+v8::MaybeLocal<v8::Promise> Isolate::MeasureMemory(
+    v8::Local<v8::Context> context, MeasureMemoryMode mode) {
+  return v8::MaybeLocal<v8::Promise>();
+}
+
 bool Isolate::MeasureMemory(std::unique_ptr<MeasureMemoryDelegate> delegate,
                             MeasureMemoryExecution execution) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
@@ -10101,6 +10133,42 @@ RegisterState& RegisterState::operator=(const RegisterState& other) {
   }
   return *this;
 }
+
+#if !V8_ENABLE_WEBASSEMBLY
+// If WebAssembly is disabled, we still need to provide an implementation of the
+// WasmStreaming API. Since {WasmStreaming::Unpack} will always fail, all
+// methods are unreachable.
+
+class WasmStreaming::WasmStreamingImpl {};
+
+WasmStreaming::WasmStreaming(std::unique_ptr<WasmStreamingImpl>) {
+  UNREACHABLE();
+}
+
+WasmStreaming::~WasmStreaming() = default;
+
+void WasmStreaming::OnBytesReceived(const uint8_t* bytes, size_t size) {
+  UNREACHABLE();
+}
+
+void WasmStreaming::Finish() { UNREACHABLE(); }
+
+void WasmStreaming::Abort(MaybeLocal<Value> exception) { UNREACHABLE(); }
+
+bool WasmStreaming::SetCompiledModuleBytes(const uint8_t* bytes, size_t size) {
+  UNREACHABLE();
+}
+
+void WasmStreaming::SetClient(std::shared_ptr<Client> client) { UNREACHABLE(); }
+
+void WasmStreaming::SetUrl(const char* url, size_t length) { UNREACHABLE(); }
+
+// static
+std::shared_ptr<WasmStreaming> WasmStreaming::Unpack(Isolate* isolate,
+                                                     Local<Value> value) {
+  FATAL("WebAssembly is disabled");
+}
+#endif  // !V8_ENABLE_WEBASSEMBLY
 
 namespace internal {
 

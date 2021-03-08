@@ -368,6 +368,26 @@ bool ExpectFused(TestExecutionTier tier) {
   void RunWasm_##name##_Impl(LowerSimd lower_simd,                        \
                              TestExecutionTier execution_tier)
 
+// Use this for post-mvp instructions, for which we only implement interpreter
+// and TurboFan support. Liftoff support is generally not implemented yet, so
+// don't test that, and neither is scalar lowering.
+#define WASM_SIMD_TEST_POST_MVP(name)                                     \
+  void RunWasm_##name##_Impl(LowerSimd lower_simd,                        \
+                             TestExecutionTier execution_tier);           \
+  TEST(RunWasm_##name##_turbofan) {                                       \
+    if (!CpuFeatures::SupportsWasmSimd128()) return;                      \
+    EXPERIMENTAL_FLAG_SCOPE(simd);                                        \
+    FLAG_SCOPE(wasm_simd_post_mvp);                                       \
+    RunWasm_##name##_Impl(kNoLowerSimd, TestExecutionTier::kTurbofan);    \
+  }                                                                       \
+  TEST(RunWasm_##name##_interpreter) {                                    \
+    EXPERIMENTAL_FLAG_SCOPE(simd);                                        \
+    FLAG_SCOPE(wasm_simd_post_mvp);                                       \
+    RunWasm_##name##_Impl(kNoLowerSimd, TestExecutionTier::kInterpreter); \
+  }                                                                       \
+  void RunWasm_##name##_Impl(LowerSimd lower_simd,                        \
+                             TestExecutionTier execution_tier)
+
 // Returns true if the platform can represent the result.
 template <typename T>
 bool PlatformCanRepresent(T x) {
@@ -607,14 +627,12 @@ WASM_SIMD_TEST(F32x4Sqrt) {
   RunF32x4UnOpTest(execution_tier, lower_simd, kExprF32x4Sqrt, std::sqrt);
 }
 
-WASM_SIMD_TEST(F32x4RecipApprox) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F32x4RecipApprox) {
   RunF32x4UnOpTest(execution_tier, lower_simd, kExprF32x4RecipApprox,
                    base::Recip, false /* !exact */);
 }
 
-WASM_SIMD_TEST(F32x4RecipSqrtApprox) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F32x4RecipSqrtApprox) {
   RunF32x4UnOpTest(execution_tier, lower_simd, kExprF32x4RecipSqrtApprox,
                    base::RecipSqrt, false /* !exact */);
 }
@@ -767,8 +785,7 @@ WASM_SIMD_TEST(F32x4Le) {
 }
 
 #if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_S390X
-WASM_SIMD_TEST_NO_LOWERING(F32x4Qfma) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F32x4Qfma) {
   WasmRunner<int32_t, float, float, float> r(execution_tier, lower_simd);
   // Set up global to hold mask output.
   float* g = r.builder().AddGlobal<float>(kWasmS128);
@@ -792,8 +809,7 @@ WASM_SIMD_TEST_NO_LOWERING(F32x4Qfma) {
   }
 }
 
-WASM_SIMD_TEST_NO_LOWERING(F32x4Qfms) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F32x4Qfms) {
   WasmRunner<int32_t, float, float, float> r(execution_tier, lower_simd);
   // Set up global to hold mask output.
   float* g = r.builder().AddGlobal<float>(kWasmS128);
@@ -1493,8 +1509,7 @@ WASM_SIMD_TEST(I64x2Mul) {
 }
 
 #if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_S390X
-WASM_SIMD_TEST_NO_LOWERING(F64x2Qfma) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F64x2Qfma) {
   WasmRunner<int32_t, double, double, double> r(execution_tier, lower_simd);
   // Set up global to hold mask output.
   double* g = r.builder().AddGlobal<double>(kWasmS128);
@@ -1518,8 +1533,7 @@ WASM_SIMD_TEST_NO_LOWERING(F64x2Qfma) {
   }
 }
 
-WASM_SIMD_TEST_NO_LOWERING(F64x2Qfms) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
+WASM_SIMD_TEST_POST_MVP(F64x2Qfms) {
   WasmRunner<int32_t, double, double, double> r(execution_tier, lower_simd);
   // Set up global to hold mask output.
   double* g = r.builder().AddGlobal<double>(kWasmS128);
@@ -2927,27 +2941,6 @@ void RunBinaryLaneOpTest(
   }
 }
 
-WASM_SIMD_TEST(I32x4AddHoriz) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
-  // Inputs are [0 1 2 3] and [4 5 6 7].
-  RunBinaryLaneOpTest<int32_t>(execution_tier, lower_simd, kExprI32x4AddHoriz,
-                               {{1, 5, 9, 13}});
-}
-
-WASM_SIMD_TEST(I16x8AddHoriz) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
-  // Inputs are [0 1 2 3 4 5 6 7] and [8 9 10 11 12 13 14 15].
-  RunBinaryLaneOpTest<int16_t>(execution_tier, lower_simd, kExprI16x8AddHoriz,
-                               {{1, 5, 9, 13, 17, 21, 25, 29}});
-}
-
-WASM_SIMD_TEST(F32x4AddHoriz) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
-  // Inputs are [0.0f 1.0f 2.0f 3.0f] and [4.0f 5.0f 6.0f 7.0f].
-  RunBinaryLaneOpTest<float>(execution_tier, lower_simd, kExprF32x4AddHoriz,
-                             {{1.0f, 5.0f, 9.0f, 13.0f}});
-}
-
 // Test shuffle ops.
 void RunShuffleOpTest(TestExecutionTier execution_tier, LowerSimd lower_simd,
                       WasmOpcode simd_op,
@@ -3636,9 +3629,7 @@ WASM_SIMD_TEST(SimdF32x4SetGlobal) {
 
 #if V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_IA32
 // TODO(v8:11168): Prototyping prefetch.
-WASM_SIMD_TEST(SimdPrefetch) {
-  FLAG_SCOPE(wasm_simd_post_mvp);
-
+WASM_SIMD_TEST_POST_MVP(SimdPrefetch) {
   {
     // Test PrefetchT.
     WasmRunner<int32_t> r(execution_tier, lower_simd);

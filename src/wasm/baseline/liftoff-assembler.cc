@@ -91,21 +91,6 @@ class StackTransferRecipe {
     DCHECK(load_dst_regs_.is_empty());
   }
 
-#if DEBUG
-  bool CheckCompatibleStackSlotTypes(ValueKind dst, ValueKind src) {
-    if (is_object_reference(dst)) {
-      // Since Liftoff doesn't do accurate type tracking (e.g. on loop back
-      // edges), we only care that pointer types stay amongst pointer types.
-      // It's fine if ref/optref overwrite each other.
-      DCHECK(is_object_reference(src));
-    } else {
-      // All other types (primitive numbers, RTTs, bottom/stmt) must be equal.
-      DCHECK_EQ(dst, src);
-    }
-    return true;  // Dummy so this can be called via DCHECK.
-  }
-#endif
-
   V8_INLINE void TransferStackSlot(const VarState& dst, const VarState& src) {
     DCHECK(CheckCompatibleStackSlotTypes(dst.kind(), src.kind()));
     if (dst.is_reg()) {
@@ -799,8 +784,9 @@ void PrepareStackTransfers(const ValueKindSig* sig,
                            LiftoffStackSlots* stack_slots,
                            StackTransferRecipe* stack_transfers,
                            LiftoffRegList* param_regs) {
-  // Process parameters backwards, such that pushes of caller frame slots are
-  // in the correct order.
+  // Process parameters backwards, to reduce the amount of Slot sorting for
+  // the most common case - a normal Wasm Call. Slots will be mostly unsorted
+  // in the Builtin call case.
   uint32_t call_desc_input_idx =
       static_cast<uint32_t>(call_descriptor->InputCount());
   uint32_t num_params = static_cast<uint32_t>(sig->parameter_count());
@@ -834,7 +820,8 @@ void PrepareStackTransfers(const ValueKindSig* sig,
         }
       } else {
         DCHECK(loc.IsCallerFrameSlot());
-        stack_slots->Add(slot, stack_offset, half);
+        int param_offset = -loc.GetLocation() - 1;
+        stack_slots->Add(slot, stack_offset, half, param_offset);
       }
     }
   }
@@ -851,10 +838,10 @@ void LiftoffAssembler::PrepareBuiltinCall(
   PrepareStackTransfers(sig, call_descriptor, params.begin(), &stack_slots,
                         &stack_transfers, &param_regs);
   SpillAllRegisters();
-  // Create all the slots.
-  // Builtin stack parameters are pushed in reversed order.
-  stack_slots.Reverse();
-  stack_slots.Construct();
+  int param_slots = static_cast<int>(call_descriptor->ParameterSlotCount());
+  if (param_slots > 0) {
+    stack_slots.Construct(param_slots);
+  }
   // Execute the stack transfers before filling the instance register.
   stack_transfers.Execute();
 
@@ -897,6 +884,7 @@ void LiftoffAssembler::PrepareCall(const ValueKindSig* sig,
                                  LiftoffRegister(*target_instance), kIntPtr);
   }
 
+  int param_slots = static_cast<int>(call_descriptor->ParameterSlotCount());
   if (num_params) {
     uint32_t param_base = cache_state_.stack_height() - num_params;
     PrepareStackTransfers(sig, call_descriptor,
@@ -916,13 +904,16 @@ void LiftoffAssembler::PrepareCall(const ValueKindSig* sig,
       *target = new_target.gp();
     } else {
       stack_slots.Add(LiftoffAssembler::VarState(LiftoffAssembler::kIntPtr,
-                                                 LiftoffRegister(*target), 0));
+                                                 LiftoffRegister(*target), 0),
+                      param_slots);
+      param_slots++;
       *target = no_reg;
     }
   }
 
-  // Create all the slots.
-  stack_slots.Construct();
+  if (param_slots > 0) {
+    stack_slots.Construct(param_slots);
+  }
   // Execute the stack transfers before filling the instance register.
   stack_transfers.Execute();
   // Pop parameters from the value stack.
@@ -977,7 +968,7 @@ void LiftoffAssembler::FinishCall(const ValueKindSig* sig,
                                                          reg_pair[1].gp()));
     }
   }
-  int return_slots = static_cast<int>(call_descriptor->StackReturnCount());
+  int return_slots = static_cast<int>(call_descriptor->ReturnSlotCount());
   RecordUsedSpillOffset(TopSpillOffset() + return_slots * kSystemPointerSize);
 }
 
@@ -1222,6 +1213,21 @@ std::ostream& operator<<(std::ostream& os, VarState slot) {
   }
   UNREACHABLE();
 }
+
+#if DEBUG
+bool CheckCompatibleStackSlotTypes(ValueKind a, ValueKind b) {
+  if (is_object_reference(a)) {
+    // Since Liftoff doesn't do accurate type tracking (e.g. on loop back
+    // edges), we only care that pointer types stay amongst pointer types.
+    // It's fine if ref/optref overwrite each other.
+    DCHECK(is_object_reference(b));
+  } else {
+    // All other types (primitive numbers, RTTs, bottom/stmt) must be equal.
+    DCHECK_EQ(a, b);
+  }
+  return true;  // Dummy so this can be called via DCHECK.
+}
+#endif
 
 }  // namespace wasm
 }  // namespace internal

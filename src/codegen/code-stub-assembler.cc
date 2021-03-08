@@ -25,7 +25,10 @@
 #include "src/objects/ordered-hash-table-inl.h"
 #include "src/objects/property-cell.h"
 #include "src/roots/roots.h"
+
+#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-objects.h"
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
@@ -347,7 +350,7 @@ TNode<Float64T> CodeStubAssembler::Float64Round(TNode<Float64T> x) {
   Goto(&return_x);
 
   BIND(&return_x);
-  return TNode<Float64T>::UncheckedCast(var_x.value());
+  return var_x.value();
 }
 
 TNode<Float64T> CodeStubAssembler::Float64Ceil(TNode<Float64T> x) {
@@ -399,7 +402,7 @@ TNode<Float64T> CodeStubAssembler::Float64Ceil(TNode<Float64T> x) {
   Goto(&return_x);
 
   BIND(&return_x);
-  return TNode<Float64T>::UncheckedCast(var_x.value());
+  return var_x.value();
 }
 
 TNode<Float64T> CodeStubAssembler::Float64Floor(TNode<Float64T> x) {
@@ -451,7 +454,7 @@ TNode<Float64T> CodeStubAssembler::Float64Floor(TNode<Float64T> x) {
   Goto(&return_x);
 
   BIND(&return_x);
-  return TNode<Float64T>::UncheckedCast(var_x.value());
+  return var_x.value();
 }
 
 TNode<Float64T> CodeStubAssembler::Float64RoundToEven(TNode<Float64T> x) {
@@ -482,7 +485,7 @@ TNode<Float64T> CodeStubAssembler::Float64RoundToEven(TNode<Float64T> x) {
   Goto(&done);
 
   BIND(&done);
-  return TNode<Float64T>::UncheckedCast(var_result.value());
+  return var_result.value();
 }
 
 TNode<Float64T> CodeStubAssembler::Float64Trunc(TNode<Float64T> x) {
@@ -543,7 +546,7 @@ TNode<Float64T> CodeStubAssembler::Float64Trunc(TNode<Float64T> x) {
   Goto(&return_x);
 
   BIND(&return_x);
-  return TNode<Float64T>::UncheckedCast(var_x.value());
+  return var_x.value();
 }
 
 template <>
@@ -1773,19 +1776,17 @@ TNode<Uint32T> CodeStubAssembler::EnsureOnlyHasSimpleProperties(
 }
 
 TNode<IntPtrT> CodeStubAssembler::LoadJSReceiverIdentityHash(
-    TNode<Object> receiver, Label* if_no_hash) {
+    TNode<JSReceiver> receiver, Label* if_no_hash) {
   TVARIABLE(IntPtrT, var_hash);
   Label done(this), if_smi(this), if_property_array(this),
       if_ordered_property_dictionary(this), if_property_dictionary(this),
       if_fixed_array(this);
 
   TNode<Object> properties_or_hash =
-      LoadObjectField(TNode<HeapObject>::UncheckedCast(receiver),
-                      JSReceiver::kPropertiesOrHashOffset);
+      LoadObjectField(receiver, JSReceiver::kPropertiesOrHashOffset);
   GotoIf(TaggedIsSmi(properties_or_hash), &if_smi);
 
-  TNode<HeapObject> properties =
-      TNode<HeapObject>::UncheckedCast(properties_or_hash);
+  TNode<HeapObject> properties = CAST(properties_or_hash);
   TNode<Uint16T> properties_instance_type = LoadInstanceType(properties);
 
   GotoIf(InstanceTypeEqual(properties_instance_type, PROPERTY_ARRAY_TYPE),
@@ -1806,7 +1807,7 @@ TNode<IntPtrT> CodeStubAssembler::LoadJSReceiverIdentityHash(
 
   BIND(&if_smi);
   {
-    var_hash = SmiUntag(TNode<Smi>::UncheckedCast(properties_or_hash));
+    var_hash = SmiUntag(CAST(properties_or_hash));
     Goto(&done);
   }
 
@@ -1814,8 +1815,7 @@ TNode<IntPtrT> CodeStubAssembler::LoadJSReceiverIdentityHash(
   {
     TNode<IntPtrT> length_and_hash = LoadAndUntagObjectField(
         properties, PropertyArray::kLengthAndHashOffset);
-    var_hash = TNode<IntPtrT>::UncheckedCast(
-        DecodeWord<PropertyArray::HashField>(length_and_hash));
+    var_hash = Signed(DecodeWord<PropertyArray::HashField>(length_and_hash));
     Goto(&done);
   }
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
@@ -2692,9 +2692,8 @@ TNode<BoolT> CodeStubAssembler::IsGeneratorFunction(
 TNode<BoolT> CodeStubAssembler::IsJSFunctionWithPrototypeSlot(
     TNode<HeapObject> object) {
   // Only JSFunction maps may have HasPrototypeSlotBit set.
-  return TNode<BoolT>::UncheckedCast(
-      IsSetWord32<Map::Bits1::HasPrototypeSlotBit>(
-          LoadMapBitField(LoadMap(object))));
+  return IsSetWord32<Map::Bits1::HasPrototypeSlotBit>(
+      LoadMapBitField(LoadMap(object)));
 }
 
 void CodeStubAssembler::BranchIfHasPrototypeProperty(
@@ -2865,7 +2864,7 @@ void CodeStubAssembler::StoreFixedArrayOrPropertyArrayElement(
               [=] {
                 TNode<IntPtrT> length_and_hash = LoadAndUntagObjectField(
                     object, PropertyArray::kLengthAndHashOffset);
-                return TNode<IntPtrT>::UncheckedCast(
+                return Signed(
                     DecodeWord<PropertyArray::LengthField>(length_and_hash));
               },
               [=] {
@@ -13549,15 +13548,19 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
     *data_type_out = data_type;
   }
 
-  int32_t case_values[] = {BYTECODE_ARRAY_TYPE,
-                           BASELINE_DATA_TYPE,
-                           WASM_EXPORTED_FUNCTION_DATA_TYPE,
-                           ASM_WASM_DATA_TYPE,
-                           UNCOMPILED_DATA_WITHOUT_PREPARSE_DATA_TYPE,
-                           UNCOMPILED_DATA_WITH_PREPARSE_DATA_TYPE,
-                           FUNCTION_TEMPLATE_INFO_TYPE,
-                           WASM_JS_FUNCTION_DATA_TYPE,
-                           WASM_CAPI_FUNCTION_DATA_TYPE};
+  int32_t case_values[] = {
+    BYTECODE_ARRAY_TYPE,
+    BASELINE_DATA_TYPE,
+    UNCOMPILED_DATA_WITHOUT_PREPARSE_DATA_TYPE,
+    UNCOMPILED_DATA_WITH_PREPARSE_DATA_TYPE,
+    FUNCTION_TEMPLATE_INFO_TYPE,
+#if V8_ENABLE_WEBASSEMBLY
+    WASM_EXPORTED_FUNCTION_DATA_TYPE,
+    ASM_WASM_DATA_TYPE,
+    WASM_JS_FUNCTION_DATA_TYPE,
+    WASM_CAPI_FUNCTION_DATA_TYPE,
+#endif  // V8_ENABLE_WEBASSEMBLY
+  };
   Label check_is_bytecode_array(this);
   Label check_is_baseline_data(this);
   Label check_is_exported_function_data(this);
@@ -13568,15 +13571,19 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
   Label check_is_interpreter_data(this);
   Label check_is_wasm_js_function_data(this);
   Label check_is_wasm_capi_function_data(this);
-  Label* case_labels[] = {&check_is_bytecode_array,
-                          &check_is_baseline_data,
-                          &check_is_exported_function_data,
-                          &check_is_asm_wasm_data,
-                          &check_is_uncompiled_data_without_preparse_data,
-                          &check_is_uncompiled_data_with_preparse_data,
-                          &check_is_function_template_info,
-                          &check_is_wasm_js_function_data,
-                          &check_is_wasm_capi_function_data};
+  Label* case_labels[] = {
+    &check_is_bytecode_array,
+    &check_is_baseline_data,
+    &check_is_uncompiled_data_without_preparse_data,
+    &check_is_uncompiled_data_with_preparse_data,
+    &check_is_function_template_info,
+#if V8_ENABLE_WEBASSEMBLY
+    &check_is_exported_function_data,
+    &check_is_asm_wasm_data,
+    &check_is_wasm_js_function_data,
+    &check_is_wasm_capi_function_data
+#endif  // V8_ENABLE_WEBASSEMBLY
+  };
   STATIC_ASSERT(arraysize(case_values) == arraysize(case_labels));
   Switch(data_type, &check_is_interpreter_data, case_values, case_labels,
          arraysize(case_labels));
@@ -13592,17 +13599,6 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
   TNode<Code> baseline_code =
       CAST(LoadObjectField(baseline_data, BaselineData::kBaselineCodeOffset));
   sfi_code = baseline_code;
-  Goto(&done);
-
-  // IsWasmExportedFunctionData: Use the wrapper code
-  BIND(&check_is_exported_function_data);
-  sfi_code = CAST(LoadObjectField(
-      CAST(sfi_data), WasmExportedFunctionData::kWrapperCodeOffset));
-  Goto(&done);
-
-  // IsAsmWasmData: Instantiate using AsmWasmData
-  BIND(&check_is_asm_wasm_data);
-  sfi_code = HeapConstant(BUILTIN_CODE(isolate(), InstantiateAsmJs));
   Goto(&done);
 
   // IsUncompiledDataWithPreparseData | IsUncompiledDataWithoutPreparseData:
@@ -13627,6 +13623,18 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
       CAST(sfi_data), InterpreterData::kInterpreterTrampolineOffset));
   Goto(&done);
 
+#if V8_ENABLE_WEBASSEMBLY
+  // IsWasmExportedFunctionData: Use the wrapper code
+  BIND(&check_is_exported_function_data);
+  sfi_code = CAST(LoadObjectField(
+      CAST(sfi_data), WasmExportedFunctionData::kWrapperCodeOffset));
+  Goto(&done);
+
+  // IsAsmWasmData: Instantiate using AsmWasmData
+  BIND(&check_is_asm_wasm_data);
+  sfi_code = HeapConstant(BUILTIN_CODE(isolate(), InstantiateAsmJs));
+  Goto(&done);
+
   // IsWasmJSFunctionData: Use the wrapper code.
   BIND(&check_is_wasm_js_function_data);
   sfi_code = CAST(
@@ -13638,6 +13646,7 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
   sfi_code = CAST(LoadObjectField(CAST(sfi_data),
                                   WasmCapiFunctionData::kWrapperCodeOffset));
   Goto(&done);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   BIND(&done);
   return sfi_code.value();

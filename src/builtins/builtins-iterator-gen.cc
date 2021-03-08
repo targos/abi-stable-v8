@@ -54,8 +54,7 @@ IteratorRecord IteratorBuiltinsAssembler::GetIterator(TNode<Context> context,
     BIND(&get_next);
     TNode<Object> next =
         GetProperty(context, iterator, factory()->next_string());
-    return IteratorRecord{TNode<JSReceiver>::UncheckedCast(iterator),
-                          TNode<Object>::UncheckedCast(next)};
+    return IteratorRecord{TNode<JSReceiver>::UncheckedCast(iterator), next};
   }
 }
 
@@ -412,13 +411,13 @@ TF_BUILTIN(GetIteratorWithFeedbackLazyDeoptContinuation,
   auto receiver = Parameter<Object>(Descriptor::kReceiver);
   // TODO(v8:10047): Use TaggedIndex here once TurboFan supports it.
   auto call_slot_smi = Parameter<Smi>(Descriptor::kCallSlot);
-  TNode<TaggedIndex> call_slot = SmiToTaggedIndex(call_slot_smi);
   auto feedback = Parameter<FeedbackVector>(Descriptor::kFeedback);
   auto iterator_method = Parameter<Object>(Descriptor::kResult);
 
+  // Note, that the builtin also expects the call_slot as a Smi.
   TNode<Object> result =
       CallBuiltin(Builtins::kCallIteratorWithFeedback, context, receiver,
-                  iterator_method, call_slot, feedback);
+                  iterator_method, call_slot_smi, feedback);
   Return(result);
 }
 
