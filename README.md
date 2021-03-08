@@ -2,6 +2,8 @@
 
 ## Documentation
 
+Reference on ABI compatibility: https://community.kde.org/Policies/Binary_Compatibility_Issues_With_C%2B%2B
+
 Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
 
 ### List commits to audit
