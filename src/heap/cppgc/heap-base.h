@@ -130,16 +130,18 @@ class V8_EXPORT_PRIVATE HeapBase : public cppgc::HeapHandle {
   const PersistentRegion& GetWeakPersistentRegion() const {
     return weak_persistent_region_;
   }
-  PersistentRegion& GetStrongCrossThreadPersistentRegion() {
+  CrossThreadPersistentRegion& GetStrongCrossThreadPersistentRegion() {
     return strong_cross_thread_persistent_region_;
   }
-  const PersistentRegion& GetStrongCrossThreadPersistentRegion() const {
+  const CrossThreadPersistentRegion& GetStrongCrossThreadPersistentRegion()
+      const {
     return strong_cross_thread_persistent_region_;
   }
-  PersistentRegion& GetWeakCrossThreadPersistentRegion() {
+  CrossThreadPersistentRegion& GetWeakCrossThreadPersistentRegion() {
     return weak_cross_thread_persistent_region_;
   }
-  const PersistentRegion& GetWeakCrossThreadPersistentRegion() const {
+  const CrossThreadPersistentRegion& GetWeakCrossThreadPersistentRegion()
+      const {
     return weak_cross_thread_persistent_region_;
   }
 
@@ -170,6 +172,8 @@ class V8_EXPORT_PRIVATE HeapBase : public cppgc::HeapHandle {
     stack_state_of_prev_gc_ = stack_state;
   }
 
+  void SetInAtomicPauseForTesting(bool value) { in_atomic_pause_ = value; }
+
  protected:
   // Used by the incremental scheduler to finalize a GC if supported.
   virtual void FinalizeIncrementalGarbageCollectionIfNeeded(
@@ -199,8 +203,8 @@ class V8_EXPORT_PRIVATE HeapBase : public cppgc::HeapHandle {
 
   PersistentRegion strong_persistent_region_;
   PersistentRegion weak_persistent_region_;
-  PersistentRegion strong_cross_thread_persistent_region_;
-  PersistentRegion weak_cross_thread_persistent_region_;
+  CrossThreadPersistentRegion strong_cross_thread_persistent_region_;
+  CrossThreadPersistentRegion weak_cross_thread_persistent_region_;
 
   ProcessHeapStatisticsUpdater::AllocationObserverImpl
       allocation_observer_for_PROCESS_HEAP_STATISTICS_;

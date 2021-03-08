@@ -256,7 +256,7 @@ PrimitiveHeapObject InferMethodNameFromFastObject(Isolate* isolate,
                                                   PrimitiveHeapObject name) {
   ReadOnlyRoots roots(isolate);
   Map map = receiver.map();
-  DescriptorArray descriptors = map.instance_descriptors(kRelaxedLoad);
+  DescriptorArray descriptors = map.instance_descriptors(isolate);
   for (auto i : map.IterateOwnDescriptors()) {
     PrimitiveHeapObject key = descriptors.GetKey(i);
     if (key.IsSymbol()) continue;
@@ -328,7 +328,7 @@ PrimitiveHeapObject InferMethodName(Isolate* isolate, JSReceiver receiver,
           fun, name);
     } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
       name = InferMethodNameFromDictionary(
-          isolate, object.property_dictionary_ordered(), fun, name);
+          isolate, object.property_dictionary_swiss(), fun, name);
     } else {
       name = InferMethodNameFromDictionary(
           isolate, object.property_dictionary(), fun, name);

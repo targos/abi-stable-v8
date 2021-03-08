@@ -10,6 +10,7 @@
 #include "src/wasm/graph-builder-interface.h"
 #include "src/wasm/leb-helper.h"
 #include "src/wasm/module-compiler.h"
+#include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-import-wrapper-cache.h"
 #include "src/wasm/wasm-objects-inl.h"
 #include "src/wasm/wasm-opcodes.h"
@@ -483,8 +484,8 @@ Handle<Code> WasmFunctionWrapper::GetWrapperCode() {
       for (size_t i = 0; i < num_params + 1; i++) {
         rep_builder.AddParam(MachineRepresentation::kWord32);
       }
-      compiler::Int64Lowering r(graph(), machine(), common(), zone(),
-                                rep_builder.Build());
+      compiler::Int64Lowering r(graph(), machine(), common(), simplified(),
+                                zone(), rep_builder.Build());
       r.LowerGraph();
     }
 

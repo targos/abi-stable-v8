@@ -22,7 +22,6 @@ static constexpr int kNumScratchRegisters = arraysize(kScratchRegisters);
 
 }  // namespace detail
 
-// TODO(v8:11429): Move BaselineAssembler to baseline-assembler-<arch>-inl.h
 class BaselineAssembler::ScratchRegisterScope {
  public:
   explicit ScratchRegisterScope(BaselineAssembler* assembler)
