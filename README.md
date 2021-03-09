@@ -6,6 +6,11 @@ Reference on ABI compatibility: https://community.kde.org/Policies/Binary_Compat
 
 Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
 
+### Local setup
+
+- Clone this repository
+- Add the V8 remote: `git remote add v8 https://chromium.googlesource.com/v8/v8.git`
+
 ### List commits to audit
 
 ```bash
