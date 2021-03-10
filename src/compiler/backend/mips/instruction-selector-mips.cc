@@ -2169,10 +2169,10 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(I8x16Popcnt, kMipsI8x16Popcnt)                             \
   V(I8x16BitMask, kMipsI8x16BitMask)                           \
   V(S128Not, kMipsS128Not)                                     \
-  V(V64x2AllTrue, kMipsV64x2AllTrue)                           \
-  V(V32x4AllTrue, kMipsV32x4AllTrue)                           \
-  V(V16x8AllTrue, kMipsV16x8AllTrue)                           \
-  V(V8x16AllTrue, kMipsV8x16AllTrue)                           \
+  V(I64x2AllTrue, kMipsI64x2AllTrue)                           \
+  V(I32x4AllTrue, kMipsI32x4AllTrue)                           \
+  V(I16x8AllTrue, kMipsI16x8AllTrue)                           \
+  V(I8x16AllTrue, kMipsI8x16AllTrue)                           \
   V(V128AnyTrue, kMipsV128AnyTrue)
 
 #define SIMD_SHIFT_OP_LIST(V) \
@@ -2352,6 +2352,7 @@ void InstructionSelector::VisitS128Select(Node* node) {
   VisitRRRR(this, kMipsS128Select, node);
 }
 
+#if V8_ENABLE_WEBASSEMBLY
 namespace {
 
 struct ShuffleEntry {
@@ -2459,6 +2460,9 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
        g.UseImmediate(wasm::SimdShuffle::Pack4Lanes(shuffle + 8)),
        g.UseImmediate(wasm::SimdShuffle::Pack4Lanes(shuffle + 12)));
 }
+#else
+void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 void InstructionSelector::VisitI8x16Swizzle(Node* node) {
   MipsOperandGenerator g(this);

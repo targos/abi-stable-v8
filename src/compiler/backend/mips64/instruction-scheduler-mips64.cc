@@ -300,10 +300,10 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kMips64S16x8PackOdd:
     case kMips64S16x2Reverse:
     case kMips64S16x4Reverse:
-    case kMips64V64x2AllTrue:
-    case kMips64V32x4AllTrue:
-    case kMips64V16x8AllTrue:
-    case kMips64V8x16AllTrue:
+    case kMips64I64x2AllTrue:
+    case kMips64I32x4AllTrue:
+    case kMips64I16x8AllTrue:
+    case kMips64I8x16AllTrue:
     case kMips64V128AnyTrue:
     case kMips64S32x4InterleaveEven:
     case kMips64S32x4InterleaveOdd:
@@ -1290,10 +1290,14 @@ int InstructionScheduler::GetInstructionLatency(const Instruction* instr) {
   // in empirical way.
   switch (instr->arch_opcode()) {
     case kArchCallCodeObject:
+#if V8_ENABLE_WEBASSEMBLY
     case kArchCallWasmFunction:
+#endif  // V8_ENABLE_WEBASSEMBLY
       return CallLatency();
     case kArchTailCallCodeObject:
+#if V8_ENABLE_WEBASSEMBLY
     case kArchTailCallWasm:
+#endif  // V8_ENABLE_WEBASSEMBLY
     case kArchTailCallAddress:
       return JumpLatency();
     case kArchCallJSFunction: {

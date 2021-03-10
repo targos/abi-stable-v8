@@ -271,11 +271,17 @@ class LiftoffAssembler : public TurboAssembler {
 
     Register TrySetCachedInstanceRegister(LiftoffRegList pinned) {
       DCHECK_EQ(no_reg, cached_instance);
-      LiftoffRegList candidates = kGpCacheRegList.MaskOut(pinned);
-      if (!has_unused_register(candidates)) return no_reg;
-      SetInstanceCacheRegister(unused_register(candidates).gp());
-      DCHECK_NE(no_reg, cached_instance);
-      return cached_instance;
+      LiftoffRegList available_regs =
+          kGpCacheRegList.MaskOut(pinned).MaskOut(used_registers);
+      if (available_regs.is_empty()) return no_reg;
+      // Prefer the {kWasmInstanceRegister}, because that's where the instance
+      // initially is, and where it needs to be for calls.
+      Register new_cache_reg = available_regs.has(kWasmInstanceRegister)
+                                   ? kWasmInstanceRegister
+                                   : available_regs.GetFirstRegSet().gp();
+      SetInstanceCacheRegister(new_cache_reg);
+      DCHECK_EQ(new_cache_reg, cached_instance);
+      return new_cache_reg;
     }
 
     void ClearCachedInstanceRegister() {
@@ -410,6 +416,8 @@ class LiftoffAssembler : public TurboAssembler {
 
   void DropValues(int count);
 
+  void DropValue(int depth);
+
   // Ensure that the loop inputs are either in a register or spilled to the
   // stack, so that we can merge different values on the back-edge.
   void PrepareLoopArgs(int num);
@@ -432,6 +440,16 @@ class LiftoffAssembler : public TurboAssembler {
     DCHECK_EQ(reg_class_for(kind), reg.reg_class());
     cache_state_.inc_used(reg);
     cache_state_.stack_state.emplace_back(kind, reg, NextSpillOffset(kind));
+  }
+
+  // Assumes that the exception is in {kReturnRegister0}. This is where the
+  // exception is stored by the unwinder after a throwing call.
+  void PushException() {
+    LiftoffRegister reg{kReturnRegister0};
+    // This is used after a call, so {kReturnRegister0} is not used yet.
+    DCHECK(cache_state_.is_free(reg));
+    cache_state_.inc_used(reg);
+    cache_state_.stack_state.emplace_back(kRef, reg, NextSpillOffset(kRef));
   }
 
   void PushConstant(ValueKind kind, int32_t i32_const) {
@@ -1026,7 +1044,7 @@ class LiftoffAssembler : public TurboAssembler {
                                LiftoffRegister src2, LiftoffRegister mask);
   inline void emit_i8x16_neg(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_v128_anytrue(LiftoffRegister dst, LiftoffRegister src);
-  inline void emit_v8x16_alltrue(LiftoffRegister dst, LiftoffRegister src);
+  inline void emit_i8x16_alltrue(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i8x16_bitmask(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i8x16_shl(LiftoffRegister dst, LiftoffRegister lhs,
                              LiftoffRegister rhs);
@@ -1061,7 +1079,7 @@ class LiftoffAssembler : public TurboAssembler {
   inline void emit_i8x16_max_u(LiftoffRegister dst, LiftoffRegister lhs,
                                LiftoffRegister rhs);
   inline void emit_i16x8_neg(LiftoffRegister dst, LiftoffRegister src);
-  inline void emit_v16x8_alltrue(LiftoffRegister dst, LiftoffRegister src);
+  inline void emit_i16x8_alltrue(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i16x8_bitmask(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i16x8_shl(LiftoffRegister dst, LiftoffRegister lhs,
                              LiftoffRegister rhs);
@@ -1117,7 +1135,7 @@ class LiftoffAssembler : public TurboAssembler {
                                        LiftoffRegister src1,
                                        LiftoffRegister src2);
   inline void emit_i32x4_neg(LiftoffRegister dst, LiftoffRegister src);
-  inline void emit_v32x4_alltrue(LiftoffRegister dst, LiftoffRegister src);
+  inline void emit_i32x4_alltrue(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i32x4_bitmask(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i32x4_shl(LiftoffRegister dst, LiftoffRegister lhs,
                              LiftoffRegister rhs);
@@ -1164,7 +1182,7 @@ class LiftoffAssembler : public TurboAssembler {
                                              LiftoffRegister src1,
                                              LiftoffRegister src2);
   inline void emit_i64x2_neg(LiftoffRegister dst, LiftoffRegister src);
-  inline void emit_v64x2_alltrue(LiftoffRegister dst, LiftoffRegister src);
+  inline void emit_i64x2_alltrue(LiftoffRegister dst, LiftoffRegister src);
   inline void emit_i64x2_shl(LiftoffRegister dst, LiftoffRegister lhs,
                              LiftoffRegister rhs);
   inline void emit_i64x2_shli(LiftoffRegister dst, LiftoffRegister lhs,
