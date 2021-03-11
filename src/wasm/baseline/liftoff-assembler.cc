@@ -25,7 +25,9 @@ namespace wasm {
 using VarState = LiftoffAssembler::VarState;
 using ValueKindSig = LiftoffAssembler::ValueKindSig;
 
-constexpr ValueKind LiftoffAssembler::kIntPtr;
+constexpr ValueKind LiftoffAssembler::kPointerKind;
+constexpr ValueKind LiftoffAssembler::kTaggedKind;
+constexpr ValueKind LiftoffAssembler::kSmiKind;
 
 namespace {
 
@@ -694,15 +696,15 @@ void LiftoffAssembler::MergeFullStackWith(CacheState& target,
     transfers.TransferStackSlot(target.stack_state[i], source.stack_state[i]);
   }
 
+  // Full stack merging is only done for forward jumps, so we can just clear the
+  // instance cache register at the target in case of mismatch.
   if (source.cached_instance != target.cached_instance) {
-    // Backward jumps (to loop headers) do not have a cached instance anyway, so
-    // ignore this. On forward jumps, jump reset the cached instance in the
-    // target state.
     target.ClearCachedInstanceRegister();
   }
 }
 
-void LiftoffAssembler::MergeStackWith(CacheState& target, uint32_t arity) {
+void LiftoffAssembler::MergeStackWith(CacheState& target, uint32_t arity,
+                                      JumpDirection jump_direction) {
   // Before: ----------------|----- (discarded) ----|--- arity ---|
   //                         ^target_stack_height   ^stack_base   ^stack_height
   // After:  ----|-- arity --|
@@ -724,11 +726,21 @@ void LiftoffAssembler::MergeStackWith(CacheState& target, uint32_t arity) {
                                 cache_state_.stack_state[stack_base + i]);
   }
 
-  if (cache_state_.cached_instance != target.cached_instance) {
-    // Backward jumps (to loop headers) do not have a cached instance anyway, so
-    // ignore this. On forward jumps, jump reset the cached instance in the
-    // target state.
-    target.ClearCachedInstanceRegister();
+  if (cache_state_.cached_instance != target.cached_instance &&
+      target.cached_instance != no_reg) {
+    if (jump_direction == kForwardJump) {
+      // On forward jumps, just reset the cached instance in the target state.
+      target.ClearCachedInstanceRegister();
+    } else {
+      // On backward jumps, we already generated code assuming that the instance
+      // is available in that register. Thus move it there.
+      if (cache_state_.cached_instance == no_reg) {
+        LoadInstanceFromFrame(target.cached_instance);
+      } else {
+        Move(target.cached_instance, cache_state_.cached_instance,
+             kPointerKind);
+      }
+    }
   }
 }
 
@@ -779,7 +791,7 @@ void LiftoffAssembler::ClearRegister(
     if (reg != *use) continue;
     if (replacement == no_reg) {
       replacement = GetUnusedRegister(kGpReg, pinned).gp();
-      Move(replacement, reg, LiftoffAssembler::kIntPtr);
+      Move(replacement, reg, kPointerKind);
     }
     // We cannot leave this loop early. There may be multiple uses of {reg}.
     *use = replacement;
@@ -890,7 +902,8 @@ void LiftoffAssembler::PrepareCall(const ValueKindSig* sig,
   param_regs.set(instance_reg);
   if (target_instance && *target_instance != instance_reg) {
     stack_transfers.MoveRegister(LiftoffRegister(instance_reg),
-                                 LiftoffRegister(*target_instance), kIntPtr);
+                                 LiftoffRegister(*target_instance),
+                                 kPointerKind);
   }
 
   int param_slots = static_cast<int>(call_descriptor->ParameterSlotCount());
@@ -909,11 +922,10 @@ void LiftoffAssembler::PrepareCall(const ValueKindSig* sig,
     if (!free_regs.is_empty()) {
       LiftoffRegister new_target = free_regs.GetFirstRegSet();
       stack_transfers.MoveRegister(new_target, LiftoffRegister(*target),
-                                   kIntPtr);
+                                   kPointerKind);
       *target = new_target.gp();
     } else {
-      stack_slots.Add(LiftoffAssembler::VarState(LiftoffAssembler::kIntPtr,
-                                                 LiftoffRegister(*target), 0),
+      stack_slots.Add(VarState(kPointerKind, LiftoffRegister(*target), 0),
                       param_slots);
       param_slots++;
       *target = no_reg;

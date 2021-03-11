@@ -1445,6 +1445,31 @@ void VectorConverFromFPSaturate(Simulator* sim, Instruction* instr, B min_val,
   }
 }
 
+template <typename S, typename T>
+void VectorPackSaturate(Simulator* sim, Instruction* instr, S min_val,
+                        S max_val) {
+  DECODE_VX_INSTRUCTION(t, a, b, T)
+  int src = a;
+  int count = 0;
+  S value = 0;
+  // Setup a temp array to avoid overwriting dst mid loop.
+  T temps[kSimd128Size / sizeof(T)] = {0};
+  for (size_t i = 0; i < kSimd128Size / sizeof(T); i++, count++) {
+    if (count == kSimd128Size / sizeof(S)) {
+      src = b;
+      count = 0;
+    }
+    value = sim->get_simd_register_by_lane<S>(src, count);
+    if (value > max_val) {
+      value = max_val;
+    } else if (value < min_val) {
+      value = min_val;
+    }
+    temps[i] = static_cast<T>(value);
+  }
+  FOR_EACH_LANE(i, T) { sim->set_simd_register_by_lane<T>(t, i, temps[i]); }
+}
+
 template <typename T>
 T VSXFPMin(T x, T y) {
   // Handle +0 and -0.
@@ -4288,6 +4313,108 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       }
       break;
     }
+#define VECTOR_UNPACK(S, D, if_high_side)                           \
+  int t = instr->RTValue();                                         \
+  int b = instr->RBValue();                                         \
+  constexpr size_t kItemCount = kSimd128Size / sizeof(D);           \
+  D temps[kItemCount] = {0};                                        \
+  /* Avoid overwriting src if src and dst are the same register. */ \
+  FOR_EACH_LANE(i, D) {                                             \
+    temps[i] = get_simd_register_by_lane<S>(b, i, if_high_side);    \
+  }                                                                 \
+  FOR_EACH_LANE(i, D) {                                             \
+    set_simd_register_by_lane<D>(t, i, temps[i], if_high_side);     \
+  }
+    case VUPKHSB: {
+      VECTOR_UNPACK(int8_t, int16_t, true)
+      break;
+    }
+    case VUPKHSH: {
+      VECTOR_UNPACK(int16_t, int32_t, true)
+      break;
+    }
+    case VUPKHSW: {
+      VECTOR_UNPACK(int32_t, int64_t, true)
+      break;
+    }
+    case VUPKLSB: {
+      VECTOR_UNPACK(int8_t, int16_t, false)
+      break;
+    }
+    case VUPKLSH: {
+      VECTOR_UNPACK(int16_t, int32_t, false)
+      break;
+    }
+    case VUPKLSW: {
+      VECTOR_UNPACK(int32_t, int64_t, false)
+      break;
+    }
+#undef VECTOR_UNPACK
+    case VPKSWSS: {
+      VectorPackSaturate<int32_t, int16_t>(this, instr, kMinInt16, kMaxInt16);
+      break;
+    }
+    case VPKSWUS: {
+      VectorPackSaturate<int32_t, uint16_t>(this, instr, 0, kMaxUInt16);
+      break;
+    }
+    case VPKSHSS: {
+      VectorPackSaturate<int16_t, int8_t>(this, instr, kMinInt8, kMaxInt8);
+      break;
+    }
+    case VPKSHUS: {
+      VectorPackSaturate<int16_t, uint8_t>(this, instr, 0, kMaxUInt8);
+      break;
+    }
+#define VECTOR_ADD_SUB_SATURATE(intermediate_type, result_type, op, min_val, \
+                                max_val)                                     \
+  DECODE_VX_INSTRUCTION(t, a, b, T)                                          \
+  FOR_EACH_LANE(i, result_type) {                                            \
+    intermediate_type a_val = static_cast<intermediate_type>(                \
+        get_simd_register_by_lane<result_type>(a, i));                       \
+    intermediate_type b_val = static_cast<intermediate_type>(                \
+        get_simd_register_by_lane<result_type>(b, i));                       \
+    intermediate_type t_val = a_val op b_val;                                \
+    if (t_val > max_val)                                                     \
+      t_val = max_val;                                                       \
+    else if (t_val < min_val)                                                \
+      t_val = min_val;                                                       \
+    set_simd_register_by_lane<result_type>(t, i,                             \
+                                           static_cast<result_type>(t_val)); \
+  }
+    case VADDSHS: {
+      VECTOR_ADD_SUB_SATURATE(int32_t, int16_t, +, kMinInt16, kMaxInt16)
+      break;
+    }
+    case VSUBSHS: {
+      VECTOR_ADD_SUB_SATURATE(int32_t, int16_t, -, kMinInt16, kMaxInt16)
+      break;
+    }
+    case VADDUHS: {
+      VECTOR_ADD_SUB_SATURATE(int32_t, uint16_t, +, 0, kMaxUInt16)
+      break;
+    }
+    case VSUBUHS: {
+      VECTOR_ADD_SUB_SATURATE(int32_t, uint16_t, -, 0, kMaxUInt16)
+      break;
+    }
+    case VADDSBS: {
+      VECTOR_ADD_SUB_SATURATE(int16_t, int8_t, +, kMinInt8, kMaxInt8)
+      break;
+    }
+    case VSUBSBS: {
+      VECTOR_ADD_SUB_SATURATE(int16_t, int8_t, -, kMinInt8, kMaxInt8)
+      break;
+    }
+    case VADDUBS: {
+      VECTOR_ADD_SUB_SATURATE(int16_t, uint8_t, +, 0, kMaxUInt8)
+      break;
+    }
+    case VSUBUBS: {
+      VECTOR_ADD_SUB_SATURATE(int16_t, uint8_t, -, 0, kMaxUInt8)
+      break;
+    }
+#undef VECTOR_ADD_SUB_SATURATE
     case VSEL: {
       int vrt = instr->RTValue();
       int vra = instr->RAValue();
