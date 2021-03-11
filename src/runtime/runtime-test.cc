@@ -231,7 +231,9 @@ Object OptimizeFunctionOnNextCall(RuntimeArguments& args, Isolate* isolate,
     return CrashUnlessFuzzing(isolate);
   }
 
+#if V8_ENABLE_WEBASSEMBLY
   if (function->shared().HasAsmWasmData()) return CrashUnlessFuzzing(isolate);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   if (FLAG_testing_d8_test_runner) {
     PendingOptimizationTable::MarkedForOptimization(isolate, function);
@@ -389,7 +391,9 @@ RUNTIME_FUNCTION(Runtime_PrepareFunctionForOptimization) {
     return CrashUnlessFuzzing(isolate);
   }
 
+#if V8_ENABLE_WEBASSEMBLY
   if (function->shared().HasAsmWasmData()) return CrashUnlessFuzzing(isolate);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   // Hold onto the bytecode array between marking and optimization to ensure
   // it's not flushed.
@@ -1240,9 +1244,11 @@ RUNTIME_FUNCTION(Runtime_EnableCodeLoggingForTesting) {
                          Handle<SharedFunctionInfo> shared,
                          Handle<Name> script_name, int line, int column) final {
     }
+#if V8_ENABLE_WEBASSEMBLY
     void CodeCreateEvent(LogEventsAndTags tag, const wasm::WasmCode* code,
                          wasm::WasmName name, const char* source_url,
                          int code_offset, int script_id) final {}
+#endif  // V8_ENABLE_WEBASSEMBLY
 
     void CallbackEvent(Handle<Name> name, Address entry_point) final {}
     void GetterCallbackEvent(Handle<Name> name, Address entry_point) final {}

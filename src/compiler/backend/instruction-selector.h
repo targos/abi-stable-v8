@@ -16,8 +16,11 @@
 #include "src/compiler/linkage.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node.h"
-#include "src/wasm/simd-shuffle.h"
 #include "src/zone/zone-containers.h"
+
+#if V8_ENABLE_WEBASSEMBLY
+#include "src/wasm/simd-shuffle.h"
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
@@ -700,6 +703,31 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   };
 #endif  // V8_TARGET_ARCH_64_BIT
 
+  struct FrameStateInput {
+    FrameStateInput(Node* node_, FrameStateInputKind kind_)
+        : node(node_), kind(kind_) {}
+
+    Node* node;
+    FrameStateInputKind kind;
+
+    struct Hash {
+      size_t operator()(FrameStateInput const& source) const {
+        return base::hash_combine(source.node,
+                                  static_cast<size_t>(source.kind));
+      }
+    };
+
+    struct Equal {
+      bool operator()(FrameStateInput const& lhs,
+                      FrameStateInput const& rhs) const {
+        return lhs.node == rhs.node && lhs.kind == rhs.kind;
+      }
+    };
+  };
+
+  struct CachedStateValues;
+  class CachedStateValuesBuilder;
+
   // ===========================================================================
 
   Zone* const zone_;
@@ -723,6 +751,9 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   EnableScheduling enable_scheduling_;
   EnableRootsRelativeAddressing enable_roots_relative_addressing_;
   EnableSwitchJumpTable enable_switch_jump_table_;
+  ZoneUnorderedMap<FrameStateInput, CachedStateValues*, FrameStateInput::Hash,
+                   FrameStateInput::Equal>
+      state_values_cache_;
 
   PoisoningMitigationLevel poisoning_level_;
   Frame* frame_;
