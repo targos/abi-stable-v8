@@ -2924,6 +2924,16 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       }
       break;
     }
+    case LDBRX: {
+      int rt = instr->RTValue();
+      int ra = instr->RAValue();
+      int rb = instr->RBValue();
+      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
+      intptr_t rb_val = get_register(rb);
+      intptr_t result = __builtin_bswap64(ReadDW(ra_val + rb_val));
+      set_register(rt, result);
+      break;
+    }
     case STDX:
     case STDUX: {
       int rs = instr->RSValue();
@@ -3911,6 +3921,14 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       VSPLT(int8_t)
       break;
     }
+    case XXSPLTIB: {
+      int8_t imm8 = instr->Bits(18, 11);
+      int t = instr->RTValue();
+      FOR_EACH_LANE(i, int8_t) {
+        set_simd_register_by_lane<int8_t>(t, i, imm8);
+      }
+      break;
+    }
 #undef VSPLT
 #define VINSERT(type, element)                                              \
   uint32_t uim = static_cast<uint32_t>(instr->Bits(20, 16)) / sizeof(type); \
@@ -3971,6 +3989,10 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       VECTOR_LOGICAL_OP(a_val & b_val)
       break;
     }
+    case VANDC: {
+      VECTOR_LOGICAL_OP(a_val & (~b_val))
+      break;
+    }
     case VOR: {
       VECTOR_LOGICAL_OP(a_val | b_val)
       break;
@@ -4004,6 +4026,10 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       VECTOR_ARITHMETIC_OP(double, *)
       break;
     }
+    case XVDIVDP: {
+      VECTOR_ARITHMETIC_OP(double, /)
+      break;
+    }
     case VADDFP: {
       VECTOR_ARITHMETIC_OP(float, +)
       break;
@@ -4014,6 +4040,10 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
     }
     case XVMULSP: {
       VECTOR_ARITHMETIC_OP(float, *)
+      break;
+    }
+    case XVDIVSP: {
+      VECTOR_ARITHMETIC_OP(float, /)
       break;
     }
     case VADDUDM: {
@@ -4463,6 +4493,57 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       }
       break;
     }
+    case VPERM: {
+      int vrt = instr->RTValue();
+      int vra = instr->RAValue();
+      int vrb = instr->RBValue();
+      int vrc = instr->RCValue();
+      int8_t temp[kSimd128Size] = {0};
+      FOR_EACH_LANE(i, int8_t) {
+        int8_t lane_num = get_simd_register_by_lane<int8_t>(vrc, i);
+        // Get the five least significant bits.
+        lane_num = (lane_num << 3) >> 3;
+        int reg = vra;
+        if (lane_num >= kSimd128Size) {
+          lane_num = lane_num - kSimd128Size;
+          reg = vrb;
+        }
+        temp[i] = get_simd_register_by_lane<int8_t>(reg, lane_num);
+      }
+      FOR_EACH_LANE(i, int8_t) {
+        set_simd_register_by_lane<int8_t>(vrt, i, temp[i]);
+      }
+      break;
+    }
+#define VECTOR_FP_QF(type, sign)                             \
+  DECODE_VX_INSTRUCTION(t, a, b, T)                          \
+  FOR_EACH_LANE(i, type) {                                   \
+    type a_val = get_simd_register_by_lane<type>(a, i);      \
+    type b_val = get_simd_register_by_lane<type>(b, i);      \
+    type t_val = get_simd_register_by_lane<type>(t, i);      \
+    type reuslt = sign * ((sign * b_val) + (a_val * t_val)); \
+    if (isinf(a_val)) reuslt = a_val;                        \
+    if (isinf(b_val)) reuslt = b_val;                        \
+    if (isinf(t_val)) reuslt = t_val;                        \
+    set_simd_register_by_lane<type>(t, i, reuslt);           \
+  }
+    case XVMADDMDP: {
+      VECTOR_FP_QF(double, +1)
+      break;
+    }
+    case XVNMSUBMDP: {
+      VECTOR_FP_QF(double, -1)
+      break;
+    }
+    case XVMADDMSP: {
+      VECTOR_FP_QF(float, +1)
+      break;
+    }
+    case XVNMSUBMSP: {
+      VECTOR_FP_QF(float, -1)
+      break;
+    }
+#undef VECTOR_FP_QF
 #undef FOR_EACH_LANE
 #undef DECODE_VX_INSTRUCTION
     default: {
