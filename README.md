@@ -27,3 +27,4 @@ Reference commit: https://github.com/v8/v8/commit/349bcc6a075411f1a7ce2d866c3dfe
 ### Changes
 
 - [15a3932250](https://github.com/targos/abi-stable-v8/commit/15a39322507b9bb8c0f6aabc5814c2d87ede2f62) - Reverted [[api] Avoid handles for const API functions](https://github.com/v8/v8/commit/aee471b2ff5b1a9e622426454885b748d226535b)
+- [d6bc672189](https://github.com/targos/abi-stable-v8/commit/d6bc67218954f2e7d691316f9518ae598bdb6483) - Reverted [[api] Remove deprecated [Shared]ArrayBuffer API](https://github.com/v8/v8/commit/578f6be77fc5d8af975005c2baf918e7225abb62)
