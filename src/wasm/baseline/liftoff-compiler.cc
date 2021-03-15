@@ -368,6 +368,7 @@ class LiftoffCompiler {
     LiftoffAssembler::CacheState catch_state;
     Label catch_label;
     bool catch_reached = false;
+    bool in_handler = false;
     int32_t previous_catch = -1;
   };
 
@@ -1069,19 +1070,93 @@ class LiftoffCompiler {
     PushControl(block);
   }
 
+  // Load the property in {kReturnRegister0}.
+  LiftoffRegister GetExceptionProperty(LiftoffAssembler::VarState& exception,
+                                       RootIndex root_index) {
+    DCHECK(root_index == RootIndex::kwasm_exception_tag_symbol ||
+           root_index == RootIndex::kwasm_exception_values_symbol);
+
+    LiftoffRegList pinned;
+    LiftoffRegister tag_symbol_reg =
+        pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    LoadExceptionSymbol(tag_symbol_reg.gp(), pinned, root_index);
+    LiftoffRegister context_reg =
+        pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    LOAD_TAGGED_PTR_INSTANCE_FIELD(context_reg.gp(), NativeContext, pinned);
+
+    auto sig = MakeSig()
+                   .Returns(kPointerKind)
+                   .Params(kPointerKind, kPointerKind, kPointerKind);
+    LiftoffAssembler::VarState tag_symbol(kPointerKind, tag_symbol_reg, 0);
+    LiftoffAssembler::VarState context(kPointerKind, context_reg, 0);
+
+    compiler::CallDescriptor* call_descriptor =
+        GetBuiltinCallDescriptor<WasmGetOwnPropertyDescriptor>(
+            compilation_zone_);
+    __ PrepareBuiltinCall(&sig, call_descriptor,
+                          {exception, tag_symbol, context});
+    DEBUG_CODE_COMMENT("Call builtin");
+    __ CallRuntimeStub(WasmCode::RuntimeStubId::kWasmGetOwnProperty);
+    DefineSafepoint();
+    return LiftoffRegister(kReturnRegister0);
+  }
+
   void CatchException(FullDecoder* decoder,
                       const ExceptionIndexImmediate<validate>& imm,
                       Control* block, Vector<Value> values) {
-    unsupported(decoder, kExceptionHandling, "catch");
+    DCHECK(block->is_try_catch());
+    current_catch_ = block->try_info->previous_catch;  // Pop try scope.
+    __ emit_jump(block->label.get());
+
+    // The catch block is unreachable if no possible throws in the try block
+    // exist. We only build a landing pad if some node in the try block can
+    // (possibly) throw. Otherwise the catch environments remain empty.
+    if (!block->try_info->catch_reached) {
+      block->reachability = kSpecOnlyReachable;
+      return;
+    }
+
+    // This is the last use of this label. Re-use the field for the label of the
+    // next catch block, and jump there if the tag does not match.
+    __ bind(&block->try_info->catch_label);
+    new (&block->try_info->catch_label) Label();
+
+    __ cache_state()->Split(block->try_info->catch_state);
+
+    DEBUG_CODE_COMMENT("load caught exception tag");
+    DCHECK_EQ(__ cache_state()->stack_state.back().kind(), kRef);
+    LiftoffRegister caught_tag =
+        GetExceptionProperty(__ cache_state()->stack_state.back(),
+                             RootIndex::kwasm_exception_tag_symbol);
+    LiftoffRegList pinned;
+    pinned.set(caught_tag);
+
+    DEBUG_CODE_COMMENT("load expected exception tag");
+    Register imm_tag = pinned.set(__ GetUnusedRegister(kGpReg, pinned)).gp();
+    LOAD_TAGGED_PTR_INSTANCE_FIELD(imm_tag, ExceptionsTable, pinned);
+    __ LoadTaggedPointer(
+        imm_tag, imm_tag, no_reg,
+        wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(imm.index), {});
+
+    DEBUG_CODE_COMMENT("compare tags");
+    Label caught;
+    __ emit_cond_jump(kEqual, &caught, kI32, imm_tag, kReturnRegister0);
+    // The tags don't match, merge the current state into the catch state and
+    // jump to the next handler.
+    __ MergeFullStackWith(block->try_info->catch_state, *__ cache_state());
+    __ emit_jump(&block->try_info->catch_label);
+
+    __ bind(&caught);
+    if (!block->try_info->in_handler) {
+      block->try_info->in_handler = true;
+      num_exceptions_++;
+    }
+    GetExceptionValues(decoder, __ cache_state()->stack_state.back(),
+                       imm.exception);
   }
 
-  void Delegate(FullDecoder* decoder, uint32_t depth, Control* block) {
-    unsupported(decoder, kExceptionHandling, "delegate");
-  }
-
-  void Rethrow(FullDecoder* decoder, Control* try_block) {
-    int index = try_block->try_info->catch_state.stack_height() - 1;
-    auto& exception = __ cache_state()->stack_state[index];
+  void Rethrow(FullDecoder* decoder,
+               const LiftoffAssembler::VarState& exception) {
     DCHECK_EQ(exception.kind(), kRef);
     DEBUG_CODE_COMMENT("call WasmRethrow builtin");
     compiler::CallDescriptor* rethrow_descriptor =
@@ -1093,6 +1168,38 @@ class LiftoffCompiler {
         __ pc_offset(), SourcePosition(decoder->position()), true);
     __ CallRuntimeStub(WasmCode::kWasmRethrow);
     DefineSafepoint();
+  }
+
+  void Delegate(FullDecoder* decoder, uint32_t depth, Control* block) {
+    DCHECK_EQ(block, decoder->control_at(0));
+    Control* target = decoder->control_at(depth);
+    DCHECK(block->is_incomplete_try());
+    __ bind(&block->try_info->catch_label);
+    __ cache_state()->Split(block->try_info->catch_state);
+    if (block->try_info->catch_reached) {
+      if (depth == decoder->control_depth() - 1) {
+        // Delegate to the caller, do not emit a landing pad.
+        Rethrow(decoder, __ cache_state()->stack_state.back());
+      } else {
+        DCHECK(target->is_incomplete_try());
+        if (!target->try_info->catch_reached) {
+          target->try_info->catch_state.InitMerge(
+              *__ cache_state(), __ num_locals(), 1,
+              target->stack_depth + target->num_exceptions);
+          target->try_info->catch_reached = true;
+        }
+        __ MergeStackWith(target->try_info->catch_state, 1,
+                          LiftoffAssembler::kForwardJump);
+        __ emit_jump(&target->try_info->catch_label);
+      }
+    }
+    current_catch_ = block->try_info->previous_catch;
+  }
+
+  void Rethrow(FullDecoder* decoder, Control* try_block) {
+    int index = try_block->try_info->catch_state.stack_height() - 1;
+    auto& exception = __ cache_state()->stack_state[index];
+    Rethrow(decoder, exception);
     EmitLandingPad(decoder);
   }
 
@@ -1113,7 +1220,8 @@ class LiftoffCompiler {
 
     __ bind(&block->try_info->catch_label);
     __ cache_state()->Steal(block->try_info->catch_state);
-    if (!block->is_try_unwind()) {
+    if (!block->try_info->in_handler) {
+      block->try_info->in_handler = true;
       num_exceptions_++;
     }
   }
@@ -1141,7 +1249,16 @@ class LiftoffCompiler {
                                c->end_merge.arity,
                                c->stack_depth + c->num_exceptions);
     }
-    __ MergeFullStackWith(c->label_state, *__ cache_state());
+    DCHECK(!c->is_try_catchall());
+    if (c->is_try_catch()) {
+      // Drop the implicit exception ref.
+      DCHECK_EQ(c->label_state.stack_height() + 1,
+                __ cache_state()->stack_height());
+      __ MergeStackWith(c->label_state, c->br_merge()->arity,
+                        LiftoffAssembler::kForwardJump);
+    } else {
+      __ MergeFullStackWith(c->label_state, *__ cache_state());
+    }
     __ emit_jump(c->label.get());
     TraceCacheState(decoder);
   }
@@ -1180,8 +1297,8 @@ class LiftoffCompiler {
     }
   }
 
-  void FinishTryCatch(FullDecoder* decoder, Control* c) {
-    DCHECK(c->is_try_catch() || c->is_try_catchall());
+  void FinishTry(FullDecoder* decoder, Control* c) {
+    DCHECK(c->is_try_catch() || c->is_try_catchall() || c->is_try_unwind());
     if (!c->end_merge.reached) {
       if (c->try_info->catch_reached) {
         // Drop the implicit exception ref.
@@ -1205,8 +1322,9 @@ class LiftoffCompiler {
     if (c->is_onearmed_if()) {
       // Special handling for one-armed ifs.
       FinishOneArmedIf(decoder, c);
-    } else if (c->is_try_catch() || c->is_try_catchall()) {
-      FinishTryCatch(decoder, c);
+    } else if (c->is_try_catch() || c->is_try_catchall() ||
+               c->is_try_unwind()) {
+      FinishTry(decoder, c);
     } else if (c->end_merge.reached) {
       // There is a merge already. Merge our state into that, then continue with
       // that state.
@@ -3728,12 +3846,50 @@ class LiftoffCompiler {
         tmp_reg, pinned, LiftoffAssembler::kSkipWriteBarrier);
   }
 
+  void Load32BitExceptionValue(LiftoffRegister dst,
+                               LiftoffRegister values_array, uint32_t* index,
+                               LiftoffRegList pinned) {
+    LiftoffRegister upper = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    __ LoadSmiAsInt32(
+        upper, values_array.gp(),
+        wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(*index), pinned);
+    (*index)++;
+    __ emit_i32_shli(upper.gp(), upper.gp(), 16);
+    __ LoadSmiAsInt32(
+        dst, values_array.gp(),
+        wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(*index), pinned);
+    (*index)++;
+    __ emit_i32_or(dst.gp(), upper.gp(), dst.gp());
+  }
+
   void StoreExceptionValue(ValueType type, Register values_array,
                            int* index_in_array, LiftoffRegList pinned) {
     // TODO(clemensb): Handle more types.
     DCHECK_EQ(kWasmI32, type);
     LiftoffRegister value = pinned.set(__ PopToRegister(pinned));
     Store32BitExceptionValue(values_array, index_in_array, value.gp(), pinned);
+  }
+
+  void GetExceptionValues(FullDecoder* decoder,
+                          LiftoffAssembler::VarState& exception_var,
+                          const WasmException* exception) {
+    LiftoffRegList pinned;
+    DEBUG_CODE_COMMENT("get exception values");
+    LiftoffRegister values_array = GetExceptionProperty(
+        exception_var, RootIndex::kwasm_exception_values_symbol);
+    uint32_t index = 0;
+    const WasmExceptionSig* sig = exception->sig;
+    LiftoffRegister value = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    for (ValueType param : sig->parameters()) {
+      if (param != kWasmI32) {
+        unsupported(decoder, kExceptionHandling,
+                    "unsupported type in exception payload");
+        return;
+      }
+      Load32BitExceptionValue(value, values_array, &index, pinned);
+      __ PushRegister(kI32, value);
+    }
+    DCHECK_EQ(index, WasmExceptionPackage::GetEncodedSize(exception));
   }
 
   void EmitLandingPad(FullDecoder* decoder) {
@@ -3819,11 +3975,11 @@ class LiftoffCompiler {
 
     // Load the exception tag.
     DEBUG_CODE_COMMENT("load exception tag");
-    Register exception_tag =
-        pinned.set(__ GetUnusedRegister(kGpReg, pinned)).gp();
-    LOAD_TAGGED_PTR_INSTANCE_FIELD(exception_tag, ExceptionsTable, pinned);
+    LiftoffRegister exception_tag =
+        pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    LOAD_TAGGED_PTR_INSTANCE_FIELD(exception_tag.gp(), ExceptionsTable, pinned);
     __ LoadTaggedPointer(
-        exception_tag, exception_tag, no_reg,
+        exception_tag.gp(), exception_tag.gp(), no_reg,
         wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(imm.index), {});
 
     // Finally, call WasmThrow.
@@ -3835,8 +3991,7 @@ class LiftoffCompiler {
 
     __ PrepareBuiltinCall(
         &throw_sig, throw_descriptor,
-        {LiftoffAssembler::VarState{kPointerKind,
-                                    LiftoffRegister{exception_tag}, 0},
+        {LiftoffAssembler::VarState{kPointerKind, exception_tag, 0},
          LiftoffAssembler::VarState{kPointerKind, values_array, 0}});
     source_position_table_builder_.AddPosition(
         __ pc_offset(), SourcePosition(decoder->position()), true);
@@ -5446,11 +5601,10 @@ class LiftoffCompiler {
                                WasmExportedFunctionData::kInstanceOffset),
                            pinned);
       LiftoffRegister func_index = target;
-      __ LoadTaggedSignedAsInt32(
-          func_index, func_data.gp(),
-          wasm::ObjectAccess::ToTagged(
-              WasmExportedFunctionData::kFunctionIndexOffset),
-          pinned);
+      __ LoadSmiAsInt32(func_index, func_data.gp(),
+                        wasm::ObjectAccess::ToTagged(
+                            WasmExportedFunctionData::kFunctionIndexOffset),
+                        pinned);
       LiftoffRegister imported_function_refs = temp;
       __ LoadTaggedPointer(imported_function_refs.gp(), callee_instance.gp(),
                            no_reg,
@@ -5477,11 +5631,10 @@ class LiftoffCompiler {
                     WasmInstanceObject::kJumpTableStartOffset),
                 kPointerLoadType, pinned);
         LiftoffRegister jump_table_offset = temp;
-        __ LoadTaggedSignedAsInt32(
-            jump_table_offset, func_data.gp(),
-            wasm::ObjectAccess::ToTagged(
-                WasmExportedFunctionData::kJumpTableOffsetOffset),
-            pinned);
+        __ LoadSmiAsInt32(jump_table_offset, func_data.gp(),
+                          wasm::ObjectAccess::ToTagged(
+                              WasmExportedFunctionData::kJumpTableOffsetOffset),
+                          pinned);
         __ emit_ptrsize_add(target.gp(), jump_table_start.gp(),
                             jump_table_offset.gp());
         __ emit_jump(&perform_call);
@@ -5601,6 +5754,13 @@ class LiftoffCompiler {
     __ LoadTaggedPointer(null, null, no_reg,
                          IsolateData::root_slot_offset(RootIndex::kNullValue),
                          pinned);
+  }
+
+  void LoadExceptionSymbol(Register dst, LiftoffRegList pinned,
+                           RootIndex root_index) {
+    LOAD_INSTANCE_FIELD(dst, IsolateRoot, kSystemPointerSize, pinned);
+    uint32_t offset_imm = IsolateData::root_slot_offset(root_index);
+    __ LoadFullPointer(dst, dst, offset_imm);
   }
 
   void MaybeEmitNullCheck(FullDecoder* decoder, Register object,
