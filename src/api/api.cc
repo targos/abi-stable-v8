@@ -158,13 +158,16 @@ static ScriptOrigin GetScriptOriginForScript(i::Isolate* isolate,
   i::Handle<i::FixedArray> host_defined_options(script->host_defined_options(),
                                                 isolate);
   ScriptOriginOptions options(script->origin_options());
+  bool is_wasm = false;
+#if V8_ENABLE_WEBASSEMBLY
+  is_wasm = script->type() == i::Script::TYPE_WASM;
+#endif  // V8_ENABLE_WEBASSEMBLY
   v8::ScriptOrigin origin(
       reinterpret_cast<v8::Isolate*>(isolate), Utils::ToLocal(scriptName),
       script->line_offset(), script->column_offset(),
       options.IsSharedCrossOrigin(), script->id(),
-      Utils::ToLocal(source_map_url), options.IsOpaque(),
-      script->type() == i::Script::TYPE_WASM, options.IsModule(),
-      Utils::PrimitiveArrayToLocal(host_defined_options));
+      Utils::ToLocal(source_map_url), options.IsOpaque(), is_wasm,
+      options.IsModule(), Utils::PrimitiveArrayToLocal(host_defined_options));
   return origin;
 }
 
@@ -5888,7 +5891,9 @@ void V8::GetSharedMemoryStatistics(SharedMemoryStatistics* statistics) {
 
 void V8::SetIsCrossOriginIsolated() {
   i::FLAG_harmony_sharedarraybuffer = true;
+#if V8_ENABLE_WEBASSEMBLY
   i::FLAG_experimental_wasm_threads = true;
+#endif  // V8_ENABLE_WEBASSEMBLY
 }
 
 template <typename ObjectType>
@@ -8450,7 +8455,7 @@ void Isolate::Initialize(Isolate* isolate,
   }
 #endif  // ENABLE_GDB_JIT_INTERFACE
 #if defined(V8_TARGET_OS_WIN) && defined(V8_ENABLE_SYSTEM_INSTRUMENTATION)
-  if (code_event_handler == nullptr) {
+  if (code_event_handler == nullptr && i::FLAG_enable_system_instrumentation) {
     code_event_handler = i::ETWJITInterface::EventHandler;
   }
 #endif  // defined(V8_TARGET_OS_WIN)

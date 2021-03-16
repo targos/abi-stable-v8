@@ -1388,6 +1388,9 @@ void Simulator::ExecuteBranchConditional(Instruction* instr, BCType type) {
 }
 
 // Vector instruction helpers.
+#define GET_ADDRESS(a, b, a_val, b_val)          \
+  intptr_t a_val = a == 0 ? 0 : get_register(a); \
+  intptr_t b_val = get_register(b);
 #define DECODE_VX_INSTRUCTION(d, a, b, source_or_target) \
   int d = instr->R##source_or_target##Value();           \
   int a = instr->RAValue();                              \
@@ -2462,6 +2465,16 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
         set_simd_register_by_lane<int64_t>(frt, 0,
                                            static_cast<int64_t>(ra_val));
       }
+      break;
+    }
+    case MTVSRDD: {
+      int xt = instr->RTValue();
+      int ra = instr->RAValue();
+      int rb = instr->RBValue();
+      set_simd_register_by_lane<int64_t>(
+          xt, 0, static_cast<int64_t>(get_register(ra)));
+      set_simd_register_by_lane<int64_t>(
+          xt, 1, static_cast<int64_t>(get_register(rb)));
       break;
     }
     case MTVSRWA: {
@@ -3869,8 +3882,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
     // Vector instructions.
     case LVX: {
       DECODE_VX_INSTRUCTION(vrt, ra, rb, T)
-      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
-      intptr_t rb_val = get_register(rb);
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
       intptr_t addr = (ra_val + rb_val) & 0xFFFFFFFFFFFFFFF0;
       simdr_t* ptr = reinterpret_cast<simdr_t*>(addr);
       set_simd_register(vrt, *ptr);
@@ -3878,8 +3890,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
     }
     case STVX: {
       DECODE_VX_INSTRUCTION(vrs, ra, rb, S)
-      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
-      intptr_t rb_val = get_register(rb);
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
       __int128 vrs_val =
           *(reinterpret_cast<__int128*>(get_simd_register(vrs).int8));
       WriteQW((ra_val + rb_val) & 0xFFFFFFFFFFFFFFF0, vrs_val);
@@ -3887,8 +3898,7 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
     }
     case LXVD: {
       DECODE_VX_INSTRUCTION(xt, ra, rb, T)
-      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
-      intptr_t rb_val = get_register(rb);
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
       set_simd_register_by_lane<int64_t>(xt, 0, ReadDW(ra_val + rb_val));
       set_simd_register_by_lane<int64_t>(
           xt, 1, ReadDW(ra_val + rb_val + kSystemPointerSize));
@@ -3896,11 +3906,58 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
     }
     case STXVD: {
       DECODE_VX_INSTRUCTION(xs, ra, rb, S)
-      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
-      intptr_t rb_val = get_register(rb);
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
       WriteDW(ra_val + rb_val, get_simd_register_by_lane<int64_t>(xs, 0));
       WriteDW(ra_val + rb_val + kSystemPointerSize,
               get_simd_register_by_lane<int64_t>(xs, 1));
+      break;
+    }
+    case LXSIBZX: {
+      DECODE_VX_INSTRUCTION(xt, ra, rb, T)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      set_simd_register_by_lane<uint64_t>(xt, 0, ReadBU(ra_val + rb_val));
+      break;
+    }
+    case LXSIHZX: {
+      DECODE_VX_INSTRUCTION(xt, ra, rb, T)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      set_simd_register_by_lane<uint64_t>(xt, 0, ReadHU(ra_val + rb_val));
+      break;
+    }
+    case LXSIWZX: {
+      DECODE_VX_INSTRUCTION(xt, ra, rb, T)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      set_simd_register_by_lane<uint64_t>(xt, 0, ReadWU(ra_val + rb_val));
+      break;
+    }
+    case LXSDX: {
+      DECODE_VX_INSTRUCTION(xt, ra, rb, T)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      set_simd_register_by_lane<int64_t>(xt, 0, ReadDW(ra_val + rb_val));
+      break;
+    }
+    case STXSIBX: {
+      DECODE_VX_INSTRUCTION(xs, ra, rb, S)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      WriteB(ra_val + rb_val, get_simd_register_by_lane<int8_t>(xs, 7));
+      break;
+    }
+    case STXSIHX: {
+      DECODE_VX_INSTRUCTION(xs, ra, rb, S)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      WriteH(ra_val + rb_val, get_simd_register_by_lane<int16_t>(xs, 3));
+      break;
+    }
+    case STXSIWX: {
+      DECODE_VX_INSTRUCTION(xs, ra, rb, S)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      WriteW(ra_val + rb_val, get_simd_register_by_lane<int32_t>(xs, 1));
+      break;
+    }
+    case STXSDX: {
+      DECODE_VX_INSTRUCTION(xs, ra, rb, S)
+      GET_ADDRESS(ra, rb, ra_val, rb_val)
+      WriteDW(ra_val + rb_val, get_simd_register_by_lane<int64_t>(xs, 0));
       break;
     }
 #define VSPLT(type)                                       \
@@ -4082,6 +4139,40 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       VECTOR_ARITHMETIC_OP(int8_t, -)
       break;
     }
+#define VECTOR_MULTIPLY_EVEN_ODD(input_type, result_type, is_odd)  \
+  DECODE_VX_INSTRUCTION(t, a, b, T)                                \
+  size_t i = 0, j = 0, k = 0;                                      \
+  size_t lane_size = sizeof(input_type);                           \
+  if (is_odd) {                                                    \
+    i = 1;                                                         \
+    j = lane_size;                                                 \
+  }                                                                \
+  for (; j < kSimd128Size; i += 2, j += lane_size * 2, k++) {      \
+    input_type src0 = get_simd_register_by_lane<input_type>(a, i); \
+    input_type src1 = get_simd_register_by_lane<input_type>(b, i); \
+    set_simd_register_by_lane<result_type>(t, k, src0 * src1);     \
+  }
+    case VMULEUB: {
+      VECTOR_MULTIPLY_EVEN_ODD(uint8_t, uint16_t, false)
+      break;
+    }
+    case VMULESB: {
+      VECTOR_MULTIPLY_EVEN_ODD(int8_t, int16_t, false)
+      break;
+    }
+    case VMULEUH: {
+      VECTOR_MULTIPLY_EVEN_ODD(uint16_t, uint32_t, false)
+      break;
+    }
+    case VMULESH: {
+      VECTOR_MULTIPLY_EVEN_ODD(int16_t, int32_t, false)
+      break;
+    }
+    case VMULOUH: {
+      VECTOR_MULTIPLY_EVEN_ODD(int16_t, int32_t, true)
+      break;
+    }
+#undef VECTOR_MULTIPLY_EVEN_ODD
 #undef VECTOR_ARITHMETIC_OP
 #define VECTOR_MIN_MAX_OP(type, op)                                        \
   DECODE_VX_INSTRUCTION(t, a, b, T)                                        \
@@ -4515,6 +4606,25 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       }
       break;
     }
+    case VBPERMQ: {
+      DECODE_VX_INSTRUCTION(t, a, b, T)
+      uint16_t result_bits = 0;
+      unsigned __int128 src_bits =
+          *(reinterpret_cast<__int128*>(get_simd_register(a).int8));
+      for (int i = 0; i < kSimd128Size; i++) {
+        result_bits <<= 1;
+        uint8_t selected_bit_index = get_simd_register_by_lane<uint8_t>(b, i);
+        if (selected_bit_index < (kSimd128Size * kBitsPerByte)) {
+          unsigned __int128 bit_value = (src_bits << selected_bit_index) >>
+                                        (kSimd128Size * kBitsPerByte - 1);
+          result_bits |= bit_value;
+        }
+      }
+      set_simd_register_by_lane<uint64_t>(t, 0, 0);
+      set_simd_register_by_lane<uint64_t>(t, 1, 0);
+      set_simd_register_by_lane<uint16_t>(t, 3, result_bits);
+      break;
+    }
 #define VECTOR_FP_QF(type, sign)                             \
   DECODE_VX_INSTRUCTION(t, a, b, T)                          \
   FOR_EACH_LANE(i, type) {                                   \
@@ -4544,8 +4654,29 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       break;
     }
 #undef VECTOR_FP_QF
+    case VMHRADDSHS: {
+      int vrt = instr->RTValue();
+      int vra = instr->RAValue();
+      int vrb = instr->RBValue();
+      int vrc = instr->RCValue();
+      FOR_EACH_LANE(i, int16_t) {
+        int16_t vra_val = get_simd_register_by_lane<int16_t>(vra, i);
+        int16_t vrb_val = get_simd_register_by_lane<int16_t>(vrb, i);
+        int16_t vrc_val = get_simd_register_by_lane<int16_t>(vrc, i);
+        int32_t temp = vra_val * vrb_val;
+        temp = (temp + 0x00004000) >> 15;
+        temp += vrc_val;
+        if (temp > kMaxInt16)
+          temp = kMaxInt16;
+        else if (temp < kMinInt16)
+          temp = kMinInt16;
+        set_simd_register_by_lane<int16_t>(vrt, i, static_cast<int16_t>(temp));
+      }
+      break;
+    }
 #undef FOR_EACH_LANE
 #undef DECODE_VX_INSTRUCTION
+#undef GET_ADDRESS
     default: {
       UNIMPLEMENTED();
       break;

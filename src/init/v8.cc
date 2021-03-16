@@ -127,13 +127,11 @@ void V8::InitializeOncePerProcessImpl() {
   // continue exposing wasm on correctness fuzzers even in jitless mode.
   // TODO(jgruber): Remove this once / if wasm can run without executable
   // memory.
-  if (FLAG_jitless && !FLAG_correctness_fuzzer_suppressions) {
 #if V8_ENABLE_WEBASSEMBLY
+  if (FLAG_jitless && !FLAG_correctness_fuzzer_suppressions) {
     FLAG_expose_wasm = false;
-#else
-    STATIC_ASSERT(!FLAG_expose_wasm);
-#endif
   }
+#endif
 
   if (FLAG_regexp_interpret_all && FLAG_regexp_tier_up) {
     // Turning off the tier-up strategy, because the --regexp-interpret-all and
@@ -178,15 +176,19 @@ void V8::InitializePlatform(v8::Platform* platform) {
   v8::base::SetPrintStackTrace(platform_->GetStackTracePrinter());
   v8::tracing::TracingCategoryObserver::SetUp();
 #if defined(V8_TARGET_OS_WIN) && defined(V8_ENABLE_SYSTEM_INSTRUMENTATION)
-  // TODO(sartang@microsoft.com): Move to platform specific diagnostics object
-  v8::internal::ETWJITInterface::Register();
+  if (FLAG_enable_system_instrumentation) {
+    // TODO(sartang@microsoft.com): Move to platform specific diagnostics object
+    v8::internal::ETWJITInterface::Register();
+  }
 #endif
 }
 
 void V8::ShutdownPlatform() {
   CHECK(platform_);
 #if defined(V8_TARGET_OS_WIN) && defined(V8_ENABLE_SYSTEM_INSTRUMENTATION)
-  v8::internal::ETWJITInterface::Unregister();
+  if (FLAG_enable_system_instrumentation) {
+    v8::internal::ETWJITInterface::Unregister();
+  }
 #endif
   v8::tracing::TracingCategoryObserver::TearDown();
   v8::base::SetPrintStackTrace(nullptr);

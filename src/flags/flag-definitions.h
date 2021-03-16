@@ -268,7 +268,6 @@ DEFINE_IMPLICATION(harmony_weak_refs_with_cleanup_some, harmony_weak_refs)
 
 // Features that are complete (but still behind --harmony/es-staging flag).
 #define HARMONY_STAGED_BASE(V)                                              \
-  V(harmony_top_level_await, "harmony top level await")                     \
   V(harmony_relative_indexing_methods, "harmony relative indexing methods") \
   V(harmony_class_static_blocks, "harmony static initializer blocks")
 
@@ -282,12 +281,13 @@ DEFINE_IMPLICATION(harmony_weak_refs_with_cleanup_some, harmony_weak_refs)
 #endif
 
 // Features that are shipping (turned on by default, but internal flag remains).
-#define HARMONY_SHIPPING_BASE(V)                                      \
-  V(harmony_sharedarraybuffer, "harmony sharedarraybuffer")           \
-  V(harmony_atomics, "harmony atomics")                               \
-  V(harmony_weak_refs, "harmony weak references")                     \
-  V(harmony_regexp_match_indices, "harmony regexp match indices")     \
-  V(harmony_private_brand_checks, "harmony private brand checks")
+#define HARMONY_SHIPPING_BASE(V)                                  \
+  V(harmony_sharedarraybuffer, "harmony sharedarraybuffer")       \
+  V(harmony_atomics, "harmony atomics")                           \
+  V(harmony_weak_refs, "harmony weak references")                 \
+  V(harmony_regexp_match_indices, "harmony regexp match indices") \
+  V(harmony_private_brand_checks, "harmony private brand checks") \
+  V(harmony_top_level_await, "harmony top level await")
 
 #ifdef V8_INTL_SUPPORT
 #define HARMONY_SHIPPING(V) HARMONY_SHIPPING_BASE(V)
@@ -424,7 +424,6 @@ DEFINE_BOOL(future, FUTURE_BOOL,
             "Implies all staged features that we want to ship in the "
             "not-too-far future")
 
-DEFINE_WEAK_IMPLICATION(future, write_protect_code_memory)
 DEFINE_WEAK_IMPLICATION(future, finalize_streaming_on_background)
 DEFINE_WEAK_IMPLICATION(future, super_ic)
 DEFINE_WEAK_IMPLICATION(future, turbo_inline_js_wasm_calls)
@@ -448,9 +447,6 @@ DEFINE_IMPLICATION(jitless, regexp_interpret_all)
 DEFINE_NEG_IMPLICATION(jitless, sparkplug)
 DEFINE_NEG_IMPLICATION(jitless, always_sparkplug)
 #endif
-// asm.js validation is disabled since it triggers wasm code generation.
-DEFINE_NEG_IMPLICATION(jitless, validate_asm)
-// --jitless also implies --no-expose-wasm, see InitializeOncePerProcessImpl.
 
 #ifndef V8_TARGET_ARCH_ARM
 // Unsupported on arm. See https://crbug.com/v8/8713.
@@ -609,11 +605,20 @@ DEFINE_STRING(sparkplug_filter, "*", "filter for Sparkplug baseline compiler")
 DEFINE_BOOL(trace_baseline, false, "trace baseline compilation")
 #if !defined(V8_OS_MACOSX) || !defined(V8_HOST_ARCH_ARM64)
 // Don't disable --write-protect-code-memory on Apple Silicon.
-DEFINE_NEG_IMPLICATION(sparkplug, write_protect_code_memory)
+DEFINE_WEAK_VALUE_IMPLICATION(sparkplug, write_protect_code_memory, false)
 #endif
 
 #undef FLAG
 #define FLAG FLAG_FULL
+
+#if !defined(V8_OS_MACOSX) || !defined(V8_HOST_ARCH_ARM64)
+DEFINE_BOOL(write_code_using_rwx, true,
+            "flip permissions to rwx to write page instead of rw")
+DEFINE_NEG_IMPLICATION(jitless, write_code_using_rwx)
+#else
+DEFINE_BOOL_READONLY(write_code_using_rwx, false,
+                     "flip permissions to rwx to write page instead of rw")
+#endif
 
 // Flags for concurrent recompilation.
 DEFINE_BOOL(concurrent_recompilation, true,
@@ -824,17 +829,16 @@ DEFINE_BOOL(untrusted_code_mitigations, V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS,
             "Enable mitigations for executing untrusted code")
 #undef V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS
 
-// Flags for native WebAssembly.
+// Flags for WebAssembly.
+#if V8_ENABLE_WEBASSEMBLY
+
 DEFINE_BOOL(wasm_generic_wrapper, true,
             "allow use of the generic js-to-wasm wrapper instead of "
             "per-signature wrappers")
-#ifdef V8_ENABLE_WEBASSEMBLY
 DEFINE_BOOL(expose_wasm, true, "expose wasm interface to JavaScript")
-#else
-DEFINE_BOOL_READONLY(expose_wasm, false, "expose wasm interface to JavaScript")
-#endif
 DEFINE_INT(wasm_num_compilation_tasks, 128,
            "maximum number of parallel compilation tasks for wasm")
+DEFINE_VALUE_IMPLICATION(single_threaded, wasm_num_compilation_tasks, 0)
 DEFINE_DEBUG_BOOL(trace_wasm_native_heap, false,
                   "trace wasm native heap events")
 DEFINE_BOOL(wasm_write_protect_code_memory, false,
@@ -843,6 +847,7 @@ DEFINE_DEBUG_BOOL(trace_wasm_serialization, false,
                   "trace serialization/deserialization")
 DEFINE_BOOL(wasm_async_compilation, true,
             "enable actual asynchronous compilation for WebAssembly.compile")
+DEFINE_NEG_IMPLICATION(single_threaded, wasm_async_compilation)
 DEFINE_BOOL(wasm_test_streaming, false,
             "use streaming compilation instead of async compilation for tests")
 DEFINE_UINT(wasm_max_mem_pages, v8::internal::wasm::kSpecMaxMemoryPages,
@@ -890,6 +895,9 @@ DEFINE_INT(wasm_tier_mask_for_testing, 0,
            "bitmask of functions to compile with TurboFan instead of Liftoff")
 
 DEFINE_BOOL(validate_asm, true, "validate asm.js modules before compiling")
+// asm.js validation is disabled since it triggers wasm code generation.
+// --jitless also implies --no-expose-wasm, see InitializeOncePerProcessImpl.
+DEFINE_NEG_IMPLICATION(jitless, validate_asm)
 DEFINE_BOOL(suppress_asm_messages, false,
             "don't emit asm.js related messages (for golden file testing)")
 DEFINE_BOOL(trace_asm_time, false, "print asm.js timing info to the console")
@@ -968,6 +976,28 @@ DEFINE_INT(wasm_max_initial_code_space_reservation, 0,
 
 DEFINE_BOOL(experimental_wasm_allow_huge_modules, false,
             "allow wasm modules bigger than 1GB, but below ~2GB")
+
+DEFINE_BOOL(trace_wasm, false, "trace wasm function calls")
+
+// Flags for Wasm GDB remote debugging.
+#ifdef V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
+#define DEFAULT_WASM_GDB_REMOTE_PORT 8765
+DEFINE_BOOL(wasm_gdb_remote, false,
+            "enable GDB-remote for WebAssembly debugging")
+DEFINE_NEG_IMPLICATION(wasm_gdb_remote, wasm_tier_up)
+DEFINE_INT(wasm_gdb_remote_port, DEFAULT_WASM_GDB_REMOTE_PORT,
+           "default port for WebAssembly debugging with LLDB.")
+DEFINE_BOOL(wasm_pause_waiting_for_debugger, false,
+            "pause at the first Webassembly instruction waiting for a debugger "
+            "to attach")
+DEFINE_BOOL(trace_wasm_gdb_remote, false, "trace Webassembly GDB-remote server")
+#endif  // V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
+
+// wasm instance management
+DEFINE_DEBUG_BOOL(trace_wasm_instances, false,
+                  "trace creation and collection of wasm instances")
+
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 DEFINE_INT(stress_sampling_allocation_profiler, 0,
            "Enables sampling allocation profiler with X as a sample interval")
@@ -1311,7 +1341,6 @@ DEFINE_NEG_NEG_IMPLICATION(inline_new, turbo_allocation_folding)
 
 // codegen-ia32.cc / codegen-arm.cc
 DEFINE_BOOL(trace, false, "trace javascript function calls")
-DEFINE_BOOL(trace_wasm, false, "trace wasm function calls")
 
 // codegen.cc
 DEFINE_BOOL(lazy, true, "use lazy compilation")
@@ -1643,19 +1672,6 @@ DEFINE_BOOL(multi_mapped_mock_allocator, false,
             "Use a multi-mapped mock ArrayBuffer allocator for testing.")
 #endif
 
-// Flags for Wasm GDB remote debugging.
-#ifdef V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
-#define DEFAULT_WASM_GDB_REMOTE_PORT 8765
-DEFINE_BOOL(wasm_gdb_remote, false,
-            "enable GDB-remote for WebAssembly debugging")
-DEFINE_NEG_IMPLICATION(wasm_gdb_remote, wasm_tier_up)
-DEFINE_INT(wasm_gdb_remote_port, DEFAULT_WASM_GDB_REMOTE_PORT,
-           "default port for WebAssembly debugging with LLDB.")
-DEFINE_BOOL(wasm_pause_waiting_for_debugger, false,
-            "pause at the first Webassembly instruction waiting for a debugger "
-            "to attach")
-#endif  // V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
-
 //
 // GDB JIT integration flags.
 //
@@ -1733,14 +1749,6 @@ DEFINE_BOOL(regexp_possessive_quantifier, false,
 
 // Debugger
 DEFINE_BOOL(print_break_location, false, "print source location on debug break")
-
-// wasm instance management
-DEFINE_DEBUG_BOOL(trace_wasm_instances, false,
-                  "trace creation and collection of wasm instances")
-
-#ifdef V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
-DEFINE_BOOL(trace_wasm_gdb_remote, false, "trace Webassembly GDB-remote server")
-#endif  // V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
 
 //
 // Logging and profiling flags
@@ -1827,7 +1835,9 @@ DEFINE_PERF_PROF_BOOL(
 DEFINE_NEG_IMPLICATION(perf_prof, compact_code_space)
 // TODO(v8:8462) Remove implication once perf supports remapping.
 DEFINE_NEG_IMPLICATION(perf_prof, write_protect_code_memory)
+#if V8_ENABLE_WEBASSEMBLY
 DEFINE_NEG_IMPLICATION(perf_prof, wasm_write_protect_code_memory)
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 // --perf-prof-unwinding-info is available only on selected architectures.
 #if !V8_TARGET_ARCH_ARM && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_X64 && \
@@ -1878,6 +1888,9 @@ DEFINE_BOOL(interpreted_frames_native_stack, false,
             "profilers).")
 #endif
 
+DEFINE_BOOL(enable_system_instrumentation, false,
+            "Enable platform-specific profiling.")
+
 //
 // Disassembler only flags
 //
@@ -1924,8 +1937,6 @@ DEFINE_IMPLICATION(print_all_code, print_regexp_code)
 DEFINE_BOOL(predictable, false, "enable predictable mode")
 DEFINE_IMPLICATION(predictable, single_threaded)
 DEFINE_NEG_IMPLICATION(predictable, memory_reducer)
-DEFINE_VALUE_IMPLICATION(single_threaded, wasm_num_compilation_tasks, 0)
-DEFINE_NEG_IMPLICATION(single_threaded, wasm_async_compilation)
 
 DEFINE_BOOL(predictable_gc_schedule, false,
             "Predictable garbage collection schedule. Fixes heap growing, "
