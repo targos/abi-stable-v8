@@ -1411,7 +1411,7 @@ void RegExpMacroAssemblerARM64::CallCheckStackGuardState(Register scratch) {
     UseScratchRegisterScope temps(masm_);
     Register scratch = temps.AcquireX();
 
-    EmbeddedData d = EmbeddedData::FromBlob();
+    EmbeddedData d = EmbeddedData::FromBlob(isolate());
     Address entry = d.InstructionStartOfBuiltin(Builtins::kDirectCEntry);
 
     __ Ldr(scratch, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
