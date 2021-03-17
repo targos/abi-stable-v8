@@ -3030,27 +3030,6 @@ void MapRef::SerializeForElementStore() {
   data()->AsMap()->SerializeForElementStore(broker());
 }
 
-namespace {
-// This helper function has two modes. If {prototype_maps} is nullptr, the
-// prototype chain is serialized as necessary to determine the result.
-// Otherwise, the heap is untouched and the encountered prototypes are pushed
-// onto {prototype_maps}.
-bool HasOnlyStablePrototypesWithFastElementsHelper(
-    JSHeapBroker* broker, MapRef const& map,
-    ZoneVector<MapRef>* prototype_maps) {
-  for (MapRef prototype_map = map;;) {
-    if (prototype_maps == nullptr) prototype_map.SerializePrototype();
-    prototype_map = prototype_map.prototype().AsHeapObject().map();
-    if (prototype_map.oddball_type() == OddballType::kNull) return true;
-    if (!map.prototype().IsJSObject() || !prototype_map.is_stable() ||
-        !IsFastElementsKind(prototype_map.elements_kind())) {
-      return false;
-    }
-    if (prototype_maps != nullptr) prototype_maps->push_back(prototype_map);
-  }
-}
-}  // namespace
-
 void MapData::SerializeForElementLoad(JSHeapBroker* broker) {
   if (serialized_for_element_load_) return;
   serialized_for_element_load_ = true;
@@ -3064,22 +3043,34 @@ void MapData::SerializeForElementStore(JSHeapBroker* broker) {
   serialized_for_element_store_ = true;
 
   TraceScope tracer(broker, this, "MapData::SerializeForElementStore");
-  HasOnlyStablePrototypesWithFastElementsHelper(broker, MapRef(broker, this),
-                                                nullptr);
+  // TODO(solanes, v8:7790): This should use MapData methods rather than
+  // constructing MapRefs, but it involves non-trivial refactoring and this
+  // method should go away anyway once the compiler is fully concurrent.
+  MapRef map(broker, this);
+  for (MapRef prototype_map = map;;) {
+    prototype_map.SerializePrototype();
+    prototype_map = prototype_map.prototype().map();
+    if (prototype_map.oddball_type() == OddballType::kNull ||
+        !map.prototype().IsJSObject() || !prototype_map.is_stable() ||
+        !IsFastElementsKind(prototype_map.elements_kind())) {
+      return;
+    }
+  }
 }
 
 bool MapRef::HasOnlyStablePrototypesWithFastElements(
     ZoneVector<MapRef>* prototype_maps) {
-  for (MapRef prototype_map = *this;;) {
-    if (prototype_maps == nullptr) prototype_map.SerializePrototype();
-    prototype_map = prototype_map.prototype().AsHeapObject().map();
-    if (prototype_map.oddball_type() == OddballType::kNull) return true;
+  DCHECK_NOT_NULL(prototype_maps);
+  MapRef prototype_map = prototype().map();
+  while (prototype_map.oddball_type() != OddballType::kNull) {
     if (!prototype().IsJSObject() || !prototype_map.is_stable() ||
         !IsFastElementsKind(prototype_map.elements_kind())) {
       return false;
     }
-    if (prototype_maps != nullptr) prototype_maps->push_back(prototype_map);
+    prototype_maps->push_back(prototype_map);
+    prototype_map = prototype_map.prototype().map();
   }
+  return true;
 }
 
 bool MapRef::supports_fast_array_iteration() const {
@@ -3981,14 +3972,47 @@ Maybe<double> ObjectRef::OddballToNumber() const {
 
 base::Optional<ObjectRef> JSObjectRef::GetOwnConstantElement(
     uint32_t index, SerializationPolicy policy) const {
-  if (data_->should_access_heap()) {
-    CHECK_EQ(data_->kind(), ObjectDataKind::kUnserializedHeapObject);
-    return GetOwnElementFromHeap(broker(), object(), index, true);
+  if (data_->should_access_heap() || FLAG_turbo_direct_heap_access) {
+    // `elements` are currently still serialized as members of JSObjectRef.
+    // TODO(jgruber,v8:7790): Once JSObject is no longer serialized, we must
+    // guarantee consistency between `object`, `elements_kind` and `elements`
+    // through other means (store/load order? locks? storing elements_kind in
+    // elements.map?).
+    STATIC_ASSERT(IsSerializedHeapObject<JSObject>());
+
+    base::Optional<FixedArrayBaseRef> maybe_elements_ref = elements();
+    if (!maybe_elements_ref.has_value()) {
+      TRACE_BROKER_MISSING(broker(), "JSObject::elements" << *this);
+      return {};
+    }
+
+    FixedArrayBaseRef elements_ref = maybe_elements_ref.value();
+    ElementsKind elements_kind = GetElementsKind();
+
+    DCHECK_LE(index, JSObject::kMaxElementIndex);
+
+    Object maybe_element;
+    auto result = ConcurrentLookupIterator::TryGetOwnConstantElement(
+        &maybe_element, broker()->isolate(), broker()->local_isolate(),
+        *object(), *elements_ref.object(), elements_kind, index);
+
+    if (result == ConcurrentLookupIterator::kGaveUp) {
+      TRACE_BROKER_MISSING(broker(), "JSObject::GetOwnConstantElement on "
+                                         << *this << " at index " << index);
+      return {};
+    } else if (result == ConcurrentLookupIterator::kNotPresent) {
+      return {};
+    }
+
+    DCHECK_EQ(result, ConcurrentLookupIterator::kPresent);
+    return ObjectRef{broker(),
+                     broker()->CanonicalPersistentHandle(maybe_element)};
+  } else {
+    ObjectData* element =
+        data()->AsJSObject()->GetOwnConstantElement(broker(), index, policy);
+    if (element == nullptr) return base::nullopt;
+    return ObjectRef(broker(), element);
   }
-  ObjectData* element =
-      data()->AsJSObject()->GetOwnConstantElement(broker(), index, policy);
-  if (element == nullptr) return base::nullopt;
-  return ObjectRef(broker(), element);
 }
 
 base::Optional<ObjectRef> JSObjectRef::GetOwnFastDataProperty(
