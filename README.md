@@ -15,7 +15,7 @@ Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
 
 ```bash
 git fetch v8 master
-git log HEAD..v8/master --reverse -- include
+git log HEAD..v8/master --stat --reverse -- 'include/cppgc/common.h' 'include/v8.h' 'include/v8-internal.h' 'include/v8-platform.h' 'include/v8-profiler.h' 'include/v8-version.h' 'include/v8config.h'
 ```
 
 ## V8 9.0
