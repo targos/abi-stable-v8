@@ -341,12 +341,6 @@ void CheckBailoutAllowed(LiftoffBailoutReason reason, const char* detail,
     return;
   }
 
-  // TODO(v8:11453): Implement exception handling in Liftoff.
-  if (reason == kExceptionHandling) {
-    DCHECK(env->enabled_features.has_eh());
-    return;
-  }
-
   // Otherwise, bailout is not allowed.
   FATAL("Liftoff bailout should not happen. Cause: %s\n", detail);
 }
@@ -574,7 +568,7 @@ class LiftoffCompiler {
       Control* c = decoder->control_at(i);
       Unuse(c->label.get());
       if (c->else_state) Unuse(c->else_state->label.get());
-      if (c->is_try()) Unuse(&c->try_info->catch_label);
+      if (c->try_info != nullptr) Unuse(&c->try_info->catch_label);
     }
     for (auto& ool : out_of_line_code_) Unuse(ool.label.get());
 #endif
@@ -1140,7 +1134,7 @@ class LiftoffCompiler {
 
     DEBUG_CODE_COMMENT("compare tags");
     Label caught;
-    __ emit_cond_jump(kEqual, &caught, kI32, imm_tag, kReturnRegister0);
+    __ emit_cond_jump(kEqual, &caught, kI32, imm_tag, caught_tag.gp());
     // The tags don't match, merge the current state into the catch state and
     // jump to the next handler.
     __ MergeFullStackWith(block->try_info->catch_state, *__ cache_state());
@@ -1302,7 +1296,7 @@ class LiftoffCompiler {
     if (!c->end_merge.reached) {
       if (c->try_info->catch_reached) {
         // Drop the implicit exception ref.
-        __ DropValue(c->stack_depth + c->num_exceptions);
+        __ DropValue(__ num_locals() + c->stack_depth + c->num_exceptions);
       }
       // Else we did not enter the catch state, continue with the current state.
     } else {
@@ -3886,25 +3880,48 @@ class LiftoffCompiler {
     }
   }
 
-  void Load32BitExceptionValue(LiftoffRegister dst,
+  void Load16BitExceptionValue(LiftoffRegister dst,
                                LiftoffRegister values_array, uint32_t* index,
                                LiftoffRegList pinned) {
-    LiftoffRegister upper = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
-    __ LoadSmiAsInt32(
-        upper, values_array.gp(),
-        wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(*index), pinned);
-    (*index)++;
-    __ emit_i32_shli(upper.gp(), upper.gp(), 16);
     __ LoadSmiAsInt32(
         dst, values_array.gp(),
         wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(*index), pinned);
     (*index)++;
-    __ emit_i32_or(dst.gp(), upper.gp(), dst.gp());
+  }
+
+  void Load32BitExceptionValue(Register dst, LiftoffRegister values_array,
+                               uint32_t* index, LiftoffRegList pinned) {
+    LiftoffRegister upper = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+    Load16BitExceptionValue(upper, values_array, index, pinned);
+    __ emit_i32_shli(upper.gp(), upper.gp(), 16);
+    Load16BitExceptionValue(LiftoffRegister(dst), values_array, index, pinned);
+    __ emit_i32_or(dst, upper.gp(), dst);
+  }
+
+  void Load64BitExceptionValue(LiftoffRegister dst,
+                               LiftoffRegister values_array, uint32_t* index,
+                               LiftoffRegList pinned) {
+    if (kNeedI64RegPair) {
+      Load32BitExceptionValue(dst.high_gp(), values_array, index, pinned);
+      Load32BitExceptionValue(dst.low_gp(), values_array, index, pinned);
+    } else {
+      Load16BitExceptionValue(dst, values_array, index, pinned);
+      __ emit_i64_shli(dst, dst, 48);
+      LiftoffRegister tmp_reg =
+          pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+      Load16BitExceptionValue(tmp_reg, values_array, index, pinned);
+      __ emit_i64_shli(tmp_reg, tmp_reg, 32);
+      __ emit_i64_or(dst, tmp_reg, dst);
+      Load16BitExceptionValue(tmp_reg, values_array, index, pinned);
+      __ emit_i64_shli(tmp_reg, tmp_reg, 16);
+      __ emit_i64_or(dst, tmp_reg, dst);
+      Load16BitExceptionValue(tmp_reg, values_array, index, pinned);
+      __ emit_i64_or(dst, tmp_reg, dst);
+    }
   }
 
   void StoreExceptionValue(ValueType type, Register values_array,
                            int* index_in_array, LiftoffRegList pinned) {
-    // TODO(clemensb): Handle more types.
     LiftoffRegister value = pinned.set(__ PopToRegister(pinned));
     switch (type.kind()) {
       case kI32:
@@ -3930,9 +3947,92 @@ class LiftoffCompiler {
         Store64BitExceptionValue(values_array, index_in_array, tmp_reg, pinned);
         break;
       }
-      default:
+      case kS128: {
+        LiftoffRegister tmp_reg =
+            pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+        for (int i : {3, 2, 1, 0}) {
+          __ emit_i32x4_extract_lane(tmp_reg, value, i);
+          Store32BitExceptionValue(values_array, index_in_array, tmp_reg.gp(),
+                                   pinned);
+        }
+        break;
+      }
+      case wasm::kRef:
+      case wasm::kOptRef:
+      case wasm::kRtt:
+      case wasm::kRttWithDepth: {
+        --(*index_in_array);
+        __ StoreTaggedPointer(
+            values_array, no_reg,
+            wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(
+                *index_in_array),
+            value, pinned);
+        break;
+      }
+      case wasm::kI8:
+      case wasm::kI16:
+      case wasm::kStmt:
+      case wasm::kBottom:
         UNREACHABLE();
     }
+  }
+
+  void LoadExceptionValue(ValueKind kind, LiftoffRegister values_array,
+                          uint32_t* index, LiftoffRegList pinned) {
+    RegClass rc = reg_class_for(kind);
+    LiftoffRegister value = pinned.set(__ GetUnusedRegister(rc, pinned));
+    switch (kind) {
+      case kI32:
+        Load32BitExceptionValue(value.gp(), values_array, index, pinned);
+        break;
+      case kF32: {
+        LiftoffRegister tmp_reg =
+            pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+        Load32BitExceptionValue(tmp_reg.gp(), values_array, index, pinned);
+        __ emit_type_conversion(kExprF32ReinterpretI32, value, tmp_reg,
+                                nullptr);
+        break;
+      }
+      case kI64:
+        Load64BitExceptionValue(value, values_array, index, pinned);
+        break;
+      case kF64: {
+        RegClass rc = reg_class_for(kI64);
+        LiftoffRegister tmp_reg = pinned.set(__ GetUnusedRegister(rc, pinned));
+        Load64BitExceptionValue(tmp_reg, values_array, index, pinned);
+        __ emit_type_conversion(kExprF64ReinterpretI64, value, tmp_reg,
+                                nullptr);
+        break;
+      }
+      case kS128: {
+        LiftoffRegister tmp_reg =
+            pinned.set(__ GetUnusedRegister(kGpReg, pinned));
+        Load32BitExceptionValue(tmp_reg.gp(), values_array, index, pinned);
+        __ emit_i32x4_splat(value, tmp_reg);
+        for (int lane : {1, 2, 3}) {
+          Load32BitExceptionValue(tmp_reg.gp(), values_array, index, pinned);
+          __ emit_i32x4_replace_lane(value, value, tmp_reg, lane);
+        }
+        break;
+      }
+      case wasm::kRef:
+      case wasm::kOptRef:
+      case wasm::kRtt:
+      case wasm::kRttWithDepth: {
+        __ LoadTaggedPointer(
+            value.gp(), values_array.gp(), no_reg,
+            wasm::ObjectAccess::ElementOffsetInTaggedFixedArray(*index),
+            pinned);
+        (*index)++;
+        break;
+      }
+      case wasm::kI8:
+      case wasm::kI16:
+      case wasm::kStmt:
+      case wasm::kBottom:
+        UNREACHABLE();
+    }
+    __ PushRegister(kind, value);
   }
 
   void GetExceptionValues(FullDecoder* decoder,
@@ -3942,17 +4042,11 @@ class LiftoffCompiler {
     DEBUG_CODE_COMMENT("get exception values");
     LiftoffRegister values_array = GetExceptionProperty(
         exception_var, RootIndex::kwasm_exception_values_symbol);
+    pinned.set(values_array);
     uint32_t index = 0;
     const WasmExceptionSig* sig = exception->sig;
-    LiftoffRegister value = pinned.set(__ GetUnusedRegister(kGpReg, pinned));
     for (ValueType param : sig->parameters()) {
-      if (param != kWasmI32) {
-        unsupported(decoder, kExceptionHandling,
-                    "unsupported type in exception payload");
-        return;
-      }
-      Load32BitExceptionValue(value, values_array, &index, pinned);
-      __ PushRegister(kI32, value);
+      LoadExceptionValue(param.kind(), values_array, &index, pinned);
     }
     DCHECK_EQ(index, WasmExceptionPackage::GetEncodedSize(exception));
   }
@@ -4029,12 +4123,6 @@ class LiftoffCompiler {
     for (size_t param_idx = sig->parameter_count(); param_idx > 0;
          --param_idx) {
       ValueType type = sig->GetParam(param_idx - 1);
-      if (type != kWasmI32 && type != kWasmI64 && type != kWasmF32 &&
-          type != kWasmF64) {
-        unsupported(decoder, kExceptionHandling,
-                    "unsupported type in exception payload");
-        return;
-      }
       StoreExceptionValue(type, values_array.gp(), &index, pinned);
     }
     DCHECK_EQ(0, index);

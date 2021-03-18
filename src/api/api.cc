@@ -3792,7 +3792,6 @@ std::shared_ptr<v8::BackingStore> v8::ArrayBuffer::GetBackingStore() {
     backing_store =
         i::BackingStore::EmptyBackingStore(i::SharedFlag::kNotShared);
   }
-  i::GlobalBackingStoreRegistry::Register(backing_store);
   std::shared_ptr<i::BackingStoreBase> bs_base = backing_store;
   return std::static_pointer_cast<v8::BackingStore>(bs_base);
 }
@@ -3803,7 +3802,6 @@ std::shared_ptr<v8::BackingStore> v8::SharedArrayBuffer::GetBackingStore() {
   if (!backing_store) {
     backing_store = i::BackingStore::EmptyBackingStore(i::SharedFlag::kShared);
   }
-  i::GlobalBackingStoreRegistry::Register(backing_store);
   std::shared_ptr<i::BackingStoreBase> bs_base = backing_store;
   return std::static_pointer_cast<v8::BackingStore>(bs_base);
 }
