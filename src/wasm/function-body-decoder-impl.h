@@ -2359,12 +2359,20 @@ class WasmFullDecoder : public WasmDecoder<validate> {
     return true;
   }
 
-  bool CheckSimdPostMvp(WasmOpcode opcode) {
+  bool CheckSimdFeatureFlagOpcode(WasmOpcode opcode) {
     if (!FLAG_wasm_simd_post_mvp && WasmOpcodes::IsSimdPostMvpOpcode(opcode)) {
       this->DecodeError(
           "simd opcode not available, enable with --wasm-simd-post-mvp");
       return false;
     }
+
+    if (!FLAG_experimental_wasm_relaxed_simd &&
+        WasmOpcodes::IsRelaxedSimdOpcode(opcode)) {
+      this->DecodeError(
+          "simd opcode not available, enable with --experimental-relaxed-simd");
+      return false;
+    }
+
     return true;
   }
 
@@ -3184,12 +3192,11 @@ class WasmFullDecoder : public WasmDecoder<validate> {
   DECODE(MemoryGrow) {
     if (!CheckHasMemory()) return 0;
     MemoryIndexImmediate<validate> imm(this, this->pc_ + 1);
-    if (!VALIDATE(this->module_->origin == kWasmOrigin)) {
-      this->DecodeError("grow_memory is not supported for asmjs modules");
-      return 0;
-    }
-    Value value = Peek(0, 0, kWasmI32);
-    Value result = CreateValue(kWasmI32);
+    // This opcode will not be emitted by the asm translator.
+    DCHECK_EQ(kWasmOrigin, this->module_->origin);
+    ValueType mem_type = this->module_->is_memory64 ? kWasmI64 : kWasmI32;
+    Value value = Peek(0, 0, mem_type);
+    Value result = CreateValue(mem_type);
     CALL_INTERFACE_IF_REACHABLE(MemoryGrow, value, &result);
     Drop(value);
     Push(result);
@@ -3340,7 +3347,7 @@ class WasmFullDecoder : public WasmDecoder<validate> {
         this->pc_, &opcode_length);
     if (!VALIDATE(this->ok())) return 0;
     trace_msg->AppendOpcode(full_opcode);
-    if (!CheckSimdPostMvp(full_opcode)) {
+    if (!CheckSimdFeatureFlagOpcode(full_opcode)) {
       return 0;
     }
     return DecodeSimdOpcode(full_opcode, opcode_length);

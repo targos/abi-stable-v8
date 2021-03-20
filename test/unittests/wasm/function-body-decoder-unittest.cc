@@ -68,6 +68,9 @@ constexpr size_t kMaxByteSizedLeb128 = 127;
 
 using F = std::pair<ValueType, bool>;
 
+// Used to construct fixed-size signatures: MakeSig::Returns(...).Params(...);
+using MakeSig = FixedSizeSignature<ValueType>;
+
 enum MemoryType { kMemory32, kMemory64 };
 
 // A helper for tests that require a module environment for functions,
@@ -2237,14 +2240,6 @@ TEST_F(FunctionBodyDecoderTest, WasmMemoryGrow) {
   byte code[] = {WASM_LOCAL_GET(0), kExprMemoryGrow, 0};
   ExpectValidates(sigs.i_i(), code);
   ExpectFailure(sigs.i_d(), code);
-}
-
-TEST_F(FunctionBodyDecoderTest, AsmJsMemoryGrow) {
-  module->origin = kAsmJsSloppyOrigin;
-  builder.InitializeMemory();
-
-  byte code[] = {WASM_LOCAL_GET(0), kExprMemoryGrow, 0};
-  ExpectFailure(sigs.i_i(), code);
 }
 
 TEST_F(FunctionBodyDecoderTest, AsmJsBinOpsCheckOrigin) {
@@ -5016,6 +5011,19 @@ TEST_P(FunctionBodyDecoderTestOnBothMemoryTypes, MemorySize) {
   // memory.size returns i64 on memory64.
   Validate(is_memory64(), sigs.v_v(),
            {WASM_MEMORY_SIZE, kExprI64Eqz, kExprDrop});
+}
+
+TEST_P(FunctionBodyDecoderTestOnBothMemoryTypes, MemoryGrow) {
+  builder.InitializeMemory(GetParam());
+  // memory.grow is i32->i32 memory32.
+  Validate(!is_memory64(), sigs.i_i(), {WASM_MEMORY_GROW(WASM_LOCAL_GET(0))});
+  // memory.grow is i64->i64 memory32.
+  Validate(is_memory64(), sigs.l_l(), {WASM_MEMORY_GROW(WASM_LOCAL_GET(0))});
+  // any other combination always fails.
+  auto sig_l_i = MakeSig::Returns(kWasmI64).Params(kWasmI32);
+  ExpectFailure(&sig_l_i, {WASM_MEMORY_GROW(WASM_LOCAL_GET(0))});
+  auto sig_i_l = MakeSig::Returns(kWasmI32).Params(kWasmI64);
+  ExpectFailure(&sig_i_l, {WASM_MEMORY_GROW(WASM_LOCAL_GET(0))});
 }
 
 #undef B1

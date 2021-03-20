@@ -635,7 +635,7 @@ void TurboAssembler::Pmulhrsw(XMMRegister dst, XMMRegister src1,
     vpmulhrsw(dst, src1, src2);
   } else {
     if (dst != src1) {
-      movdqu(dst, src1);
+      movaps(dst, src1);
     }
     CpuFeatureScope sse_scope(this, SSSE3);
     pmulhrsw(dst, src2);
@@ -689,7 +689,7 @@ void TurboAssembler::I32x4ExtMul(XMMRegister dst, XMMRegister src1,
     low ? vpunpcklwd(dst, scratch, dst) : vpunpckhwd(dst, scratch, dst);
   } else {
     DCHECK_EQ(dst, src1);
-    movdqu(scratch, src1);
+    movaps(scratch, src1);
     pmullw(dst, src2);
     is_signed ? pmulhw(scratch, src2) : pmulhuw(scratch, src2);
     low ? punpcklwd(dst, scratch) : punpckhwd(dst, scratch);
@@ -799,7 +799,11 @@ void TurboAssembler::I64x2SConvertI32x4High(XMMRegister dst, XMMRegister src) {
     vpmovsxdq(dst, dst);
   } else {
     CpuFeatureScope sse_scope(this, SSE4_1);
-    pshufd(dst, src, 0xEE);
+    if (dst == src) {
+      movhlps(dst, src);
+    } else {
+      pshufd(dst, src, 0xEE);
+    }
     pmovsxdq(dst, dst);
   }
 }
@@ -811,9 +815,11 @@ void TurboAssembler::I64x2UConvertI32x4High(XMMRegister dst, XMMRegister src,
     vpxor(scratch, scratch, scratch);
     vpunpckhdq(dst, src, scratch);
   } else {
-    CpuFeatureScope sse_scope(this, SSE4_1);
-    pshufd(dst, src, 0xEE);
-    pmovzxdq(dst, dst);
+    if (dst != src) {
+      movaps(dst, src);
+    }
+    xorps(scratch, scratch);
+    punpckhdq(dst, scratch);
   }
 }
 
@@ -1230,12 +1236,12 @@ void TurboAssembler::I32x4ExtAddPairwiseI16x8U(XMMRegister dst, XMMRegister src,
   if (CpuFeatures::IsSupported(AVX)) {
     CpuFeatureScope avx_scope(this, AVX);
     // src = |a|b|c|d|e|f|g|h| (low)
-    // dst = |0|a|0|c|0|e|0|g|
-    vpsrld(dst, src, 16);
-    // scratch = |0|b|0|d|0|f|0|h|
-    vpblendw(tmp, src, dst, 0xAA);
+    // scratch = |0|a|0|c|0|e|0|g|
+    vpsrld(tmp, src, 16);
+    // dst = |0|b|0|d|0|f|0|h|
+    vpblendw(dst, src, tmp, 0xAA);
     // dst = |a+b|c+d|e+f|g+h|
-    vpaddd(dst, dst, tmp);
+    vpaddd(dst, tmp, dst);
   } else if (CpuFeatures::IsSupported(SSE4_1)) {
     CpuFeatureScope sse_scope(this, SSE4_1);
     // There is a potentially better lowering if we get rip-relative constants,
@@ -1253,7 +1259,7 @@ void TurboAssembler::I32x4ExtAddPairwiseI16x8U(XMMRegister dst, XMMRegister src,
     pcmpeqd(tmp, tmp);
     psrld(tmp, byte{16});
     // tmp =|0|b|0|d|0|f|0|h|
-    pand(tmp, src);
+    andps(tmp, src);
     // dst = |0|a|0|c|0|e|0|g|
     if (dst != src) {
       movaps(dst, src);
@@ -2269,7 +2275,7 @@ void TurboAssembler::Pinsrb(XMMRegister dst, XMMRegister src1, Operand src2,
   if (CpuFeatures::IsSupported(SSE4_1)) {
     CpuFeatureScope sse_scope(this, SSE4_1);
     if (dst != src1) {
-      movdqu(dst, src1);
+      movaps(dst, src1);
     }
     pinsrb(dst, src2, imm8);
     return;
@@ -2285,7 +2291,7 @@ void TurboAssembler::Pinsrd(XMMRegister dst, XMMRegister src1, Operand src2,
     return;
   }
   if (dst != src1) {
-    movdqu(dst, src1);
+    movaps(dst, src1);
   }
   if (CpuFeatures::IsSupported(SSE4_1)) {
     CpuFeatureScope sse_scope(this, SSE4_1);
@@ -2327,7 +2333,7 @@ void TurboAssembler::Pinsrw(XMMRegister dst, XMMRegister src1, Operand src2,
     return;
   } else {
     if (dst != src1) {
-      movdqu(dst, src1);
+      movaps(dst, src1);
     }
     pinsrw(dst, src2, imm8);
     return;

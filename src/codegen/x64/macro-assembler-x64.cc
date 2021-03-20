@@ -270,8 +270,8 @@ void TurboAssembler::StoreTaggedField(Operand dst_field_operand,
 void TurboAssembler::StoreTaggedSignedField(Operand dst_field_operand,
                                             Smi value) {
   if (SmiValuesAre32Bits()) {
-    movl(Operand(dst_field_operand, kSmiShift / kBitsPerByte),
-         Immediate(value.value()));
+    Move(kScratchRegister, value);
+    movq(dst_field_operand, kScratchRegister);
   } else {
     StoreTaggedField(dst_field_operand, Immediate(value));
   }
@@ -1939,7 +1939,7 @@ void PinsrHelper(Assembler* assm, AvxFn<Src> avx, NoAvxFn<Src> noavx,
   }
 
   if (dst != src1) {
-    assm->movdqu(dst, src1);
+    assm->movaps(dst, src1);
   }
   if (feature.has_value()) {
     DCHECK(CpuFeatures::IsSupported(*feature));
@@ -2111,7 +2111,7 @@ void TurboAssembler::Pshufb(XMMRegister dst, XMMRegister src,
     // Make sure these are different so that we won't overwrite mask.
     DCHECK_NE(dst, mask);
     if (dst != src) {
-      movapd(dst, src);
+      movaps(dst, src);
     }
     CpuFeatureScope sse_scope(this, SSSE3);
     pshufb(dst, mask);
@@ -2227,7 +2227,11 @@ void TurboAssembler::I64x2SConvertI32x4High(XMMRegister dst, XMMRegister src) {
     vpmovsxdq(dst, dst);
   } else {
     CpuFeatureScope sse_scope(this, SSE4_1);
-    pshufd(dst, src, 0xEE);
+    if (dst == src) {
+      movhlps(dst, src);
+    } else {
+      pshufd(dst, src, 0xEE);
+    }
     pmovsxdq(dst, dst);
   }
 }
@@ -2238,9 +2242,11 @@ void TurboAssembler::I64x2UConvertI32x4High(XMMRegister dst, XMMRegister src) {
     vpxor(kScratchDoubleReg, kScratchDoubleReg, kScratchDoubleReg);
     vpunpckhdq(dst, src, kScratchDoubleReg);
   } else {
-    CpuFeatureScope sse_scope(this, SSE4_1);
-    pshufd(dst, src, 0xEE);
-    pmovzxdq(dst, dst);
+    if (dst != src) {
+      movaps(dst, src);
+    }
+    xorps(kScratchDoubleReg, kScratchDoubleReg);
+    punpckhdq(dst, kScratchDoubleReg);
   }
 }
 
@@ -2290,7 +2296,7 @@ void TurboAssembler::I32x4ExtMul(XMMRegister dst, XMMRegister src1,
         : vpunpckhwd(dst, kScratchDoubleReg, dst);
   } else {
     DCHECK_EQ(dst, src1);
-    movdqu(kScratchDoubleReg, src1);
+    movaps(kScratchDoubleReg, src1);
     pmullw(dst, src2);
     is_signed ? pmulhw(kScratchDoubleReg, src2)
               : pmulhuw(kScratchDoubleReg, src2);
@@ -2660,12 +2666,12 @@ void TurboAssembler::I32x4ExtAddPairwiseI16x8U(XMMRegister dst,
   if (CpuFeatures::IsSupported(AVX)) {
     CpuFeatureScope avx_scope(this, AVX);
     // src = |a|b|c|d|e|f|g|h| (low)
-    // dst = |0|a|0|c|0|e|0|g|
-    vpsrld(dst, src, 16);
-    // scratch = |0|b|0|d|0|f|0|h|
-    vpblendw(kScratchDoubleReg, src, dst, 0xAA);
+    // scratch = |0|a|0|c|0|e|0|g|
+    vpsrld(kScratchDoubleReg, src, 16);
+    // dst = |0|b|0|d|0|f|0|h|
+    vpblendw(dst, src, kScratchDoubleReg, 0xAA);
     // dst = |a+b|c+d|e+f|g+h|
-    vpaddd(dst, dst, kScratchDoubleReg);
+    vpaddd(dst, kScratchDoubleReg, dst);
   } else if (CpuFeatures::IsSupported(SSE4_1)) {
     CpuFeatureScope sse_scope(this, SSE4_1);
     // There is a potentially better lowering if we get rip-relative constants,
@@ -2683,7 +2689,7 @@ void TurboAssembler::I32x4ExtAddPairwiseI16x8U(XMMRegister dst,
     pcmpeqd(kScratchDoubleReg, kScratchDoubleReg);
     psrld(kScratchDoubleReg, byte{16});
     // kScratchDoubleReg =|0|b|0|d|0|f|0|h|
-    pand(kScratchDoubleReg, src);
+    andps(kScratchDoubleReg, src);
     // dst = |0|a|0|c|0|e|0|g|
     if (dst != src) {
       movaps(dst, src);

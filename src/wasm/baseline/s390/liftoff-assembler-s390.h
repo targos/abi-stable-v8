@@ -593,6 +593,12 @@ void LiftoffAssembler::LoadReturnStackSlot(LiftoffRegister dst, int offset,
   }
 }
 
+#ifdef V8_TARGET_BIG_ENDIAN
+constexpr int stack_bias = -4;
+#else
+constexpr int stack_bias = 0;
+#endif
+
 void LiftoffAssembler::MoveStackValue(uint32_t dst_offset, uint32_t src_offset,
                                       ValueKind kind) {
   DCHECK_NE(dst_offset, src_offset);
@@ -615,6 +621,9 @@ void LiftoffAssembler::MoveStackValue(uint32_t dst_offset, uint32_t src_offset,
     default:
       UNREACHABLE();
   }
+
+  dst_offset += (length == 4 ? stack_bias : 0);
+  src_offset += (length == 4 ? stack_bias : 0);
 
   if (is_int20(dst_offset)) {
     lay(ip, liftoff::GetStackSlot(dst_offset));
@@ -649,12 +658,6 @@ void LiftoffAssembler::Move(DoubleRegister dst, DoubleRegister src,
     vlr(dst, src, Condition(0), Condition(0), Condition(0));
   }
 }
-
-#ifdef V8_TARGET_BIG_ENDIAN
-constexpr int stack_bias = -4;
-#else
-constexpr int stack_bias = 0;
-#endif
 
 void LiftoffAssembler::Spill(int offset, LiftoffRegister reg, ValueKind kind) {
   DCHECK_LT(0, offset);
@@ -798,6 +801,9 @@ void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
 
 // V(name, instr, dtype, stype, dcast, scast, rcast, return_val, return_type)
 #define UNOP_LIST(V)                                                           \
+  V(i32_popcnt, Popcnt32, Register, Register, , , USE, true, bool)             \
+  V(i64_popcnt, Popcnt64, LiftoffRegister, LiftoffRegister, LFR_TO_REG,        \
+    LFR_TO_REG, USE, true, bool)                                               \
   V(u32_to_intptr, LoadU32, Register, Register, , , USE, , void)               \
   V(i32_signextend_i8, lbr, Register, Register, , , USE, , void)               \
   V(i32_signextend_i16, lhr, Register, Register, , , USE, , void)              \
@@ -929,17 +935,6 @@ BINOP_LIST(EMIT_BINOP_FUNCTION)
 #undef INT32_AND_WITH_1F
 #undef REGISTER_AND_WITH_1F
 #undef LFR_TO_REG
-
-bool LiftoffAssembler::emit_i32_popcnt(Register dst, Register src) {
-  bailout(kUnsupportedArchitecture, "i32_popcnt");
-  return true;
-}
-
-bool LiftoffAssembler::emit_i64_popcnt(LiftoffRegister dst,
-                                       LiftoffRegister src) {
-  Popcnt64(dst.gp(), src.gp());
-  return true;
-}
 
 bool LiftoffAssembler::emit_f32_ceil(DoubleRegister dst, DoubleRegister src) {
   fiebra(ROUND_TOWARD_POS_INF, dst, src);
@@ -2839,21 +2834,23 @@ void LiftoffAssembler::CallNativeWasmCode(Address addr) {
 }
 
 void LiftoffAssembler::TailCallNativeWasmCode(Address addr) {
-  bailout(kUnsupportedArchitecture, "TailCallNativeWasmCode");
+  Jump(addr, RelocInfo::WASM_CALL);
 }
 
 void LiftoffAssembler::CallIndirect(const ValueKindSig* sig,
                                     compiler::CallDescriptor* call_descriptor,
                                     Register target) {
-  bailout(kUnsupportedArchitecture, "CallIndirect");
+  DCHECK(target != no_reg);
+  Call(target);
 }
 
 void LiftoffAssembler::TailCallIndirect(Register target) {
-  bailout(kUnsupportedArchitecture, "TailCallIndirect");
+  DCHECK(target != no_reg);
+  Jump(target);
 }
 
 void LiftoffAssembler::CallRuntimeStub(WasmCode::RuntimeStubId sid) {
-  bailout(kUnsupportedArchitecture, "CallRuntimeStub");
+  Call(static_cast<Address>(sid), RelocInfo::WASM_STUB_CALL);
 }
 
 void LiftoffAssembler::AllocateStackSlot(Register addr, uint32_t size) {
