@@ -544,7 +544,7 @@ class LiftoffCompiler {
         bailout_reason = kRefTypes;
         break;
       case kBottom:
-      case kStmt:
+      case kVoid:
         UNREACHABLE();
     }
     EmbeddedVector<char, 128> buffer;
@@ -1345,7 +1345,7 @@ class LiftoffCompiler {
       param_bytes += element_size_bytes(param_kind);
     }
     int out_arg_bytes =
-        out_argument_kind == kStmt ? 0 : element_size_bytes(out_argument_kind);
+        out_argument_kind == kVoid ? 0 : element_size_bytes(out_argument_kind);
     int stack_bytes = std::max(param_bytes, out_arg_bytes);
     __ CallC(sig, arg_regs, result_regs, out_argument_kind, stack_bytes,
              ext_ref);
@@ -1564,7 +1564,7 @@ class LiftoffCompiler {
             [=](LiftoffRegister dst, LiftoffRegister src) {
               if (__ emit_i32_popcnt(dst.gp(), src.gp())) return;
               auto sig = MakeSig::Returns(kI32).Params(kI32);
-              GenerateCCall(&dst, &sig, kStmt, &src,
+              GenerateCCall(&dst, &sig, kVoid, &src,
                             ExternalReference::wasm_word32_popcnt());
             });
       case kExprI64Popcnt:
@@ -1574,7 +1574,7 @@ class LiftoffCompiler {
               // The c function returns i32. We will zero-extend later.
               auto sig = MakeSig::Returns(kI32).Params(kI64);
               LiftoffRegister c_call_dst = kNeedI64RegPair ? dst.low() : dst;
-              GenerateCCall(&c_call_dst, &sig, kStmt, &src,
+              GenerateCCall(&c_call_dst, &sig, kVoid, &src,
                             ExternalReference::wasm_word64_popcnt());
               // Now zero-extend the result to i64.
               __ emit_type_conversion(kExprI64UConvertI32, dst, c_call_dst,
@@ -1704,7 +1704,7 @@ class LiftoffCompiler {
           ValueKind sig_kinds[] = {k##kind, k##kind, k##kind};               \
           const bool out_via_stack = k##kind == kI64;                        \
           ValueKindSig sig(out_via_stack ? 0 : 1, 2, sig_kinds);             \
-          ValueKind out_arg_kind = out_via_stack ? kI64 : kStmt;             \
+          ValueKind out_arg_kind = out_via_stack ? kI64 : kVoid;             \
           GenerateCCall(&dst, &sig, out_arg_kind, args, ext_ref);            \
         });
     switch (opcode) {
@@ -3108,42 +3108,42 @@ class LiftoffCompiler {
             .as_vector());
   }
 
-  enum CallKind : bool { kReturnCall = true, kNoReturnCall = false };
+  enum TailCall : bool { kTailCall = true, kNoTailCall = false };
 
   void CallDirect(FullDecoder* decoder,
                   const CallFunctionImmediate<validate>& imm,
                   const Value args[], Value[]) {
-    CallDirect(decoder, imm, args, nullptr, kNoReturnCall);
+    CallDirect(decoder, imm, args, nullptr, kNoTailCall);
   }
 
   void CallIndirect(FullDecoder* decoder, const Value& index_val,
                     const CallIndirectImmediate<validate>& imm,
                     const Value args[], Value returns[]) {
-    CallIndirect(decoder, index_val, imm, kNoReturnCall);
+    CallIndirect(decoder, index_val, imm, kNoTailCall);
   }
 
   void CallRef(FullDecoder* decoder, const Value& func_ref,
                const FunctionSig* sig, uint32_t sig_index, const Value args[],
                Value returns[]) {
-    CallRef(decoder, func_ref.type, sig, kNoReturnCall);
+    CallRef(decoder, func_ref.type, sig, kNoTailCall);
   }
 
   void ReturnCall(FullDecoder* decoder,
                   const CallFunctionImmediate<validate>& imm,
                   const Value args[]) {
-    CallDirect(decoder, imm, args, nullptr, kReturnCall);
+    CallDirect(decoder, imm, args, nullptr, kTailCall);
   }
 
   void ReturnCallIndirect(FullDecoder* decoder, const Value& index_val,
                           const CallIndirectImmediate<validate>& imm,
                           const Value args[]) {
-    CallIndirect(decoder, index_val, imm, kReturnCall);
+    CallIndirect(decoder, index_val, imm, kTailCall);
   }
 
   void ReturnCallRef(FullDecoder* decoder, const Value& func_ref,
                      const FunctionSig* sig, uint32_t sig_index,
                      const Value args[]) {
-    CallRef(decoder, func_ref.type, sig, kReturnCall);
+    CallRef(decoder, func_ref.type, sig, kTailCall);
   }
 
   void BrOnNull(FullDecoder* decoder, const Value& ref_object, uint32_t depth) {
@@ -3989,7 +3989,7 @@ class LiftoffCompiler {
       }
       case wasm::kI8:
       case wasm::kI16:
-      case wasm::kStmt:
+      case wasm::kVoid:
       case wasm::kBottom:
         UNREACHABLE();
     }
@@ -4046,7 +4046,7 @@ class LiftoffCompiler {
       }
       case wasm::kI8:
       case wasm::kI16:
-      case wasm::kStmt:
+      case wasm::kVoid:
       case wasm::kBottom:
         UNREACHABLE();
     }
@@ -4603,7 +4603,7 @@ class LiftoffCompiler {
     // We don't need the instance anymore after the call. We can use the
     // register for the result.
     LiftoffRegister result(instance);
-    GenerateCCall(&result, &sig, kStmt, args, ext_ref);
+    GenerateCCall(&result, &sig, kVoid, args, ext_ref);
     Label* trap_label =
         AddOutOfLineTrap(decoder, WasmCode::kThrowWasmTrapMemOutOfBounds);
     __ emit_cond_jump(kEqual, trap_label, kI32, result.gp());
@@ -4644,7 +4644,7 @@ class LiftoffCompiler {
     // We don't need the instance anymore after the call. We can use the
     // register for the result.
     LiftoffRegister result(instance);
-    GenerateCCall(&result, &sig, kStmt, args, ext_ref);
+    GenerateCCall(&result, &sig, kVoid, args, ext_ref);
     Label* trap_label =
         AddOutOfLineTrap(decoder, WasmCode::kThrowWasmTrapMemOutOfBounds);
     __ emit_cond_jump(kEqual, trap_label, kI32, result.gp());
@@ -4665,7 +4665,7 @@ class LiftoffCompiler {
     // We don't need the instance anymore after the call. We can use the
     // register for the result.
     LiftoffRegister result(instance);
-    GenerateCCall(&result, &sig, kStmt, args, ext_ref);
+    GenerateCCall(&result, &sig, kVoid, args, ext_ref);
     Label* trap_label =
         AddOutOfLineTrap(decoder, WasmCode::kThrowWasmTrapMemOutOfBounds);
     __ emit_cond_jump(kEqual, trap_label, kI32, result.gp());
@@ -5474,7 +5474,7 @@ class LiftoffCompiler {
 
   void CallDirect(FullDecoder* decoder,
                   const CallFunctionImmediate<validate>& imm,
-                  const Value args[], Value returns[], CallKind call_kind) {
+                  const Value args[], Value returns[], TailCall tail_call) {
     ValueKindSig* sig = MakeKindSig(compilation_zone_, imm.sig);
     for (ValueKind ret : sig->returns()) {
       if (!CheckSupportedType(decoder, ret, "return")) return;
@@ -5507,7 +5507,7 @@ class LiftoffCompiler {
 
       Register* explicit_instance = &imported_function_ref;
       __ PrepareCall(sig, call_descriptor, &target, explicit_instance);
-      if (call_kind == kReturnCall) {
+      if (tail_call) {
         __ PrepareTailCall(
             static_cast<int>(call_descriptor->ParameterSlotCount()),
             static_cast<int>(
@@ -5523,7 +5523,7 @@ class LiftoffCompiler {
       __ PrepareCall(sig, call_descriptor);
       // Just encode the function index. This will be patched at instantiation.
       Address addr = static_cast<Address>(imm.index);
-      if (call_kind == kReturnCall) {
+      if (tail_call) {
         DCHECK(descriptor_->CanTailCall(call_descriptor));
         __ PrepareTailCall(
             static_cast<int>(call_descriptor->ParameterSlotCount()),
@@ -5537,7 +5537,7 @@ class LiftoffCompiler {
       }
     }
 
-    if (call_kind == kNoReturnCall) {
+    if (!tail_call) {
       DefineSafepoint();
       RegisterDebugSideTableEntry(decoder, DebugSideTableBuilder::kDidSpill);
       EmitLandingPad(decoder);
@@ -5547,7 +5547,7 @@ class LiftoffCompiler {
 
   void CallIndirect(FullDecoder* decoder, const Value& index_val,
                     const CallIndirectImmediate<validate>& imm,
-                    CallKind call_kind) {
+                    TailCall tail_call) {
     ValueKindSig* sig = MakeKindSig(compilation_zone_, imm.sig);
     for (ValueKind ret : sig->returns()) {
       if (!CheckSupportedType(decoder, ret, "return")) return;
@@ -5697,7 +5697,7 @@ class LiftoffCompiler {
 
     Register target = scratch;
     __ PrepareCall(sig, call_descriptor, &target, explicit_instance);
-    if (call_kind == kReturnCall) {
+    if (tail_call) {
       __ PrepareTailCall(
           static_cast<int>(call_descriptor->ParameterSlotCount()),
           static_cast<int>(
@@ -5707,9 +5707,7 @@ class LiftoffCompiler {
       source_position_table_builder_.AddPosition(
           __ pc_offset(), SourcePosition(decoder->position()), true);
       __ CallIndirect(sig, call_descriptor, target);
-    }
 
-    if (call_kind == kNoReturnCall) {
       DefineSafepoint();
       RegisterDebugSideTableEntry(decoder, DebugSideTableBuilder::kDidSpill);
       EmitLandingPad(decoder);
@@ -5718,7 +5716,7 @@ class LiftoffCompiler {
   }
 
   void CallRef(FullDecoder* decoder, ValueType func_ref_type,
-               const FunctionSig* type_sig, CallKind call_kind) {
+               const FunctionSig* type_sig, TailCall tail_call) {
     ValueKindSig* sig = MakeKindSig(compilation_zone_, type_sig);
     for (ValueKind ret : sig->returns()) {
       if (!CheckSupportedType(decoder, ret, "return")) return;
@@ -5906,7 +5904,7 @@ class LiftoffCompiler {
     Register target_reg = target.gp();
     Register instance_reg = instance.gp();
     __ PrepareCall(sig, call_descriptor, &target_reg, &instance_reg);
-    if (call_kind == kReturnCall) {
+    if (tail_call) {
       __ PrepareTailCall(
           static_cast<int>(call_descriptor->ParameterSlotCount()),
           static_cast<int>(
@@ -5916,8 +5914,7 @@ class LiftoffCompiler {
       source_position_table_builder_.AddPosition(
           __ pc_offset(), SourcePosition(decoder->position()), true);
       __ CallIndirect(sig, call_descriptor, target_reg);
-    }
-    if (call_kind == kNoReturnCall) {
+
       DefineSafepoint();
       RegisterDebugSideTableEntry(decoder, DebugSideTableBuilder::kDidSpill);
       EmitLandingPad(decoder);
@@ -6013,7 +6010,7 @@ class LiftoffCompiler {
         return LoadNullValue(reg.gp(), pinned);
       case kRtt:
       case kRttWithDepth:
-      case kStmt:
+      case kVoid:
       case kBottom:
       case kRef:
         UNREACHABLE();

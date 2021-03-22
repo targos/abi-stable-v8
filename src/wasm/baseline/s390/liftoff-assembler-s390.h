@@ -2804,7 +2804,7 @@ void LiftoffAssembler::CallC(const ValueKindSig* sig,
   }
 
   // Load potential output value from the buffer on the stack.
-  if (out_argument_kind != kStmt) {
+  if (out_argument_kind != kVoid) {
     switch (out_argument_kind) {
       case kI32:
         LoadS32(result_reg->gp(), MemOperand(sp));
@@ -2850,7 +2850,7 @@ void LiftoffAssembler::TailCallIndirect(Register target) {
 }
 
 void LiftoffAssembler::CallRuntimeStub(WasmCode::RuntimeStubId sid) {
-  Call(static_cast<Address>(sid), RelocInfo::WASM_STUB_CALL);
+  bailout(kUnsupportedArchitecture, "CallRuntimeStub");
 }
 
 void LiftoffAssembler::AllocateStackSlot(Register addr, uint32_t size) {

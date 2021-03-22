@@ -894,9 +894,14 @@ class SideTable : public ZoneObject {
           }
           TRACE("control @%u: Try, arity %d->%d\n", i.pc_offset(),
                 imm.in_arity(), imm.out_arity());
-          CLabel* end_label =
-              CLabel::New(&control_transfer_zone, stack_height - imm.in_arity(),
-                          imm.out_arity());
+          int target_stack_height = stack_height - imm.in_arity();
+          if (target_stack_height < 0) {
+            // Allowed in unreachable code, but the stack height stays at 0.
+            DCHECK(unreachable);
+            target_stack_height = 0;
+          }
+          CLabel* end_label = CLabel::New(&control_transfer_zone,
+                                          target_stack_height, imm.out_arity());
           CLabel* catch_label =
               CLabel::New(&control_transfer_zone, stack_height, 0);
           control_stack.emplace_back(i.pc(), end_label, catch_label,
@@ -1438,7 +1443,7 @@ class WasmInterpreterInternals {
         case kRef:  // TODO(7748): Implement.
         case kRtt:
         case kRttWithDepth:
-        case kStmt:
+        case kVoid:
         case kBottom:
         case kI8:
         case kI16:
@@ -3204,7 +3209,7 @@ class WasmInterpreterInternals {
         case kRttWithDepth:
         case kI8:
         case kI16:
-        case kStmt:
+        case kVoid:
         case kBottom:
           UNREACHABLE();
       }
@@ -3322,7 +3327,7 @@ class WasmInterpreterInternals {
         case kRttWithDepth:
         case kI8:
         case kI16:
-        case kStmt:
+        case kVoid:
         case kBottom:
           UNREACHABLE();
       }
@@ -3721,7 +3726,7 @@ class WasmInterpreterInternals {
             case kRttWithDepth:
             case kI8:
             case kI16:
-            case kStmt:
+            case kVoid:
             case kBottom:
               UNREACHABLE();
           }
@@ -4022,7 +4027,7 @@ class WasmInterpreterInternals {
   }
 
   void Push(WasmValue val) {
-    DCHECK_NE(kWasmStmt, val.type());
+    DCHECK_NE(kWasmVoid, val.type());
     DCHECK_NE(kWasmI8, val.type());
     DCHECK_NE(kWasmI16, val.type());
     DCHECK_LE(1, stack_limit_ - sp_);
@@ -4036,7 +4041,7 @@ class WasmInterpreterInternals {
   void Push(WasmValue* vals, size_t arity) {
     DCHECK_LE(arity, stack_limit_ - sp_);
     for (WasmValue *val = vals, *end = vals + arity; val != end; ++val) {
-      DCHECK_NE(kWasmStmt, val->type());
+      DCHECK_NE(kWasmVoid, val->type());
       Push(*val);
     }
   }
@@ -4113,7 +4118,7 @@ class WasmInterpreterInternals {
           PrintF("i32x4:%d,%d,%d,%d", s.val[0], s.val[1], s.val[2], s.val[3]);
           break;
         }
-        case kStmt:
+        case kVoid:
           PrintF("void");
           break;
         case kRef:
