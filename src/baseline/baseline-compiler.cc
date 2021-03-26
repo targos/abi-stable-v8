@@ -13,6 +13,7 @@
 #include <type_traits>
 
 #include "src/baseline/baseline-assembler-inl.h"
+#include "src/baseline/baseline-assembler.h"
 #include "src/builtins/builtins-constructor.h"
 #include "src/builtins/builtins-descriptors.h"
 #include "src/builtins/builtins.h"
@@ -286,7 +287,7 @@ void BaselineCompiler::GenerateCode() {
   }
 }
 
-Handle<Code> BaselineCompiler::Build(Isolate* isolate) {
+MaybeHandle<Code> BaselineCompiler::Build(Isolate* isolate) {
   CodeDesc desc;
   __ GetCode(isolate, &desc);
   // Allocate the bytecode offset table.
@@ -294,7 +295,7 @@ Handle<Code> BaselineCompiler::Build(Isolate* isolate) {
       bytecode_offset_table_builder_.ToBytecodeOffsetTable(isolate);
   return Factory::CodeBuilder(isolate, desc, CodeKind::BASELINE)
       .set_bytecode_offset_table(bytecode_offset_table)
-      .Build();
+      .TryBuild();
 }
 
 interpreter::Register BaselineCompiler::RegisterOperand(int operand_index) {
@@ -391,13 +392,42 @@ void BaselineCompiler::AddPosition() {
 }
 
 void BaselineCompiler::PreVisitSingleBytecode() {
-  if (iterator().current_bytecode() == interpreter::Bytecode::kJumpLoop) {
-    EnsureLabels(iterator().GetJumpTargetOffset());
+  switch (iterator().current_bytecode()) {
+    case interpreter::Bytecode::kJumpLoop:
+      EnsureLabels(iterator().GetJumpTargetOffset());
+      break;
+
+    // TODO(leszeks): Update the max_call_args as part of the main bytecode
+    // visit loop, by patching the value passed to the prologue.
+    case interpreter::Bytecode::kCallProperty:
+    case interpreter::Bytecode::kCallAnyReceiver:
+    case interpreter::Bytecode::kCallWithSpread:
+    case interpreter::Bytecode::kCallNoFeedback:
+    case interpreter::Bytecode::kConstruct:
+    case interpreter::Bytecode::kConstructWithSpread:
+      return UpdateMaxCallArgs(
+          iterator().GetRegisterListOperand(1).register_count());
+    case interpreter::Bytecode::kCallUndefinedReceiver:
+      return UpdateMaxCallArgs(
+          iterator().GetRegisterListOperand(1).register_count() + 1);
+    case interpreter::Bytecode::kCallProperty0:
+    case interpreter::Bytecode::kCallUndefinedReceiver0:
+      return UpdateMaxCallArgs(1);
+    case interpreter::Bytecode::kCallProperty1:
+    case interpreter::Bytecode::kCallUndefinedReceiver1:
+      return UpdateMaxCallArgs(2);
+    case interpreter::Bytecode::kCallProperty2:
+    case interpreter::Bytecode::kCallUndefinedReceiver2:
+      return UpdateMaxCallArgs(3);
+
+    default:
+      break;
   }
 }
 
 void BaselineCompiler::VisitSingleBytecode() {
   int offset = iterator().current_offset();
+  bool is_marked_as_jump_target = false;
   if (labels_[offset]) {
     // Bind labels for this offset that have already been linked to a
     // jump (i.e. forward jumps, excluding jump tables).
@@ -408,14 +438,22 @@ void BaselineCompiler::VisitSingleBytecode() {
     labels_[offset]->linked.Clear();
 #endif
     __ Bind(&labels_[offset]->unlinked);
+    is_marked_as_jump_target = true;
   }
 
   // Record positions of exception handlers.
   if (iterator().current_offset() == *next_handler_offset_) {
     __ ExceptionHandler();
     next_handler_offset_++;
+    is_marked_as_jump_target = true;
   }
   DCHECK_LT(iterator().current_offset(), *next_handler_offset_);
+
+  // Mark position as valid jump target, if it isn't one already.
+  // This is required for the deoptimizer, when CFI is enabled.
+  if (!is_marked_as_jump_target) {
+    __ JumpTarget();
+  }
 
   if (FLAG_code_comments) {
     std::ostringstream str;
@@ -919,6 +957,7 @@ void BaselineCompiler::VisitStaDataPropertyInLiteral() {
 }
 
 void BaselineCompiler::VisitCollectTypeProfile() {
+  SaveAccumulatorScope accumulator_scope(&basm_);
   CallRuntime(Runtime::kCollectTypeProfile,
               IntAsSmi(0),                      // position
               kInterpreterAccumulatorRegister,  // value
@@ -1204,6 +1243,7 @@ void BaselineCompiler::VisitCallRuntime() {
 }
 
 void BaselineCompiler::VisitCallRuntimeForPair() {
+  SaveAccumulatorScope accumulator_scope(&basm_);
   CallRuntime(iterator().GetRuntimeIdOperand(0),
               iterator().GetRegisterListOperand(1));
   StoreRegisterPair(3, kReturnRegister0, kReturnRegister1);
@@ -1752,15 +1792,16 @@ void BaselineCompiler::VisitCreateRegExpLiteral() {
 
 void BaselineCompiler::VisitCreateArrayLiteral() {
   uint32_t flags = Flag(2);
+  int32_t flags_raw = static_cast<int32_t>(
+      interpreter::CreateArrayLiteralFlags::FlagsBits::decode(flags));
   if (flags &
       interpreter::CreateArrayLiteralFlags::FastCloneSupportedBit::kMask) {
     CallBuiltin(Builtins::kCreateShallowArrayLiteral,
                 FeedbackVector(),          // feedback vector
                 IndexAsTagged(1),          // slot
-                Constant<HeapObject>(0));  // constant elements
+                Constant<HeapObject>(0),   // constant elements
+                Smi::FromInt(flags_raw));  // flags
   } else {
-    int32_t flags_raw = static_cast<int32_t>(
-        interpreter::CreateArrayLiteralFlags::FlagsBits::decode(flags));
     CallRuntime(Runtime::kCreateArrayLiteral,
                 FeedbackVector(),          // feedback vector
                 IndexAsTagged(1),          // slot
@@ -2293,10 +2334,12 @@ void BaselineCompiler::VisitGetIterator() {
 }
 
 void BaselineCompiler::VisitDebugger() {
+  SaveAccumulatorScope accumulator_scope(&basm_);
   CallBuiltin(Builtins::kHandleDebuggerStatement);
 }
 
 void BaselineCompiler::VisitIncBlockCounter() {
+  SaveAccumulatorScope accumulator_scope(&basm_);
   CallBuiltin(Builtins::kIncBlockCounter, __ FunctionOperand(),
               IndexAsSmi(0));  // coverage array slot
 }

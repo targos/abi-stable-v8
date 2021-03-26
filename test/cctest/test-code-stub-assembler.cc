@@ -2453,6 +2453,33 @@ TEST(IsDebugActive) {
   *debug_is_active = false;
 }
 
+// Ensure that the kShortBuiltinCallsOldSpaceSizeThreshold constant can be used
+// for detecting whether the machine has >= 4GB of physical memory by checking
+// the max old space size.
+TEST(ShortBuiltinCallsThreshold) {
+  if (!V8_SHORT_BUILTIN_CALLS_BOOL) return;
+
+  const uint64_t kPhysicalMemoryThreshold = size_t{4} * GB;
+
+  size_t heap_size, old, young;
+
+  // If the physical memory is < kPhysicalMemoryThreshold then the old space
+  // size must be below the kShortBuiltinCallsOldSpaceThreshold.
+  heap_size = Heap::HeapSizeFromPhysicalMemory(kPhysicalMemoryThreshold - MB);
+  i::Heap::GenerationSizesFromHeapSize(heap_size, &young, &old);
+  CHECK_LT(old, kShortBuiltinCallsOldSpaceSizeThreshold);
+
+  // If the physical memory is >= kPhysicalMemoryThreshold then the old space
+  // size must be below the kShortBuiltinCallsOldSpaceThreshold.
+  heap_size = Heap::HeapSizeFromPhysicalMemory(kPhysicalMemoryThreshold);
+  i::Heap::GenerationSizesFromHeapSize(heap_size, &young, &old);
+  CHECK_GE(old, kShortBuiltinCallsOldSpaceSizeThreshold);
+
+  heap_size = Heap::HeapSizeFromPhysicalMemory(kPhysicalMemoryThreshold + MB);
+  i::Heap::GenerationSizesFromHeapSize(heap_size, &young, &old);
+  CHECK_GE(old, kShortBuiltinCallsOldSpaceSizeThreshold);
+}
+
 TEST(CallBuiltin) {
   Isolate* isolate(CcTest::InitIsolateOnce());
 
@@ -4242,14 +4269,14 @@ TEST(PopCount) {
     int expected_pop32 = test_case.second;
     int expected_pop64 = 2 * expected_pop32;
 
-    TNode<Int32T> pop32 = m.Word32PopulationCount(m.Uint32Constant(value32));
+    TNode<Int32T> pop32 = m.PopulationCount32(m.Uint32Constant(value32));
     CSA_CHECK(&m, m.Word32Equal(pop32, m.Int32Constant(expected_pop32)));
 
     if (m.Is64()) {
       // TODO(emrich): enable once 64-bit operations are supported on 32-bit
       // architectures.
 
-      TNode<Int64T> pop64 = m.Word64PopulationCount(m.Uint64Constant(value64));
+      TNode<Int64T> pop64 = m.PopulationCount64(m.Uint64Constant(value64));
       CSA_CHECK(&m, m.Word64Equal(pop64, m.Int64Constant(expected_pop64)));
     }
   }
@@ -4279,7 +4306,7 @@ TEST(CountTrailingZeros) {
     int expected_ctz32 = test_case.second;
     int expected_ctz64 = expected_ctz32 + 32;
 
-    TNode<Int32T> pop32 = m.Word32CountTrailingZeros(m.Uint32Constant(value32));
+    TNode<Int32T> pop32 = m.CountTrailingZeros32(m.Uint32Constant(value32));
     CSA_CHECK(&m, m.Word32Equal(pop32, m.Int32Constant(expected_ctz32)));
 
     if (m.Is64()) {
@@ -4287,9 +4314,8 @@ TEST(CountTrailingZeros) {
       // architectures.
 
       TNode<Int64T> pop64_ext =
-          m.Word64CountTrailingZeros(m.Uint64Constant(value32));
-      TNode<Int64T> pop64 =
-          m.Word64CountTrailingZeros(m.Uint64Constant(value64));
+          m.CountTrailingZeros64(m.Uint64Constant(value32));
+      TNode<Int64T> pop64 = m.CountTrailingZeros64(m.Uint64Constant(value64));
 
       CSA_CHECK(&m, m.Word64Equal(pop64_ext, m.Int64Constant(expected_ctz32)));
       CSA_CHECK(&m, m.Word64Equal(pop64, m.Int64Constant(expected_ctz64)));

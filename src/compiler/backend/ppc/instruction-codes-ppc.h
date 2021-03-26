@@ -277,6 +277,7 @@ namespace compiler {
   V(PPC_I64x2ExtMulHighI32x4S)       \
   V(PPC_I64x2ExtMulLowI32x4U)        \
   V(PPC_I64x2ExtMulHighI32x4U)       \
+  V(PPC_I64x2Abs)                    \
   V(PPC_I32x4Splat)                  \
   V(PPC_I32x4ExtractLane)            \
   V(PPC_I32x4ReplaceLane)            \
@@ -386,6 +387,7 @@ namespace compiler {
   V(PPC_I8x16Shuffle)                \
   V(PPC_I8x16Swizzle)                \
   V(PPC_I8x16BitMask)                \
+  V(PPC_I8x16Popcnt)                 \
   V(PPC_I64x2AllTrue)                \
   V(PPC_I32x4AllTrue)                \
   V(PPC_I16x8AllTrue)                \

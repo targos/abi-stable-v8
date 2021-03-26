@@ -580,30 +580,6 @@ void InstructionSelector::VisitStoreLane(Node* node) {
   Emit(opcode, 0, nullptr, input_count, inputs);
 }
 
-void InstructionSelector::VisitPrefetchTemporal(Node* node) {
-  X64OperandGenerator g(this);
-  InstructionOperand inputs[2];
-  size_t input_count = 0;
-  InstructionCode opcode = kX64Prefetch;
-  AddressingMode addressing_mode =
-      g.GetEffectiveAddressMemoryOperand(node, inputs, &input_count);
-  DCHECK_LE(input_count, 2);
-  opcode |= AddressingModeField::encode(addressing_mode);
-  Emit(opcode, 0, nullptr, input_count, inputs);
-}
-
-void InstructionSelector::VisitPrefetchNonTemporal(Node* node) {
-  X64OperandGenerator g(this);
-  InstructionOperand inputs[2];
-  size_t input_count = 0;
-  InstructionCode opcode = kX64PrefetchNta;
-  AddressingMode addressing_mode =
-      g.GetEffectiveAddressMemoryOperand(node, inputs, &input_count);
-  DCHECK_LE(input_count, 2);
-  opcode |= AddressingModeField::encode(addressing_mode);
-  Emit(opcode, 0, nullptr, input_count, inputs);
-}
-
 // Shared routine for multiple binary operations.
 static void VisitBinop(InstructionSelector* selector, Node* node,
                        InstructionCode opcode, FlagsContinuation* cont) {
@@ -991,7 +967,8 @@ bool TryMatchLoadWord64AndShiftRight(InstructionSelector* selector, Node* node,
         // immediate displacement. It seems that we never use M1 and M2, but we
         // handle them here anyways.
         mode = AddDisplacementToAddressingMode(mode);
-        inputs[input_count++] = ImmediateOperand(ImmediateOperand::INLINE, 4);
+        inputs[input_count++] =
+            ImmediateOperand(ImmediateOperand::INLINE_INT32, 4);
       } else {
         // In the case that the base address was zero, the displacement will be
         // in a register and replacing it with an immediate is not allowed. This
@@ -999,7 +976,7 @@ bool TryMatchLoadWord64AndShiftRight(InstructionSelector* selector, Node* node,
         if (!inputs[input_count - 1].IsImmediate()) return false;
         int32_t displacement = g.GetImmediateIntegerValue(mleft.displacement());
         inputs[input_count - 1] =
-            ImmediateOperand(ImmediateOperand::INLINE, displacement + 4);
+            ImmediateOperand(ImmediateOperand::INLINE_INT32, displacement + 4);
       }
       InstructionOperand outputs[] = {g.DefineAsRegister(node)};
       InstructionCode code = opcode | AddressingModeField::encode(mode);
@@ -1458,6 +1435,7 @@ bool InstructionSelector::ZeroExtendsWord32ToWord64NoPhis(Node* node) {
       }
     }
     case IrOpcode::kLoad:
+    case IrOpcode::kLoadImmutable:
     case IrOpcode::kProtectedLoad:
     case IrOpcode::kPoisonedLoad: {
       // The movzxbl/movsxbl/movzxwl/movsxwl/movl operations implicitly
@@ -1695,7 +1673,8 @@ void InstructionSelector::VisitTruncateInt64ToInt32(Node* node) {
         }
         break;
       }
-      case IrOpcode::kLoad: {
+      case IrOpcode::kLoad:
+      case IrOpcode::kLoadImmutable: {
         if (TryMergeTruncateInt64ToInt32IntoLoad(this, node, value)) {
           return;
         }
@@ -3568,12 +3547,27 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
 void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+#if V8_ENABLE_WEBASSEMBLY
 void InstructionSelector::VisitI8x16Swizzle(Node* node) {
+  InstructionCode op = kX64I8x16Swizzle;
+
+  auto m = V128ConstMatcher(node->InputAt(1));
+  if (m.HasResolvedValue()) {
+    // If the indices vector is a const, check if they are in range, or if the
+    // top bit is set, then we can avoid the paddusb in the codegen and simply
+    // emit a pshufb
+    auto imms = m.ResolvedValue().immediate();
+    op |= MiscField::encode(wasm::SimdSwizzle::AllInRangeOrTopBitSet(imms));
+  }
+
   X64OperandGenerator g(this);
-  Emit(kX64I8x16Swizzle,
+  Emit(op,
        IsSupported(AVX) ? g.DefineAsRegister(node) : g.DefineSameAsFirst(node),
        g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)));
 }
+#else
+void InstructionSelector::VisitI8x16Swizzle(Node* node) { UNREACHABLE(); }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace {
 void VisitPminOrPmax(InstructionSelector* selector, Node* node,

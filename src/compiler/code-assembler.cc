@@ -733,6 +733,11 @@ TNode<Object> CodeAssembler::LoadRoot(RootIndex root_index) {
       LoadFullTagged(isolate_root, IntPtrConstant(offset)));
 }
 
+Node* CodeAssembler::UnalignedLoad(MachineType type, TNode<RawPtrT> base,
+                                   TNode<WordT> offset) {
+  return raw_assembler()->UnalignedLoad(type, static_cast<Node*>(base), offset);
+}
+
 void CodeAssembler::Store(Node* base, Node* value) {
   raw_assembler()->Store(MachineRepresentation::kTagged, base, value,
                          kFullWriteBarrier);

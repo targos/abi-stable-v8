@@ -880,7 +880,7 @@ Instruction* InstructionSelector::EmitWithContinuation(
     AppendDeoptimizeArguments(&continuation_inputs_, cont->kind(),
                               cont->reason(), cont->feedback(),
                               FrameState{cont->frame_state()});
-  } else if (cont->IsSet()) {
+  } else if (cont->IsSet() || cont->IsSelect()) {
     continuation_outputs_.push_back(g.DefineAsRegister(cont->result()));
   } else if (cont->IsTrap()) {
     int trap_id = static_cast<int>(cont->trap_id());
@@ -1495,7 +1495,8 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kRetain:
       VisitRetain(node);
       return;
-    case IrOpcode::kLoad: {
+    case IrOpcode::kLoad:
+    case IrOpcode::kLoadImmutable: {
       LoadRepresentation type = LoadRepresentationOf(node->op());
       MarkAsRepresentation(type.representation(), node);
       return VisitLoad(node);
@@ -1503,12 +1504,6 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kLoadTransform: {
       MarkAsRepresentation(MachineRepresentation::kSimd128, node);
       return VisitLoadTransform(node);
-    }
-    case IrOpcode::kPrefetchTemporal: {
-      return VisitPrefetchTemporal(node);
-    }
-    case IrOpcode::kPrefetchNonTemporal: {
-      return VisitPrefetchNonTemporal(node);
     }
     case IrOpcode::kLoadLane: {
       MarkAsRepresentation(MachineRepresentation::kSimd128, node);
@@ -1753,6 +1748,8 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsFloat32(node), VisitFloat32Max(node);
     case IrOpcode::kFloat32Min:
       return MarkAsFloat32(node), VisitFloat32Min(node);
+    case IrOpcode::kFloat32Select:
+      return MarkAsFloat32(node), VisitSelect(node);
     case IrOpcode::kFloat64Add:
       return MarkAsFloat64(node), VisitFloat64Add(node);
     case IrOpcode::kFloat64Sub:
@@ -1821,6 +1818,8 @@ void InstructionSelector::VisitNode(Node* node) {
       return VisitFloat64LessThan(node);
     case IrOpcode::kFloat64LessThanOrEqual:
       return VisitFloat64LessThanOrEqual(node);
+    case IrOpcode::kFloat64Select:
+      return MarkAsFloat64(node), VisitSelect(node);
     case IrOpcode::kFloat32RoundDown:
       return MarkAsFloat32(node), VisitFloat32RoundDown(node);
     case IrOpcode::kFloat64RoundDown:
@@ -2816,14 +2815,6 @@ void InstructionSelector::VisitF32x4Qfms(Node* node) { UNIMPLEMENTED(); }
 #endif  // !V8_TARGET_ARCH_ARM64
 #endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_S390X
 
-#if !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_IA32
-// TODO(v8:11168): Prototyping prefetch.
-void InstructionSelector::VisitPrefetchTemporal(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitPrefetchNonTemporal(Node* node) {
-  UNIMPLEMENTED();
-}
-#endif  // !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_X64 || !V8_TARGET_ARCH_IA32
-
 void InstructionSelector::VisitFinishRegion(Node* node) { EmitIdentity(node); }
 
 void InstructionSelector::VisitParameter(Node* node) {
@@ -3149,6 +3140,13 @@ void InstructionSelector::VisitDeoptimizeUnless(Node* node) {
         kEqual, p.kind(), p.reason(), p.feedback(), node->InputAt(1));
     VisitWordCompareZero(node, node->InputAt(0), &cont);
   }
+}
+
+void InstructionSelector::VisitSelect(Node* node) {
+  FlagsContinuation cont =
+      FlagsContinuation::ForSelect(kNotEqual, node,
+                                   node->InputAt(1), node->InputAt(2));
+  VisitWordCompareZero(node, node->InputAt(0), &cont);
 }
 
 void InstructionSelector::VisitDynamicCheckMapsWithDeoptUnless(Node* node) {

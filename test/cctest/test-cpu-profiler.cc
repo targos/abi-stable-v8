@@ -35,6 +35,7 @@
 #include "include/v8-profiler.h"
 #include "src/api/api-inl.h"
 #include "src/base/platform/platform.h"
+#include "src/codegen/compilation-cache.h"
 #include "src/codegen/source-position-table.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/heap/spaces.h"
@@ -178,7 +179,8 @@ TEST(CodeEvents) {
       v8::base::TimeDelta::FromMicroseconds(100), true);
   CHECK(processor->Start());
   ProfilerListener profiler_listener(isolate, processor,
-                                     *code_observer.strings());
+                                     *code_observer.strings(),
+                                     *code_observer.weak_code_registry());
   isolate->logger()->AddCodeEventListener(&profiler_listener);
 
   // Enqueue code creation events.
@@ -243,7 +245,8 @@ TEST(TickEvents) {
   profiles->StartProfiling("");
   CHECK(processor->Start());
   ProfilerListener profiler_listener(isolate, processor,
-                                     *code_observer->strings());
+                                     *code_observer->strings(),
+                                     *code_observer->weak_code_registry());
   isolate->logger()->AddCodeEventListener(&profiler_listener);
 
   profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, frame1_code, "bbb");
@@ -404,7 +407,8 @@ TEST(Issue1398) {
   profiles->StartProfiling("");
   CHECK(processor->Start());
   ProfilerListener profiler_listener(isolate, processor,
-                                     *code_observer->strings());
+                                     *code_observer->strings(),
+                                     *code_observer->weak_code_registry());
 
   profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, code, "bbb");
 
@@ -1272,7 +1276,8 @@ static void TickLines(bool optimize) {
   isolate->logger()->LogCompiledFunctions();
   CHECK(processor->Start());
   ProfilerListener profiler_listener(isolate, processor,
-                                     *code_observer->strings());
+                                     *code_observer->strings(),
+                                     *code_observer->weak_code_registry());
 
   // Enqueue code creation events.
   i::Handle<i::String> str = factory->NewStringFromAsciiChecked(func_name);
@@ -4090,6 +4095,9 @@ TEST(BytecodeFlushEventsEagerLogging) {
   FLAG_always_opt = false;
   i::FLAG_optimize_for_size = false;
 #endif  // V8_LITE_MODE
+#if ENABLE_SPARKPLUG
+  FLAG_always_sparkplug = false;
+#endif  // ENABLE_SPARKPLUG
   i::FLAG_flush_bytecode = true;
   i::FLAG_allow_natives_syntax = true;
 
@@ -4153,6 +4161,40 @@ TEST(BytecodeFlushEventsEagerLogging) {
 
     CHECK(!code_map->FindEntry(bytecode_start));
   }
+}
+
+// Ensure that unused code entries are removed after GC with eager logging.
+TEST(ClearUnusedWithEagerLogging) {
+  ManualGCScope manual_gc;
+  TestSetup test_setup;
+  i::Isolate* isolate = CcTest::i_isolate();
+  i::HandleScope scope(isolate);
+
+  CpuProfiler profiler(isolate, kDebugNaming, kEagerLogging);
+
+  CodeMap* code_map = profiler.code_map_for_test();
+  size_t initial_size = code_map->size();
+
+  {
+    // Create and run a new script and function, generating 2 code objects.
+    // Do this in a new context, so that some_func isn't retained by the
+    // context's global object past this scope.
+    i::HandleScope inner_scope(isolate);
+    LocalContext env;
+    CompileRun(
+        "function some_func() {}"
+        "some_func();");
+    CHECK_GT(code_map->size(), initial_size);
+  }
+
+  // Clear the compilation cache so that there are no more references to the
+  // given two functions.
+  isolate->compilation_cache()->Clear();
+
+  CcTest::CollectAllGarbage();
+
+  // Verify that the CodeMap's size is unchanged post-GC.
+  CHECK_EQ(code_map->size(), initial_size);
 }
 
 }  // namespace test_cpu_profiler

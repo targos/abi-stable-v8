@@ -9,6 +9,7 @@
 #include "src/codegen/assembler.h"
 #include "src/codegen/cpu-features.h"
 #include "src/codegen/machine-type.h"
+#include "src/codegen/x64/register-x64.h"
 #include "src/heap/memory-chunk.h"
 #include "src/wasm/baseline/liftoff-assembler.h"
 #include "src/wasm/simd-shuffle.h"
@@ -118,6 +119,12 @@ inline void Store(LiftoffAssembler* assm, Operand dst, LiftoffRegister src,
       break;
     case kI64:
       assm->movq(dst, src.gp());
+      break;
+    case kOptRef:
+    case kRef:
+    case kRtt:
+    case kRttWithDepth:
+      assm->StoreTaggedField(dst, src.gp());
       break;
     case kF32:
       assm->Movss(dst, src.fp());
@@ -2731,21 +2738,21 @@ void LiftoffAssembler::emit_i64x2_gt_s(LiftoffRegister dst, LiftoffRegister lhs,
   // Different register alias requirements depending on CpuFeatures supported:
   if (CpuFeatures::IsSupported(AVX)) {
     // 1. AVX, no requirements.
-    I64x2GtS(dst.fp(), lhs.fp(), rhs.fp());
+    I64x2GtS(dst.fp(), lhs.fp(), rhs.fp(), kScratchDoubleReg);
   } else if (CpuFeatures::IsSupported(SSE4_2)) {
     // 2. SSE4_2, dst == lhs.
     if (dst != lhs) {
       movaps(dst.fp(), lhs.fp());
     }
-    I64x2GtS(dst.fp(), dst.fp(), rhs.fp());
+    I64x2GtS(dst.fp(), dst.fp(), rhs.fp(), kScratchDoubleReg);
   } else {
     // 3. Else, dst != lhs && dst != rhs (lhs == rhs is ok).
     if (dst == lhs || dst == rhs) {
-      // macro-assembler uses kScratchDoubleReg, so don't use it.
-      I64x2GtS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp());
+      I64x2GtS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp(),
+               kScratchDoubleReg);
       movaps(dst.fp(), liftoff::kScratchDoubleReg2);
     } else {
-      I64x2GtS(dst.fp(), lhs.fp(), rhs.fp());
+      I64x2GtS(dst.fp(), lhs.fp(), rhs.fp(), kScratchDoubleReg);
     }
   }
 }
@@ -2755,24 +2762,24 @@ void LiftoffAssembler::emit_i64x2_ge_s(LiftoffRegister dst, LiftoffRegister lhs,
   // Different register alias requirements depending on CpuFeatures supported:
   if (CpuFeatures::IsSupported(AVX)) {
     // 1. AVX, no requirements.
-    I64x2GeS(dst.fp(), lhs.fp(), rhs.fp());
+    I64x2GeS(dst.fp(), lhs.fp(), rhs.fp(), kScratchDoubleReg);
   } else if (CpuFeatures::IsSupported(SSE4_2)) {
     // 2. SSE4_2, dst != lhs.
     if (dst == lhs) {
-      // macro-assembler uses kScratchDoubleReg, so don't use it.
-      I64x2GeS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp());
+      I64x2GeS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp(),
+               kScratchDoubleReg);
       movaps(dst.fp(), liftoff::kScratchDoubleReg2);
     } else {
-      I64x2GeS(dst.fp(), lhs.fp(), rhs.fp());
+      I64x2GeS(dst.fp(), lhs.fp(), rhs.fp(), kScratchDoubleReg);
     }
   } else {
     // 3. Else, dst != lhs && dst != rhs (lhs == rhs is ok).
     if (dst == lhs || dst == rhs) {
-      // macro-assembler uses kScratchDoubleReg, so don't use it.
-      I64x2GeS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp());
+      I64x2GeS(liftoff::kScratchDoubleReg2, lhs.fp(), rhs.fp(),
+               kScratchDoubleReg);
       movaps(dst.fp(), liftoff::kScratchDoubleReg2);
     } else {
-      I64x2GeS(dst.fp(), lhs.fp(), rhs.fp());
+      I64x2GeS(dst.fp(), lhs.fp(), rhs.fp(), kScratchDoubleReg);
     }
   }
 }
@@ -3227,13 +3234,13 @@ void LiftoffAssembler::emit_i16x8_extmul_low_i8x16_u(LiftoffRegister dst,
 void LiftoffAssembler::emit_i16x8_extmul_high_i8x16_s(LiftoffRegister dst,
                                                       LiftoffRegister src1,
                                                       LiftoffRegister src2) {
-  I16x8ExtMulHighS(dst.fp(), src1.fp(), src2.fp());
+  I16x8ExtMulHighS(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i16x8_extmul_high_i8x16_u(LiftoffRegister dst,
                                                       LiftoffRegister src1,
                                                       LiftoffRegister src2) {
-  I16x8ExtMulHighU(dst.fp(), src1.fp(), src2.fp());
+  I16x8ExtMulHighU(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i16x8_q15mulr_sat_s(LiftoffRegister dst,
@@ -3374,16 +3381,16 @@ inline void I32x4ExtMulHelper(LiftoffAssembler* assm, XMMRegister dst,
                               bool is_signed) {
   // I32x4ExtMul requires dst == src1 if AVX is not supported.
   if (CpuFeatures::IsSupported(AVX) || dst == src1) {
-    assm->I32x4ExtMul(dst, src1, src2, low, is_signed);
+    assm->I32x4ExtMul(dst, src1, src2, kScratchDoubleReg, low, is_signed);
   } else if (dst != src2) {
     // dst != src1 && dst != src2
     assm->movaps(dst, src1);
-    assm->I32x4ExtMul(dst, dst, src2, low, is_signed);
+    assm->I32x4ExtMul(dst, dst, src2, kScratchDoubleReg, low, is_signed);
   } else {
     // dst == src2
     // Extended multiplication is commutative,
     assm->movaps(dst, src2);
-    assm->I32x4ExtMul(dst, dst, src1, low, is_signed);
+    assm->I32x4ExtMul(dst, dst, src1, kScratchDoubleReg, low, is_signed);
   }
 }
 }  // namespace liftoff
@@ -3515,27 +3522,28 @@ void LiftoffAssembler::emit_i64x2_mul(LiftoffRegister dst, LiftoffRegister lhs,
 void LiftoffAssembler::emit_i64x2_extmul_low_i32x4_s(LiftoffRegister dst,
                                                      LiftoffRegister src1,
                                                      LiftoffRegister src2) {
-  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), /*low=*/true, /*is_signed=*/true);
+  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg, /*low=*/true,
+              /*is_signed=*/true);
 }
 
 void LiftoffAssembler::emit_i64x2_extmul_low_i32x4_u(LiftoffRegister dst,
                                                      LiftoffRegister src1,
                                                      LiftoffRegister src2) {
-  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), /*low=*/true,
+  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg, /*low=*/true,
               /*is_signed=*/false);
 }
 
 void LiftoffAssembler::emit_i64x2_extmul_high_i32x4_s(LiftoffRegister dst,
                                                       LiftoffRegister src1,
                                                       LiftoffRegister src2) {
-  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), /*low=*/false,
+  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg, /*low=*/false,
               /*is_signed=*/true);
 }
 
 void LiftoffAssembler::emit_i64x2_extmul_high_i32x4_u(LiftoffRegister dst,
                                                       LiftoffRegister src1,
                                                       LiftoffRegister src2) {
-  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), /*low=*/false,
+  I64x2ExtMul(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg, /*low=*/false,
               /*is_signed=*/false);
 }
 
@@ -3561,7 +3569,7 @@ void LiftoffAssembler::emit_i64x2_uconvert_i32x4_low(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i64x2_uconvert_i32x4_high(LiftoffRegister dst,
                                                       LiftoffRegister src) {
-  I64x2UConvertI32x4High(dst.fp(), src.fp());
+  I64x2UConvertI32x4High(dst.fp(), src.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_f32x4_abs(LiftoffRegister dst,
@@ -4028,7 +4036,7 @@ void LiftoffAssembler::emit_i16x8_uconvert_i8x16_low(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i16x8_uconvert_i8x16_high(LiftoffRegister dst,
                                                       LiftoffRegister src) {
-  I16x8UConvertI8x16High(dst.fp(), src.fp());
+  I16x8UConvertI8x16High(dst.fp(), src.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i32x4_sconvert_i16x8_low(LiftoffRegister dst,
@@ -4048,7 +4056,7 @@ void LiftoffAssembler::emit_i32x4_uconvert_i16x8_low(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i32x4_uconvert_i16x8_high(LiftoffRegister dst,
                                                       LiftoffRegister src) {
-  I32x4UConvertI16x8High(dst.fp(), src.fp());
+  I32x4UConvertI16x8High(dst.fp(), src.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i32x4_trunc_sat_f64x2_s_zero(LiftoffRegister dst,
@@ -4099,7 +4107,7 @@ void LiftoffAssembler::emit_i32x4_abs(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i64x2_abs(LiftoffRegister dst,
                                       LiftoffRegister src) {
-  I64x2Abs(dst.fp(), src.fp());
+  I64x2Abs(dst.fp(), src.fp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i8x16_extract_lane_s(LiftoffRegister dst,

@@ -424,7 +424,9 @@ Reduction JSNativeContextSpecialization::ReduceJSInstanceOf(Node* node) {
         AccessMode::kLoad);
   }
 
-  if (access_info.IsInvalid()) return NoChange();
+  // TODO(v8:11457) Support dictionary mode holders here.
+  if (access_info.IsInvalid() || access_info.HasDictionaryHolder())
+    return NoChange();
   access_info.RecordDependencies(dependencies());
 
   PropertyAccessBuilder access_builder(jsgraph(), broker(), dependencies());
@@ -554,7 +556,9 @@ JSNativeContextSpecialization::InferHasInPrototypeChain(
         break;
       }
       map = map.prototype().map();
-      if (!map.is_stable()) return kMayBeInPrototypeChain;
+      // TODO(v8:11457) Support dictionary mode protoypes here.
+      if (!map.is_stable() || map.is_dictionary_map())
+        return kMayBeInPrototypeChain;
       if (map.oddball_type() == OddballType::kNull) {
         all = false;
         break;
@@ -741,7 +745,10 @@ Reduction JSNativeContextSpecialization::ReduceJSResolvePromise(Node* node) {
   PropertyAccessInfo access_info =
       access_info_factory.FinalizePropertyAccessInfosAsOne(access_infos,
                                                            AccessMode::kLoad);
-  if (access_info.IsInvalid()) return inference.NoChange();
+
+  // TODO(v8:11457) Support dictionary mode prototypes here.
+  if (access_info.IsInvalid() || access_info.HasDictionaryHolder())
+    return inference.NoChange();
 
   // Only optimize when {resolution} definitely doesn't have a "then" property.
   if (!access_info.IsNotFound()) return inference.NoChange();
@@ -2217,6 +2224,16 @@ Node* JSNativeContextSpecialization::InlinePropertyGetterCall(
     Node* frame_state, Node** effect, Node** control,
     ZoneVector<Node*>* if_exceptions, PropertyAccessInfo const& access_info) {
   ObjectRef constant(broker(), access_info.constant());
+
+  if (access_info.IsDictionaryProtoAccessorConstant()) {
+    // For fast mode holders we recorded dependencies in BuildPropertyLoad.
+    for (const Handle<Map> map : access_info.lookup_start_object_maps()) {
+      dependencies()->DependOnConstantInDictionaryPrototypeChain(
+          MapRef{broker(), map}, NameRef{broker(), access_info.name()},
+          constant, PropertyKind::kAccessor);
+    }
+  }
+
   Node* target = jsgraph()->Constant(constant);
   // Introduce the call to the getter function.
   Node* value;
@@ -2341,7 +2358,8 @@ JSNativeContextSpecialization::BuildPropertyLoad(
     ZoneVector<Node*>* if_exceptions, PropertyAccessInfo const& access_info) {
   // Determine actual holder and perform prototype chain checks.
   Handle<JSObject> holder;
-  if (access_info.holder().ToHandle(&holder)) {
+  if (access_info.holder().ToHandle(&holder) &&
+      !access_info.HasDictionaryHolder()) {
     dependencies()->DependOnStablePrototypeChains(
         access_info.lookup_start_object_maps(), kStartAtPrototype,
         JSObjectRef(broker(), holder));
@@ -2351,7 +2369,8 @@ JSNativeContextSpecialization::BuildPropertyLoad(
   Node* value;
   if (access_info.IsNotFound()) {
     value = jsgraph()->UndefinedConstant();
-  } else if (access_info.IsFastAccessorConstant()) {
+  } else if (access_info.IsFastAccessorConstant() ||
+             access_info.IsDictionaryProtoAccessorConstant()) {
     ConvertReceiverMode receiver_mode =
         receiver == lookup_start_object
             ? ConvertReceiverMode::kNotNullOrUndefined
@@ -2369,10 +2388,15 @@ JSNativeContextSpecialization::BuildPropertyLoad(
     DCHECK_EQ(receiver, lookup_start_object);
     value = graph()->NewNode(simplified()->StringLength(), receiver);
   } else {
-    DCHECK(access_info.IsDataField() || access_info.IsFastDataConstant());
+    DCHECK(access_info.IsDataField() || access_info.IsFastDataConstant() ||
+           access_info.IsDictionaryProtoDataConstant());
     PropertyAccessBuilder access_builder(jsgraph(), broker(), dependencies());
-    value = access_builder.BuildLoadDataField(
-        name, access_info, lookup_start_object, &effect, &control);
+    if (access_info.IsDictionaryProtoDataConstant()) {
+      value = access_builder.FoldLoadDictPrototypeConstant(access_info);
+    } else {
+      value = access_builder.BuildLoadDataField(
+          name, access_info, lookup_start_object, &effect, &control);
+    }
   }
 
   return ValueEffectControl(value, effect, control);
@@ -2381,6 +2405,9 @@ JSNativeContextSpecialization::BuildPropertyLoad(
 JSNativeContextSpecialization::ValueEffectControl
 JSNativeContextSpecialization::BuildPropertyTest(
     Node* effect, Node* control, PropertyAccessInfo const& access_info) {
+  // TODO(v8:11457) Support property tests for dictionary mode protoypes.
+  DCHECK(!access_info.HasDictionaryHolder());
+
   // Determine actual holder and perform prototype chain checks.
   Handle<JSObject> holder;
   if (access_info.holder().ToHandle(&holder)) {

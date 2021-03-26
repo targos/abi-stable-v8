@@ -452,7 +452,7 @@ void VisitBinop(InstructionSelector* selector, Node* node,
                 InstructionCode opcode, ImmediateMode operand_mode,
                 FlagsContinuation* cont) {
   Arm64OperandGenerator g(selector);
-  InstructionOperand inputs[3];
+  InstructionOperand inputs[4];
   size_t input_count = 0;
   InstructionOperand outputs[1];
   size_t output_count = 0;
@@ -505,6 +505,11 @@ void VisitBinop(InstructionSelector* selector, Node* node,
 
   if (!IsComparisonField::decode(properties)) {
     outputs[output_count++] = g.DefineAsRegister(node);
+  }
+
+  if (cont->IsSelect()) {
+    inputs[input_count++] = g.UseRegister(cont->true_value());
+    inputs[input_count++] = g.UseRegister(cont->false_value());
   }
 
   DCHECK_NE(0u, input_count);
@@ -620,26 +625,6 @@ void EmitLoad(InstructionSelector* selector, Node* node, InstructionCode opcode,
   }
 
   selector->Emit(opcode, arraysize(outputs), outputs, input_count, inputs);
-}
-
-void InstructionSelector::VisitPrefetchTemporal(Node* node) {
-  Arm64OperandGenerator g(this);
-  InstructionOperand inputs[2] = {g.UseRegister(node->InputAt(0)),
-                                  g.UseRegister(node->InputAt(1))};
-  InstructionCode opcode = kArm64Prfm;
-  opcode |= AddressingModeField::encode(kMode_MRR);
-  opcode |= MiscField::encode(PLDL1KEEP);
-  Emit(opcode, 0, nullptr, 2, inputs);
-}
-
-void InstructionSelector::VisitPrefetchNonTemporal(Node* node) {
-  Arm64OperandGenerator g(this);
-  InstructionOperand inputs[2] = {g.UseRegister(node->InputAt(0)),
-                                  g.UseRegister(node->InputAt(1))};
-  InstructionCode opcode = kArm64Prfm;
-  opcode |= AddressingModeField::encode(kMode_MRR);
-  opcode |= MiscField::encode(PLDL1STRM);
-  Emit(opcode, 0, nullptr, 2, inputs);
 }
 
 namespace {
@@ -2012,7 +1997,8 @@ bool InstructionSelector::ZeroExtendsWord32ToWord64NoPhis(Node* node) {
       // zero-extension is a no-op.
       return true;
     }
-    case IrOpcode::kLoad: {
+    case IrOpcode::kLoad:
+    case IrOpcode::kLoadImmutable: {
       // As for the operations above, a 32-bit load will implicitly clear the
       // top 32 bits of the destination register.
       LoadRepresentation load_rep = LoadRepresentationOf(node->op());
@@ -2152,7 +2138,15 @@ namespace {
 void VisitCompare(InstructionSelector* selector, InstructionCode opcode,
                   InstructionOperand left, InstructionOperand right,
                   FlagsContinuation* cont) {
-  selector->EmitWithContinuation(opcode, left, right, cont);
+  if (cont->IsSelect()) {
+    Arm64OperandGenerator g(selector);
+    InstructionOperand inputs[] = { left, right,
+                                    g.UseRegister(cont->true_value()),
+                                    g.UseRegister(cont->false_value()) };
+    selector->EmitWithContinuation(opcode, 0, nullptr, 4, inputs, cont);
+  } else {
+    selector->EmitWithContinuation(opcode, left, right, cont);
+  }
 }
 
 // This function checks whether we can convert:
@@ -2839,8 +2833,8 @@ void InstructionSelector::VisitWordCompareZero(Node* user, Node* value,
          g.UseRegister(value), g.Label(cont->true_block()),
          g.Label(cont->false_block()));
   } else {
-    EmitWithContinuation(cont->Encode(kArm64Tst32), g.UseRegister(value),
-                         g.UseRegister(value), cont);
+    VisitCompare(this, cont->Encode(kArm64Tst32), g.UseRegister(value),
+                 g.UseRegister(value), cont);
   }
 }
 
@@ -3640,28 +3634,22 @@ MulWithDupResult TryMatchMulWithDup(Node* node) {
   ShuffleMatcher left = m.left();
   ShuffleMatcher right = m.right();
 
-  // TODO(zhin): We can canonicalize first to avoid checking index < LANES.
-  // e.g. shuffle(x, y, [16, 17, 18, 19...]) => shuffle(y, y, [0, 1, 2,
-  // 3]...). But doing so can mutate the inputs of the shuffle node without
-  // updating the shuffle immediates themselves. Fix that before we
-  // canonicalize here. We don't want CanCover here because in many use cases,
-  // the shuffle is generated early in the function, but the f32x4.mul happens
-  // in a loop, which won't cover the shuffle since they are different basic
-  // blocks.
+  // We don't want CanCover here because in many use cases, the shuffle is
+  // generated early in the function, but the f32x4.mul happens in a loop, which
+  // won't cover the shuffle since they are different basic blocks.
   if (left.HasResolvedValue() && wasm::SimdShuffle::TryMatchSplat<LANES>(
                                      left.ResolvedValue().data(), &index)) {
-    dup_node = left.node()->InputAt(index < LANES ? 0 : 1);
+    dup_node = left.node()->InputAt(0);
     input = right.node();
   } else if (right.HasResolvedValue() &&
              wasm::SimdShuffle::TryMatchSplat<LANES>(
                  right.ResolvedValue().data(), &index)) {
-    dup_node = right.node()->InputAt(index < LANES ? 0 : 1);
+    dup_node = right.node()->InputAt(0);
     input = left.node();
   }
-#endif  // V8_ENABLE_WEBASSEMBLY
 
-  // Canonicalization would get rid of this too.
-  index %= LANES;
+  DCHECK_LT(index, LANES);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   return {input, dup_node, index};
 }
@@ -4042,7 +4030,9 @@ InstructionSelector::SupportedMachineOperatorFlags() {
          MachineOperatorBuilder::kUint32DivIsSafe |
          MachineOperatorBuilder::kWord32ReverseBits |
          MachineOperatorBuilder::kWord64ReverseBits |
-         MachineOperatorBuilder::kSatConversionIsSafe;
+         MachineOperatorBuilder::kSatConversionIsSafe |
+         MachineOperatorBuilder::kFloat32Select |
+         MachineOperatorBuilder::kFloat64Select;
 }
 
 // static

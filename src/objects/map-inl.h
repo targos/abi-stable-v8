@@ -314,6 +314,8 @@ Handle<Map> Map::AddMissingTransitionsForTesting(
   return AddMissingTransitions(isolate, split_map, descriptors);
 }
 
+// TODO(solanes, v8:7790, v8:11353): Make the instance_type accessors non-atomic
+// when TSAN sees the map's store synchronization.
 InstanceType Map::instance_type() const {
   return static_cast<InstanceType>(
       RELAXED_READ_UINT16_FIELD(*this, kInstanceTypeOffset));
@@ -456,12 +458,10 @@ void Map::set_relaxed_bit_field(byte value) {
   RELAXED_WRITE_BYTE_FIELD(*this, kBitFieldOffset, value);
 }
 
-byte Map::bit_field2() const {
-  return ACQUIRE_READ_BYTE_FIELD(*this, kBitField2Offset);
-}
+byte Map::bit_field2() const { return ReadField<byte>(kBitField2Offset); }
 
 void Map::set_bit_field2(byte value) {
-  RELEASE_WRITE_BYTE_FIELD(*this, kBitField2Offset, value);
+  WriteField<byte>(kBitField2Offset, value);
 }
 
 bool Map::is_abandoned_prototype_map() const {

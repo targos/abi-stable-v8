@@ -115,6 +115,7 @@
 #include "src/wasm/streaming-decoder.h"
 #include "src/wasm/value-type.h"
 #include "src/wasm/wasm-engine.h"
+#include "src/wasm/wasm-js.h"
 #include "src/wasm/wasm-objects-inl.h"
 #include "src/wasm/wasm-result.h"
 #include "src/wasm/wasm-serialization.h"
@@ -9122,8 +9123,8 @@ void Isolate::GetCodeRange(void** start, size_t* length_in_bytes) {
 
 void Isolate::GetEmbeddedCodeRange(const void** start,
                                    size_t* length_in_bytes) {
-  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
-  i::EmbeddedData d = i::EmbeddedData::FromBlob(isolate);
+  // Note, we should return the embedded code rande from the .text section here.
+  i::EmbeddedData d = i::EmbeddedData::FromBlob();
   *start = reinterpret_cast<const void*>(d.code());
   *length_in_bytes = d.code_size();
 }
@@ -9198,6 +9199,15 @@ CALLBACK_SETTER(WasmSimdEnabledCallback, WasmSimdEnabledCallback,
 
 CALLBACK_SETTER(WasmExceptionsEnabledCallback, WasmExceptionsEnabledCallback,
                 wasm_exceptions_enabled_callback)
+
+void Isolate::InstallConditionalFeatures(Local<Context> context) {
+#if V8_ENABLE_WEBASSEMBLY
+  v8::HandleScope handle_scope(this);
+  v8::Context::Scope context_scope(context);
+  i::WasmJs::InstallConditionalFeatures(reinterpret_cast<i::Isolate*>(this),
+                                        Utils::OpenHandle(*context));
+#endif  // V8_ENABLE_WEBASSEMBLY
+}
 
 void Isolate::AddNearHeapLimitCallback(v8::NearHeapLimitCallback callback,
                                        void* data) {

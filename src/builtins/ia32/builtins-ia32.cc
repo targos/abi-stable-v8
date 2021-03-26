@@ -1644,16 +1644,19 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
       Builtins::kBaselineOutOfLinePrologue);
   Register arg_count = descriptor.GetRegisterParameter(
       BaselineOutOfLinePrologueDescriptor::kJavaScriptCallArgCount);
-  Register bytecode_array = descriptor.GetRegisterParameter(
-      BaselineOutOfLinePrologueDescriptor::kInterpreterBytecodeArray);
+  Register frame_size = descriptor.GetRegisterParameter(
+      BaselineOutOfLinePrologueDescriptor::kStackFrameSize);
 
   // Save argument count and bytecode array.
   XMMRegister saved_arg_count = xmm0;
   XMMRegister saved_bytecode_array = xmm1;
+  XMMRegister saved_frame_size = xmm2;
+  XMMRegister saved_feedback_vector = xmm3;
   __ movd(saved_arg_count, arg_count);
-  __ movd(saved_bytecode_array, bytecode_array);
+  __ movd(saved_frame_size, frame_size);
 
-  Register scratch = eax;
+  // Use the arg count (eax) as the scratch register.
+  Register scratch = arg_count;
 
   // Load the feedback vector from the closure.
   Register feedback_vector = ecx;
@@ -1671,7 +1674,6 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // register.
   Label has_optimized_code_or_marker;
   Register optimization_state = ecx;
-  XMMRegister saved_feedback_vector = xmm2;
   LoadOptimizationStateAndJumpIfNeedsProcessing(masm, optimization_state,
                                                 saved_feedback_vector,
                                                 &has_optimized_code_or_marker);
@@ -1685,6 +1687,8 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // Save the return address, so that we can push it to the end of the newly
   // set-up frame once we're done setting it up.
   __ PopReturnAddressTo(return_address, scratch);
+  // The bytecode array was pushed to the stack by the caller.
+  __ Pop(saved_bytecode_array, scratch);
   FrameScope frame_scope(masm, StackFrame::MANUAL);
   __ EnterFrame(StackFrame::BASELINE);
 
@@ -1700,6 +1704,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
 
   // We'll use the bytecode for both code age/OSR resetting, and pushing onto
   // the frame, so load it into a register.
+  Register bytecode_array = scratch;
   __ movd(bytecode_array, saved_bytecode_array);
   // Reset code age and the OSR arming. The OSR field and BytecodeAgeOffset
   // are 8-bit fields next to each other, so we could just optimize by writing
@@ -1727,10 +1732,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
     //
     // TODO(v8:11429): Backport this folded check to the
     // InterpreterEntryTrampoline.
-    Register frame_size = ecx;
-    __ movd(bytecode_array, saved_bytecode_array);
-    __ movzx_w(frame_size,
-               FieldOperand(bytecode_array, BytecodeArray::kFrameSizeOffset));
+    __ movd(frame_size, saved_frame_size);
     __ Move(scratch, esp);
     DCHECK_NE(frame_size, kJavaScriptCallNewTargetRegister);
     __ sub(scratch, frame_size);
@@ -1747,11 +1749,11 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   __ bind(&has_optimized_code_or_marker);
   {
     __ RecordComment("[ Optimized marker check");
-    // Drop the return address, rebalancing the return stack buffer by using
-    // JumpMode::kPushAndReturn. We can't leave the slot and overwrite it on
-    // return since we may do a runtime call along the way that requires the
-    // stack to only contain valid frames.
-    __ Drop(1);
+    // Drop the return address and bytecode array, rebalancing the return stack
+    // buffer by using JumpMode::kPushAndReturn. We can't leave the slot and
+    // overwrite it on return since we may do a runtime call along the way that
+    // requires the stack to only contain valid frames.
+    __ Drop(2);
     __ movd(arg_count, saved_arg_count);  // Restore actual argument count.
     MaybeOptimizeCodeOrTailCallOptimizedCodeSlot(masm, optimization_state,
                                                  saved_feedback_vector);
@@ -1769,7 +1771,9 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
       FrameScope frame_scope(masm, StackFrame::INTERNAL);
       // Save incoming new target or generator
       __ Push(kJavaScriptCallNewTargetRegister);
-      __ CallRuntime(Runtime::kStackGuard, 0);
+      __ SmiTag(frame_size);
+      __ Push(frame_size);
+      __ CallRuntime(Runtime::kStackGuardWithGap, 1);
       __ Pop(kJavaScriptCallNewTargetRegister);
     }
 
@@ -4067,6 +4071,128 @@ void Builtins::Generate_DeoptimizationEntry_Bailout(MacroAssembler* masm) {
 
 void Builtins::Generate_DeoptimizationEntry_Lazy(MacroAssembler* masm) {
   Generate_DeoptimizationEntry(masm, DeoptimizeKind::kLazy);
+}
+
+namespace {
+
+// Converts an interpreter frame into a baseline frame and continues execution
+// in baseline code (baseline code has to exist on the shared function info),
+// either at the start or the end of the current bytecode.
+void Generate_BaselineEntry(MacroAssembler* masm, bool next_bytecode) {
+  // Get bytecode array and bytecode offset from the stack frame.
+  __ mov(kInterpreterBytecodeArrayRegister,
+         MemOperand(ebp, InterpreterFrameConstants::kBytecodeArrayFromFp));
+  __ mov(kInterpreterBytecodeOffsetRegister,
+         MemOperand(ebp, InterpreterFrameConstants::kBytecodeOffsetFromFp));
+  __ SmiUntag(kInterpreterBytecodeOffsetRegister);
+
+  // Get function from the frame.
+  Register closure = esi;
+  __ mov(closure, MemOperand(ebp, StandardFrameConstants::kFunctionOffset));
+
+  // Replace BytecodeOffset with the feedback vector.
+  Register feedback_vector = ecx;
+  __ mov(feedback_vector,
+         FieldOperand(closure, JSFunction::kFeedbackCellOffset));
+  __ mov(feedback_vector, FieldOperand(feedback_vector, Cell::kValueOffset));
+  if (__ emit_debug_code()) {
+    __ push(kInterpreterAccumulatorRegister);
+    Register scratch = kInterpreterAccumulatorRegister;
+    __ CmpObjectType(feedback_vector, FEEDBACK_VECTOR_TYPE, scratch);
+    __ Assert(equal, AbortReason::kExpectedFeedbackVector);
+    scratch = no_reg;
+    __ pop(kInterpreterAccumulatorRegister);
+  }
+  __ mov(MemOperand(ebp, InterpreterFrameConstants::kBytecodeOffsetFromFp),
+         feedback_vector);
+  feedback_vector = no_reg;
+
+  // Get the Code object from the shared function info.
+  Register code_obj = closure;
+  __ mov(code_obj,
+         FieldOperand(closure, JSFunction::kSharedFunctionInfoOffset));
+  closure = no_reg;
+  __ mov(code_obj,
+         FieldOperand(code_obj, SharedFunctionInfo::kFunctionDataOffset));
+  __ mov(code_obj, FieldOperand(code_obj, BaselineData::kBaselineCodeOffset));
+
+  // Compute baseline pc for bytecode offset.
+  __ push(kInterpreterAccumulatorRegister);
+  ExternalReference get_baseline_pc_extref =
+      next_bytecode
+          ? ExternalReference::baseline_end_pc_for_bytecode_offset()
+          : ExternalReference::baseline_start_pc_for_bytecode_offset();
+  Register get_baseline_pc = ecx;
+  __ LoadAddress(get_baseline_pc, get_baseline_pc_extref);
+
+  // If the code deoptimizes during the implicit function entry stack interrupt
+  // check, it will have a bailout ID of kFunctionEntryBytecodeOffset, which is
+  // not a valid bytecode offset.
+  // TODO(pthier): Investigate if it is feasible to handle this special case
+  // in TurboFan instead of here.
+  Label valid_bytecode_offset, function_entry_bytecode;
+  __ cmp(kInterpreterBytecodeOffsetRegister,
+         Immediate(BytecodeArray::kHeaderSize - kHeapObjectTag +
+                   kFunctionEntryBytecodeOffset));
+  __ j(equal, &function_entry_bytecode);
+  __ bind(&valid_bytecode_offset);
+
+  // In the case we advance the BC, check if the current bytecode is JumpLoop.
+  // If it is, re-execute it instead of continuing at the next bytecode.
+  if (next_bytecode) {
+    Label not_jump_loop;
+    __ push(kInterpreterBytecodeOffsetRegister);
+    Register bytecode = kInterpreterBytecodeOffsetRegister;
+    __ movzx_b(bytecode,
+               Operand(kInterpreterBytecodeArrayRegister,
+                       kInterpreterBytecodeOffsetRegister, times_1, 0));
+    __ cmpb(bytecode,
+            Immediate(static_cast<int>(interpreter::Bytecode::kJumpLoop)));
+    __ j(not_equal, &not_jump_loop, Label::kNear);
+    __ LoadAddress(get_baseline_pc,
+                   ExternalReference::baseline_start_pc_for_bytecode_offset());
+    __ bind(&not_jump_loop);
+    __ pop(kInterpreterBytecodeOffsetRegister);
+  }
+
+  __ sub(kInterpreterBytecodeOffsetRegister,
+         Immediate(BytecodeArray::kHeaderSize - kHeapObjectTag));
+
+  {
+    FrameScope scope(masm, StackFrame::INTERNAL);
+    __ PrepareCallCFunction(3, eax);
+    __ mov(Operand(esp, 0 * kSystemPointerSize), code_obj);
+    __ mov(Operand(esp, 1 * kSystemPointerSize),
+           kInterpreterBytecodeOffsetRegister);
+    __ mov(Operand(esp, 2 * kSystemPointerSize),
+           kInterpreterBytecodeArrayRegister);
+    __ CallCFunction(get_baseline_pc, 3);
+  }
+  __ lea(code_obj,
+         FieldOperand(code_obj, kReturnRegister0, times_1, Code::kHeaderSize));
+  __ pop(kInterpreterAccumulatorRegister);
+
+  __ jmp(code_obj);
+  __ Trap();  // Unreachable.
+
+  __ bind(&function_entry_bytecode);
+  // If the bytecode offset is kFunctionEntryOffset, get the start address of
+  // the first bytecode.
+  __ mov(kInterpreterBytecodeOffsetRegister,
+         Immediate(BytecodeArray::kHeaderSize - kHeapObjectTag));
+  __ LoadAddress(get_baseline_pc,
+                 ExternalReference::baseline_start_pc_for_bytecode_offset());
+  __ jmp(&valid_bytecode_offset);
+}
+
+}  // namespace
+
+void Builtins::Generate_BaselineEnterAtBytecode(MacroAssembler* masm) {
+  Generate_BaselineEntry(masm, false);
+}
+
+void Builtins::Generate_BaselineEnterAtNextBytecode(MacroAssembler* masm) {
+  Generate_BaselineEntry(masm, true);
 }
 
 void Builtins::Generate_DynamicCheckMapsTrampoline(MacroAssembler* masm) {

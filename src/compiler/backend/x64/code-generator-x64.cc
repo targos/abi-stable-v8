@@ -15,6 +15,7 @@
 #include "src/compiler/backend/code-generator-impl.h"
 #include "src/compiler/backend/code-generator.h"
 #include "src/compiler/backend/gap-resolver.h"
+#include "src/compiler/backend/instruction-codes.h"
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/osr.h"
 #include "src/heap/memory-chunk.h"
@@ -807,7 +808,7 @@ void CodeGenerator::AssembleTailCallBeforeGap(Instruction* instr,
         LocationOperand source_location(LocationOperand::cast(source));
         __ Push(source_location.GetRegister());
       } else if (source.IsImmediate()) {
-        __ Push(Immediate(ImmediateOperand::cast(source).inline_value()));
+        __ Push(Immediate(ImmediateOperand::cast(source).inline_int32_value()));
       } else {
         // Pushes of non-scalar data types is not supported.
         UNIMPLEMENTED();
@@ -2779,7 +2780,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kX64I64x2Abs: {
-      __ I64x2Abs(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ I64x2Abs(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                  kScratchDoubleReg);
       break;
     }
     case kX64I64x2Neg: {
@@ -2868,12 +2870,12 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I64x2GtS: {
       __ I64x2GtS(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                  i.InputSimd128Register(1));
+                  i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64I64x2GeS: {
       __ I64x2GeS(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                  i.InputSimd128Register(1));
+                  i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64I64x2ShrU: {
@@ -2883,25 +2885,27 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I64x2ExtMulLowI32x4S: {
       __ I64x2ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/true,
+                     i.InputSimd128Register(1), kScratchDoubleReg, /*low=*/true,
                      /*is_signed=*/true);
       break;
     }
     case kX64I64x2ExtMulHighI32x4S: {
       __ I64x2ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/false,
+                     i.InputSimd128Register(1), kScratchDoubleReg,
+                     /*low=*/false,
                      /*is_signed=*/true);
       break;
     }
     case kX64I64x2ExtMulLowI32x4U: {
       __ I64x2ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/true,
+                     i.InputSimd128Register(1), kScratchDoubleReg, /*low=*/true,
                      /*is_signed=*/false);
       break;
     }
     case kX64I64x2ExtMulHighI32x4U: {
       __ I64x2ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/false,
+                     i.InputSimd128Register(1), kScratchDoubleReg,
+                     /*low=*/false,
                      /*is_signed=*/false);
       break;
     }
@@ -2920,7 +2924,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I64x2UConvertI32x4High: {
       __ I64x2UConvertI32x4High(i.OutputSimd128Register(),
-                                i.InputSimd128Register(0));
+                                i.InputSimd128Register(0), kScratchDoubleReg);
       break;
     }
     case kX64I32x4Splat: {
@@ -3062,7 +3066,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I32x4UConvertI16x8High: {
       __ I32x4UConvertI16x8High(i.OutputSimd128Register(),
-                                i.InputSimd128Register(0));
+                                i.InputSimd128Register(0), kScratchDoubleReg);
       break;
     }
     case kX64I32x4ShrU: {
@@ -3253,7 +3257,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I16x8UConvertI8x16High: {
       __ I16x8UConvertI8x16High(i.OutputSimd128Register(),
-                                i.InputSimd128Register(0));
+                                i.InputSimd128Register(0), kScratchDoubleReg);
       break;
     }
     case kX64I16x8ShrU: {
@@ -3319,7 +3323,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I16x8ExtMulHighI8x16S: {
       __ I16x8ExtMulHighS(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                          i.InputSimd128Register(1));
+                          i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64I16x8ExtMulLowI8x16U: {
@@ -3329,7 +3333,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I16x8ExtMulHighI8x16U: {
       __ I16x8ExtMulHighU(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                          i.InputSimd128Register(1));
+                          i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64I16x8ExtAddPairwiseI8x16S: {
@@ -3631,25 +3635,27 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I32x4ExtMulLowI16x8S: {
       __ I32x4ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/true,
+                     i.InputSimd128Register(1), kScratchDoubleReg, /*low=*/true,
                      /*is_signed=*/true);
       break;
     }
     case kX64I32x4ExtMulHighI16x8S: {
       __ I32x4ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/false,
+                     i.InputSimd128Register(1), kScratchDoubleReg,
+                     /*low=*/false,
                      /*is_signed=*/true);
       break;
     }
     case kX64I32x4ExtMulLowI16x8U: {
       __ I32x4ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/true,
+                     i.InputSimd128Register(1), kScratchDoubleReg, /*low=*/true,
                      /*is_signed=*/false);
       break;
     }
     case kX64I32x4ExtMulHighI16x8U: {
       __ I32x4ExtMul(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                     i.InputSimd128Register(1), /*low=*/false,
+                     i.InputSimd128Register(1), kScratchDoubleReg,
+                     /*low=*/false,
                      /*is_signed=*/false);
       break;
     }
@@ -3691,8 +3697,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kX64I8x16Swizzle: {
+      bool omit_add = MiscField::decode(instr->opcode());
       __ I8x16Swizzle(i.OutputSimd128Register(), i.InputSimd128Register(0),
-                      i.InputSimd128Register(1));
+                      i.InputSimd128Register(1), omit_add);
       break;
     }
     case kX64I8x16Shuffle: {
@@ -4081,12 +4088,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_ALL_TRUE(Pcmpeqb);
       break;
     }
-    case kX64Prefetch:
-      __ prefetch(i.MemoryOperand(), 1);
-      break;
-    case kX64PrefetchNta:
-      __ prefetch(i.MemoryOperand(), 0);
-      break;
     case kWord32AtomicExchangeInt8: {
       __ xchgb(i.InputRegister(0), i.MemoryOperand(1));
       __ movsxbl(i.InputRegister(0), i.InputRegister(0));
@@ -4442,6 +4443,11 @@ void CodeGenerator::AssembleArchTableSwitch(Instruction* instr) {
   __ j(above_equal, GetLabel(i.InputRpo(1)));
   __ leaq(kScratchRegister, Operand(table));
   __ jmp(Operand(kScratchRegister, input, times_8, 0));
+}
+
+void CodeGenerator::AssembleArchSelect(Instruction* instr,
+                                       FlagsCondition condition) {
+  UNIMPLEMENTED();
 }
 
 namespace {

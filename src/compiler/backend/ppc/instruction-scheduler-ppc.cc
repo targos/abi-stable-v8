@@ -200,6 +200,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kPPC_I64x2ExtMulHighI32x4S:
     case kPPC_I64x2ExtMulLowI32x4U:
     case kPPC_I64x2ExtMulHighI32x4U:
+    case kPPC_I64x2Abs:
     case kPPC_I32x4Splat:
     case kPPC_I32x4ExtractLane:
     case kPPC_I32x4ReplaceLane:
@@ -309,6 +310,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kPPC_I8x16Shuffle:
     case kPPC_I8x16Swizzle:
     case kPPC_I8x16BitMask:
+    case kPPC_I8x16Popcnt:
     case kPPC_I64x2AllTrue:
     case kPPC_I32x4AllTrue:
     case kPPC_I16x8AllTrue:

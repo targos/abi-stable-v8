@@ -2424,7 +2424,9 @@ using Instr = uint32_t;
   /* Vector Unpack Low Signed Byte */      \
   V(vupklsb, VUPKLSB, 0x1000028E)          \
   /* Vector Unpack High Signed Byte */     \
-  V(vupkhsb, VUPKHSB, 0x1000020E)
+  V(vupkhsb, VUPKHSB, 0x1000020E)          \
+  /* Vector Population Count Byte */       \
+  V(vpopcntb, VPOPCNTB, 0x10000703)
 
 #define PPC_VX_OPCODE_UNUSED_LIST(V)                                      \
   /* Decimal Add Modulo */                                                \
@@ -2503,8 +2505,6 @@ using Instr = uint32_t;
   V(vpmsumh, VPMSUMH, 0x10000448)                                         \
   /* Vector Polynomial Multiply-Sum Word */                               \
   V(vpmsumw, VPMSUMW, 0x10000488)                                         \
-  /* Vector Population Count Byte */                                      \
-  V(vpopcntb, VPOPCNTB, 0x10000703)                                       \
   /* Vector Population Count Doubleword */                                \
   V(vpopcntd, VPOPCNTD, 0x100007C3)                                       \
   /* Vector Population Count Halfword */                                  \
@@ -2912,7 +2912,11 @@ class Instruction {
       PPC_M_OPCODE_LIST(OPCODE_CASES)
       return static_cast<Opcode>(opcode);
     }
-
+    opcode = extcode | BitField(5, 0);
+    switch (opcode) {
+      PPC_VA_OPCODE_LIST(OPCODE_CASES)
+      return static_cast<Opcode>(opcode);
+    }
     opcode = extcode | BitField(10, 0);
     switch (opcode) {
       PPC_VX_OPCODE_LIST(OPCODE_CASES)
@@ -2963,11 +2967,6 @@ class Instruction {
     opcode = extcode | BitField(8, 1);
     switch (opcode) {
       PPC_Z23_OPCODE_LIST(OPCODE_CASES)
-      return static_cast<Opcode>(opcode);
-    }
-    opcode = extcode | BitField(5, 0);
-    switch (opcode) {
-      PPC_VA_OPCODE_LIST(OPCODE_CASES)
       return static_cast<Opcode>(opcode);
     }
     opcode = extcode | BitField(5, 1);

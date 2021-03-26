@@ -87,6 +87,8 @@ void BaselineAssembler::Bind(Label* label) {
   __ BindJumpTarget(label);
 }
 
+void BaselineAssembler::JumpTarget() { __ JumpTarget(); }
+
 void BaselineAssembler::Jump(Label* target, Label::Distance distance) {
   __ B(target);
 }
@@ -111,8 +113,8 @@ void BaselineAssembler::JumpIfNotSmi(Register value, Label* target,
 }
 
 void BaselineAssembler::CallBuiltin(Builtins::Name builtin) {
-  if (FLAG_short_builtin_calls) {
-    // Generate direct or pc-relative call.
+  if (masm()->options().short_builtin_calls) {
+    // Generate pc-relative call.
     __ CallBuiltin(builtin);
   } else {
     ScratchRegisterScope temps(this);
@@ -123,8 +125,8 @@ void BaselineAssembler::CallBuiltin(Builtins::Name builtin) {
 }
 
 void BaselineAssembler::TailCallBuiltin(Builtins::Name builtin) {
-  if (FLAG_short_builtin_calls) {
-    // Generate direct or pc-relative call.
+  if (masm()->options().short_builtin_calls) {
+    // Generate pc-relative call.
     __ TailCallBuiltin(builtin);
   } else {
     // The control flow integrity (CFI) feature allows us to "sign" code entry

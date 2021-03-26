@@ -789,6 +789,12 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   // Load a value from the root array.
   TNode<Object> LoadRoot(RootIndex root_index);
 
+  template <typename Type>
+  TNode<Type> UnalignedLoad(TNode<RawPtrT> base, TNode<IntPtrT> offset) {
+    MachineType mt = MachineTypeOf<Type>::value;
+    return UncheckedCast<Type>(UnalignedLoad(mt, base, offset));
+  }
+
   // Store value to raw memory location.
   void Store(Node* base, Node* value);
   void Store(Node* base, Node* offset, Node* value);
@@ -1002,6 +1008,11 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   TNode<Uint32T> Uint32Add(TNode<Uint32T> left, TNode<Uint32T> right) {
     return Unsigned(Int32Add(static_cast<TNode<Word32T>>(left),
+                             static_cast<TNode<Word32T>>(right)));
+  }
+
+  TNode<Uint32T> Uint32Sub(TNode<Uint32T> left, TNode<Uint32T> right) {
+    return Unsigned(Int32Sub(static_cast<TNode<Word32T>>(left),
                              static_cast<TNode<Word32T>>(right)));
   }
 
@@ -1357,6 +1368,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
                   Node* const* inputs);
 
   Node* AtomicLoad(MachineType type, TNode<RawPtrT> base, TNode<WordT> offset);
+
+  Node* UnalignedLoad(MachineType type, TNode<RawPtrT> base,
+                      TNode<WordT> offset);
 
   // These two don't have definitions and are here only for catching use cases
   // where the cast is not necessary.

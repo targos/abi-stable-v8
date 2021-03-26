@@ -150,9 +150,10 @@ class Code : public HeapObject {
   inline Address InstructionEnd() const;
   V8_EXPORT_PRIVATE Address OffHeapInstructionEnd() const;
 
-  // When builtins un-embedding (FLAG_short_builtin_calls) is enabled both
-  // embedded and un-embedded builtins might be exeuted and thus two kinds of
-  // |pc|s might appear on the stack.
+  // When builtins un-embedding is enabled for the Isolate
+  // (see Isolate::is_short_builtin_calls_enabled()) then both embedded and
+  // un-embedded builtins might be exeuted and thus two kinds of |pc|s might
+  // appear on the stack.
   // Unlike the paremeterless versions of the functions above the below variants
   // ensure that the instruction start correspond to the given |pc| value.
   // Thus for off-heap trampoline Code objects the result might be the
@@ -276,7 +277,7 @@ class Code : public HeapObject {
   inline bool is_interpreter_trampoline_builtin() const;
 
   // Testers for baseline builtins.
-  inline bool is_baseline_prologue_builtin() const;
+  inline bool is_baseline_trampoline_builtin() const;
   inline bool is_baseline_leave_frame_builtin() const;
 
   // Tells whether the code checks the optimization marker in the function's
@@ -405,8 +406,12 @@ class Code : public HeapObject {
   static inline void CopyRelocInfoToByteArray(ByteArray dest,
                                               const CodeDesc& desc);
 
-  inline uintptr_t GetBaselinePCForBytecodeOffset(int bytecode_offset,
-                                                  BytecodeArray bytecodes);
+  inline uintptr_t GetBaselineStartPCForBytecodeOffset(int bytecode_offset,
+                                                       BytecodeArray bytecodes);
+
+  inline uintptr_t GetBaselineEndPCForBytecodeOffset(int bytecode_offset,
+                                                     BytecodeArray bytecodes);
+
   inline int GetBytecodeOffsetForBaselinePC(Address baseline_pc,
                                             BytecodeArray bytecodes);
 
@@ -553,6 +558,17 @@ class Code : public HeapObject {
   bool is_promise_rejection() const;
   bool is_exception_caught() const;
 
+  enum BytecodeToPCPosition {
+    kPcAtStartOfBytecode,
+    // End of bytecode equals the start of the next bytecode.
+    // We need it when we deoptimize to the next bytecode (lazy deopt or deopt
+    // of non-topmost frame).
+    kPcAtEndOfBytecode
+  };
+  inline uintptr_t GetBaselinePCForBytecodeOffset(int bytecode_offset,
+                                                  BytecodeToPCPosition position,
+                                                  BytecodeArray bytecodes);
+
   OBJECT_CONSTRUCTORS(Code, HeapObject);
 };
 
@@ -660,9 +676,14 @@ class DependentCode : public WeakFixedArray {
     // deoptimized when the transition is replaced by a new version.
     kTransitionGroup,
     // Group of code that omit run-time prototype checks for prototypes
-    // described by this map. The group is deoptimized whenever an object
-    // described by this map changes shape (and transitions to a new map),
-    // possibly invalidating the assumptions embedded in the code.
+    // described by this map. The group is deoptimized whenever the following
+    // conditions hold, possibly invalidating the assumptions embedded in the
+    // code:
+    // a) A fast-mode object described by this map changes shape (and
+    // transitions to a new map), or
+    // b) A dictionary-mode prototype described by this map changes shape, the
+    // const-ness of one of its properties changes, or its [[Prototype]]
+    // changes (only the latter causes a transition).
     kPrototypeCheckGroup,
     // Group of code that depends on global property values in property cells
     // not being changed.

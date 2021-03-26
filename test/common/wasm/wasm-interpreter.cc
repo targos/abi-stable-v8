@@ -946,6 +946,7 @@ class SideTable : public ZoneObject {
           TRACE("control @%u: End\n", i.pc_offset());
           // Only loops have bound labels.
           DCHECK_IMPLIES(c->end_label->target, *c->pc == kExprLoop);
+          bool rethrow = false;
           if (!c->end_label->target) {
             if (c->else_label) {
               if (*c->pc == kExprIf) {
@@ -954,29 +955,33 @@ class SideTable : public ZoneObject {
               } else if (!exception_stack.empty()) {
                 // No catch_all block, prepare for implicit rethrow.
                 DCHECK_EQ(*c->pc, kExprTry);
-                Control* next_try_block =
-                    &control_stack[exception_stack.back()];
                 constexpr int kUnusedControlIndex = -1;
                 c->else_label->Bind(i.pc(), kRethrowOrDelegateExceptionIndex,
                                     kUnusedControlIndex);
-                if (!unreachable) {
-                  next_try_block->else_label->Ref(
-                      i.pc(), c->else_label->target_stack_height);
-                }
+                DCHECK_IMPLIES(
+                    !unreachable,
+                    stack_height >= c->else_label->target_stack_height);
+                stack_height = c->else_label->target_stack_height;
+                rethrow = !unreachable;
               }
             } else if (c->unwind) {
               DCHECK_EQ(*c->pc, kExprTry);
               rethrow_map_.emplace(i.pc() - i.start(),
                                    static_cast<int>(control_stack.size()) - 1);
               if (!exception_stack.empty()) {
-                Control* next_try_block =
-                    &control_stack[exception_stack.back()];
-                if (!unreachable) {
-                  next_try_block->else_label->Ref(i.pc(), stack_height);
-                }
+                rethrow = !unreachable;
               }
             }
             c->end_label->Bind(i.pc() + 1);
+          }
+          if (rethrow) {
+            Control* next_try_block = &control_stack[exception_stack.back()];
+            next_try_block->else_label->Ref(i.pc(), stack_height);
+            // We normally update the max stack height before the switch.
+            // However 'end' is not in the list of throwing opcodes so we don't
+            // take into account that it may unpack an exception.
+            max_stack_height_ =
+                std::max(max_stack_height_, stack_height + max_exception_arity);
           }
           c->Finish(&map_, code->start);
 
@@ -2395,7 +2400,7 @@ class WasmInterpreterInternals {
       BINOP_CASE(I16x8SubSatS, i16x8, int8, 8, SaturateSub<int16_t>(a, b))
       BINOP_CASE(I16x8SubSatU, i16x8, int8, 8, SaturateSub<uint16_t>(a, b))
       BINOP_CASE(I16x8RoundingAverageU, i16x8, int8, 8,
-                 base::RoundingAverageUnsigned<uint16_t>(a, b))
+                 RoundingAverageUnsigned<uint16_t>(a, b))
       BINOP_CASE(I16x8Q15MulRSatS, i16x8, int8, 8,
                  SaturateRoundingQMul<int16_t>(a, b))
       BINOP_CASE(I8x16Add, i8x16, int16, 16, base::AddWithWraparound(a, b))
@@ -2411,7 +2416,7 @@ class WasmInterpreterInternals {
       BINOP_CASE(I8x16SubSatS, i8x16, int16, 16, SaturateSub<int8_t>(a, b))
       BINOP_CASE(I8x16SubSatU, i8x16, int16, 16, SaturateSub<uint8_t>(a, b))
       BINOP_CASE(I8x16RoundingAverageU, i8x16, int16, 16,
-                 base::RoundingAverageUnsigned<uint8_t>(a, b))
+                 RoundingAverageUnsigned<uint8_t>(a, b))
 #undef BINOP_CASE
 #define UNOP_CASE(op, name, stype, count, expr)               \
   case kExpr##op: {                                           \
@@ -2939,16 +2944,6 @@ class WasmInterpreterInternals {
       }
       case kExprI16x8ExtAddPairwiseI8x16U: {
         return DoSimdExtAddPairwise<int8, int16, uint16_t, uint8_t>();
-      }
-      case kExprPrefetchT:
-      case kExprPrefetchNT: {
-        // Max alignment doesn't matter, use an arbitrary value.
-        MemoryAccessImmediate<Decoder::kNoValidation> imm(
-            decoder, code->at(pc + *len), 4, module()->is_memory64);
-        // Pop address and do nothing.
-        Pop().to<uint32_t>();
-        *len += imm.length;
-        return true;
       }
       default:
         return false;

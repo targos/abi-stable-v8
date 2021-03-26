@@ -87,6 +87,7 @@ enum class OddballType : uint8_t {
   V(DescriptorArray)                                \
   V(FeedbackCell)                                   \
   V(FeedbackVector)                                 \
+  V(FunctionTemplateInfo)                           \
   V(Name)                                           \
   V(RegExpBoilerplateDescription)                   \
   V(SharedFunctionInfo)                             \
@@ -136,7 +137,6 @@ enum class OddballType : uint8_t {
   /* Subtypes of HeapObject */                \
   V(AllocationSite)                           \
   V(FixedArrayBase)                           \
-  V(FunctionTemplateInfo)                     \
   V(JSReceiver)                               \
   V(SourceTextModule)                         \
   /* Subtypes of Object */                    \
@@ -192,6 +192,7 @@ class V8_EXPORT_PRIVATE ObjectRef {
   HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(HEAP_AS_METHOD_DECL)
 #undef HEAP_AS_METHOD_DECL
 
+  bool IsNull() const;
   bool IsNullOrUndefined() const;
   bool IsTheHole() const;
 
@@ -346,6 +347,13 @@ class JSObjectRef : public JSReceiverRef {
       Representation field_representation, FieldIndex index,
       SerializationPolicy policy =
           SerializationPolicy::kAssumeSerialized) const;
+
+  // Return the value of the dictionary property at {index} in the dictionary
+  // if {index} is known to be an own data property of the object.
+  ObjectRef GetOwnDictionaryProperty(
+      InternalIndex index, SerializationPolicy policy =
+                               SerializationPolicy::kAssumeSerialized) const;
+
   base::Optional<FixedArrayBaseRef> elements() const;
   void SerializeElements();
   void EnsureElementsTenured();
@@ -603,8 +611,6 @@ class CallHandlerInfoRef : public HeapObjectRef {
   Handle<CallHandlerInfo> object() const;
 
   Address callback() const;
-
-  void Serialize();
   ObjectRef data() const;
 };
 

@@ -633,7 +633,7 @@ void CodeGenerator::AssembleTailCallBeforeGap(Instruction* instr,
         LocationOperand source_location(LocationOperand::cast(source));
         __ push(source_location.GetRegister());
       } else if (source.IsImmediate()) {
-        __ Push(Immediate(ImmediateOperand::cast(source).inline_value()));
+        __ Push(Immediate(ImmediateOperand::cast(source).inline_int32_value()));
       } else {
         // Pushes of non-scalar data types is not supported.
         UNIMPLEMENTED();
@@ -3624,7 +3624,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kIA32I8x16Swizzle: {
       __ I8x16Swizzle(i.OutputSimd128Register(), i.InputSimd128Register(0),
                       i.InputSimd128Register(1), kScratchDoubleReg,
-                      i.TempRegister(0));
+                      i.TempRegister(0), MiscField::decode(instr->opcode()));
       break;
     }
     case kIA32I8x16Shuffle: {
@@ -4067,12 +4067,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_ALL_TRUE(pcmpeqb);
       break;
     }
-    case kIA32Prefetch:
-      __ prefetch(i.MemoryOperand(), 1);
-      break;
-    case kIA32PrefetchNta:
-      __ prefetch(i.MemoryOperand(), 0);
-      break;
     case kIA32Word32AtomicPairLoad: {
       XMMRegister tmp = i.ToDoubleRegister(instr->TempAt(0));
       __ movq(tmp, i.MemoryOperand());
@@ -4455,6 +4449,11 @@ void CodeGenerator::AssembleArchTableSwitch(Instruction* instr) {
   __ cmp(input, Immediate(case_count));
   __ j(above_equal, GetLabel(i.InputRpo(1)));
   __ jmp(Operand::JumpTable(input, times_system_pointer_size, table));
+}
+
+void CodeGenerator::AssembleArchSelect(Instruction* instr,
+                                       FlagsCondition condition) {
+  UNIMPLEMENTED();
 }
 
 // The calling convention for JSFunctions on IA32 passes arguments on the

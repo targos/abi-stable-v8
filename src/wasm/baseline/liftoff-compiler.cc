@@ -4,6 +4,7 @@
 
 #include "src/wasm/baseline/liftoff-compiler.h"
 
+#include "src/base/enum-set.h"
 #include "src/base/optional.h"
 #include "src/base/platform/wrappers.h"
 #include "src/codegen/assembler-inl.h"
@@ -521,17 +522,27 @@ class LiftoffCompiler {
     return true;
   }
 
-  bool CheckSupportedType(FullDecoder* decoder, ValueKind kind,
-                          const char* context) {
-    LiftoffBailoutReason bailout_reason = kOtherReason;
+  V8_INLINE bool CheckSupportedType(FullDecoder* decoder, ValueKind kind,
+                                    const char* context) {
+    if (V8_LIKELY(supported_types_.contains(kind))) return true;
+    return MaybeBailoutForUnsupportedType(decoder, kind, context);
+  }
+
+  V8_NOINLINE bool MaybeBailoutForUnsupportedType(FullDecoder* decoder,
+                                                  ValueKind kind,
+                                                  const char* context) {
+    DCHECK(!supported_types_.contains(kind));
+
+    // Lazily update {supported_types_}; then check again.
+    if (CpuFeatures::SupportsWasmSimd128()) supported_types_.Add(kS128);
+    if (FLAG_experimental_liftoff_extern_ref) {
+      supported_types_.Add(kExternRefSupported);
+    }
+    if (supported_types_.contains(kind)) return true;
+
+    LiftoffBailoutReason bailout_reason;
     switch (kind) {
-      case kI32:
-      case kI64:
-      case kF32:
-      case kF64:
-        return true;
       case kS128:
-        if (CpuFeatures::SupportsWasmSimd128()) return true;
         bailout_reason = kMissingCPUFeature;
         break;
       case kRef:
@@ -540,11 +551,9 @@ class LiftoffCompiler {
       case kRttWithDepth:
       case kI8:
       case kI16:
-        if (FLAG_experimental_liftoff_extern_ref) return true;
         bailout_reason = kRefTypes;
         break;
-      case kBottom:
-      case kVoid:
+      default:
         UNREACHABLE();
     }
     EmbeddedVector<char, 128> buffer;
@@ -585,6 +594,15 @@ class LiftoffCompiler {
     }
   }
 
+  // TODO(ahaas): Make this function constexpr once GCC allows it.
+  LiftoffRegList RegsUnusedByParams() {
+    LiftoffRegList regs = kGpCacheRegList;
+    for (auto reg : kGpParamRegisters) {
+      regs.clear(reg);
+    }
+    return regs;
+  }
+
   // Returns the number of inputs processed (1 or 2).
   uint32_t ProcessParameter(ValueKind kind, uint32_t input_idx) {
     const bool needs_pair = needs_gp_reg_pair(kind);
@@ -599,7 +617,12 @@ class LiftoffCompiler {
                                                    location.AsRegister());
       }
       DCHECK(location.IsCallerFrameSlot());
-      LiftoffRegister reg = __ GetUnusedRegister(rc, pinned);
+      // For reference type parameters we have to use registers that were not
+      // used for parameters because some reference type stack parameters may
+      // get processed before some value type register parameters.
+      LiftoffRegister reg = is_reference(reg_kind)
+                                ? __ GetUnusedRegister(RegsUnusedByParams())
+                                : __ GetUnusedRegister(rc, pinned);
       __ LoadCallerFrameSlot(reg, -location.AsCallerFrameSlot(), reg_kind);
       return reg;
     };
@@ -2776,12 +2799,6 @@ class LiftoffCompiler {
     __ emit_ptrsize_and(index, index, tmp);
     *offset = 0;
     return index;
-  }
-
-  void Prefetch(FullDecoder* decoder,
-                const MemoryAccessImmediate<validate>& imm,
-                const Value& index_val, bool temporal) {
-    unsupported(decoder, kSimd, "simd prefetch");
   }
 
   void LoadMem(FullDecoder* decoder, LoadType type,
@@ -6044,6 +6061,10 @@ class LiftoffCompiler {
   }
 
   static constexpr WasmOpcode kNoOutstandingOp = kExprUnreachable;
+  static constexpr base::EnumSet<ValueKind> kUnconditionallySupported{
+      kI32, kI64, kF32, kF64};
+  static constexpr base::EnumSet<ValueKind> kExternRefSupported{
+      kRef, kOptRef, kRtt, kRttWithDepth, kI8, kI16};
 
   LiftoffAssembler asm_;
 
@@ -6051,6 +6072,8 @@ class LiftoffCompiler {
   // Set by the first opcode, reset by the second.
   WasmOpcode outstanding_op_ = kNoOutstandingOp;
 
+  // {supported_types_} is updated in {MaybeBailoutForUnsupportedType}.
+  base::EnumSet<ValueKind> supported_types_ = kUnconditionallySupported;
   compiler::CallDescriptor* const descriptor_;
   CompilationEnv* const env_;
   DebugSideTableBuilder* const debug_sidetable_builder_;
@@ -6140,6 +6163,13 @@ class LiftoffCompiler {
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(LiftoffCompiler);
 };
+
+// static
+constexpr WasmOpcode LiftoffCompiler::kNoOutstandingOp;
+// static
+constexpr base::EnumSet<ValueKind> LiftoffCompiler::kUnconditionallySupported;
+// static
+constexpr base::EnumSet<ValueKind> LiftoffCompiler::kExternRefSupported;
 
 }  // namespace
 

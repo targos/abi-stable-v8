@@ -164,6 +164,7 @@ class ObjectData : public ZoneObject {
            kind_ == kNeverSerializedHeapObject ||
            kind_ == kUnserializedReadOnlyHeapObject;
   }
+  bool IsNull() const { return object_->IsNull(); }
 
 #ifdef DEBUG
   enum class Usage{kUnused, kOnlyIdentityUsed, kDataUsed};
@@ -271,6 +272,7 @@ FunctionTemplateInfoData::FunctionTemplateInfoData(
       c_function_(v8::ToCData<Address>(object->GetCFunction())),
       c_signature_(v8::ToCData<CFunctionInfo*>(object->GetCSignature())),
       known_receivers_(broker->zone()) {
+  DCHECK(!FLAG_turbo_direct_heap_access);
   auto function_template_info = Handle<FunctionTemplateInfo>::cast(object);
   is_signature_undefined_ =
       function_template_info->signature().IsUndefined(broker->isolate());
@@ -424,6 +426,9 @@ class JSObjectData : public JSReceiverData {
       JSHeapBroker* broker, Representation representation,
       FieldIndex field_index,
       SerializationPolicy policy = SerializationPolicy::kAssumeSerialized);
+  ObjectData* GetOwnDictionaryProperty(JSHeapBroker* broker,
+                                       InternalIndex dict_index,
+                                       SerializationPolicy policy);
 
   // This method is only used to assert our invariants.
   bool cow_or_empty_elements_tenured() const;
@@ -453,8 +458,9 @@ class JSObjectData : public JSReceiverData {
   // (2) are known not to (possibly they don't exist at all).
   // In case (2), the second pair component is nullptr.
   // For simplicity, this may in theory overlap with inobject_fields_.
-  // The keys of the map are the property_index() values of the
-  // respective property FieldIndex'es.
+  // For fast mode objects, the keys of the map are the property_index() values
+  // of the respective property FieldIndex'es. For slow mode objects, the keys
+  // are the dictionary indicies.
   ZoneUnorderedMap<int, ObjectData*> own_properties_;
 };
 
@@ -503,6 +509,14 @@ ObjectRef GetOwnFastDataPropertyFromHeap(JSHeapBroker* broker,
   return ObjectRef(broker, constant);
 }
 
+ObjectRef GetOwnDictionaryPropertyFromHeap(JSHeapBroker* broker,
+                                           Handle<JSObject> receiver,
+                                           InternalIndex dict_index) {
+  Handle<Object> constant =
+      JSObject::DictionaryPropertyAt(receiver, dict_index);
+  return ObjectRef(broker, constant);
+}
+
 }  // namespace
 
 ObjectData* JSObjectData::GetOwnConstantElement(JSHeapBroker* broker,
@@ -542,6 +556,25 @@ ObjectData* JSObjectData::GetOwnFastDataProperty(JSHeapBroker* broker,
       broker, Handle<JSObject>::cast(object()), representation, field_index);
   ObjectData* result(property.data());
   own_properties_.insert(std::make_pair(field_index.property_index(), result));
+  return result;
+}
+
+ObjectData* JSObjectData::GetOwnDictionaryProperty(JSHeapBroker* broker,
+                                                   InternalIndex dict_index,
+                                                   SerializationPolicy policy) {
+  auto p = own_properties_.find(dict_index.as_int());
+  if (p != own_properties_.end()) return p->second;
+
+  if (policy == SerializationPolicy::kAssumeSerialized) {
+    TRACE_MISSING(broker, "knowledge about dictionary property with index "
+                              << dict_index.as_int() << " on " << this);
+    return nullptr;
+  }
+
+  ObjectRef property = GetOwnDictionaryPropertyFromHeap(
+      broker, Handle<JSObject>::cast(object()), dict_index);
+  ObjectData* result(property.data());
+  own_properties_.insert(std::make_pair(dict_index.as_int(), result));
   return result;
 }
 
@@ -3485,8 +3518,8 @@ BIMODAL_ACCESSOR_WITH_FLAG_B(Map, bit_field, is_undetectable,
 BIMODAL_ACCESSOR_C(Map, int, instance_size)
 BIMODAL_ACCESSOR_C(Map, int, NextFreePropertyIndex)
 BIMODAL_ACCESSOR_C(Map, int, UnusedPropertyFields)
-BIMODAL_ACCESSOR(Map, HeapObject, prototype)
-BIMODAL_ACCESSOR_C(Map, InstanceType, instance_type)
+BIMODAL_ACCESSOR_WITH_FLAG(Map, HeapObject, prototype)
+BIMODAL_ACCESSOR_WITH_FLAG_C(Map, InstanceType, instance_type)
 BIMODAL_ACCESSOR_WITH_FLAG(Map, Object, GetConstructor)
 BIMODAL_ACCESSOR_WITH_FLAG(Map, HeapObject, GetBackPointer)
 BIMODAL_ACCESSOR_C(Map, bool, is_abandoned_prototype_map)
@@ -3507,8 +3540,10 @@ BIMODAL_ACCESSOR_C(RegExpBoilerplateDescription, int, flags)
 
 base::Optional<CallHandlerInfoRef> FunctionTemplateInfoRef::call_code() const {
   if (data_->should_access_heap()) {
-    return CallHandlerInfoRef(broker(), broker()->CanonicalPersistentHandle(
-                                            object()->call_code(kAcquireLoad)));
+    HeapObject call_code = object()->call_code(kAcquireLoad);
+    if (call_code.IsUndefined()) return base::nullopt;
+    return CallHandlerInfoRef(broker(),
+                              broker()->CanonicalPersistentHandle(call_code));
   }
   ObjectData* call_code = data()->AsFunctionTemplateInfo()->call_code();
   if (!call_code) return base::nullopt;
@@ -3524,40 +3559,72 @@ bool FunctionTemplateInfoRef::is_signature_undefined() const {
 
 bool FunctionTemplateInfoRef::has_call_code() const {
   if (data_->should_access_heap()) {
-    CallOptimization call_optimization(broker()->isolate(), object());
-    return call_optimization.is_simple_api_call();
+    HeapObject call_code = object()->call_code(kAcquireLoad);
+    return !call_code.IsUndefined();
   }
   return data()->AsFunctionTemplateInfo()->has_call_code();
 }
 
-BIMODAL_ACCESSOR_C(FunctionTemplateInfo, bool, accept_any_receiver)
+bool FunctionTemplateInfoRef ::accept_any_receiver() const {
+  if (data_->should_access_heap()) {
+    return object()->accept_any_receiver();
+  }
+  return ObjectRef ::data()->AsFunctionTemplateInfo()->accept_any_receiver();
+}
 
 HolderLookupResult FunctionTemplateInfoRef::LookupHolderOfExpectedType(
     MapRef receiver_map, SerializationPolicy policy) {
   const HolderLookupResult not_found;
 
   if (data_->should_access_heap()) {
-    CallOptimization call_optimization(broker()->isolate(), object());
-    Handle<Map> receiver_map_ref(receiver_map.object());
-    if (!receiver_map_ref->IsJSReceiverMap() ||
-        (receiver_map_ref->is_access_check_needed() &&
+    // There are currently two ways we can see a FunctionTemplateInfo on the
+    // background thread: 1.) As part of a SharedFunctionInfo and 2.) in an
+    // AccessorPair. In both cases, the FTI is fully constructed on the main
+    // thread before.
+    // TODO(nicohartmann@, v8:7790): Once the above no longer holds, we might
+    // have to use the GC predicate to check whether objects are fully
+    // initialized and safe to read.
+    if (!receiver_map.IsJSReceiverMap() ||
+        (receiver_map.is_access_check_needed() &&
          !object()->accept_any_receiver())) {
       return not_found;
     }
 
-    HolderLookupResult result;
-    Handle<JSObject> holder = call_optimization.LookupHolderOfExpectedType(
-        receiver_map_ref, &result.lookup);
+    if (!receiver_map.IsJSObjectMap()) return not_found;
 
-    switch (result.lookup) {
-      case CallOptimization::kHolderFound:
-        result.holder = JSObjectRef(broker(), holder);
-        break;
-      default:
-        DCHECK_EQ(result.holder, base::nullopt);
-        break;
+    DCHECK(has_call_code());
+
+    DisallowGarbageCollection no_gc;
+    HeapObject signature = object()->signature();
+    if (signature.IsUndefined()) {
+      return HolderLookupResult(CallOptimization::kHolderIsReceiver);
     }
-    return result;
+    auto expected_receiver_type = FunctionTemplateInfo::cast(signature);
+    if (expected_receiver_type.IsTemplateFor(*receiver_map.object())) {
+      return HolderLookupResult(CallOptimization::kHolderIsReceiver);
+    }
+
+    if (!receiver_map.IsJSGlobalProxyMap()) return not_found;
+    if (policy == SerializationPolicy::kSerializeIfNeeded) {
+      receiver_map.SerializePrototype();
+    }
+    if (!receiver_map.serialized_prototype()) return not_found;
+    if (receiver_map.prototype().IsNull()) return not_found;
+
+    JSObject raw_prototype = JSObject::cast(*receiver_map.prototype().object());
+    if (!expected_receiver_type.IsTemplateFor(raw_prototype.map())) {
+      return not_found;
+    }
+    Handle<JSObject> prototype =
+        broker()->CanonicalPersistentHandle(raw_prototype);
+    if (ObjectData* data = broker()->TryGetOrCreateData(prototype)) {
+      return HolderLookupResult(CallOptimization::kHolderFound,
+                                JSObjectRef(broker(), data));
+    }
+
+    TRACE_BROKER_MISSING(broker(),
+                         "holder for receiver with map " << receiver_map);
+    return not_found;
   }
 
   FunctionTemplateInfoData* fti_data = data()->AsFunctionTemplateInfo();
@@ -3894,6 +3961,8 @@ base::Optional<JSFunctionRef> NativeContextRef::GetConstructorFunction(
   }
 }
 
+bool ObjectRef::IsNull() const { return object()->IsNull(); }
+
 bool ObjectRef::IsNullOrUndefined() const {
   if (IsSmi()) return false;
   OddballType type = AsHeapObject().map().oddball_type();
@@ -3993,6 +4062,19 @@ base::Optional<ObjectRef> JSObjectRef::GetOwnFastDataProperty(
   ObjectData* property = data()->AsJSObject()->GetOwnFastDataProperty(
       broker(), field_representation, index, policy);
   if (property == nullptr) return base::nullopt;
+  return ObjectRef(broker(), property);
+}
+
+ObjectRef JSObjectRef::GetOwnDictionaryProperty(
+    InternalIndex index, SerializationPolicy policy) const {
+  CHECK(index.is_found());
+  if (data_->should_access_heap()) {
+    return GetOwnDictionaryPropertyFromHeap(
+        broker(), Handle<JSObject>::cast(object()), index);
+  }
+  ObjectData* property =
+      data()->AsJSObject()->GetOwnDictionaryProperty(broker(), index, policy);
+  CHECK_NE(property, nullptr);
   return ObjectRef(broker(), property);
 }
 
@@ -4548,8 +4630,8 @@ void MapRef::SerializePrototype() {
 }
 
 bool MapRef::serialized_prototype() const {
-  CHECK_NE(broker()->mode(), JSHeapBroker::kDisabled);
   if (data_->should_access_heap()) return true;
+  CHECK_NE(broker()->mode(), JSHeapBroker::kDisabled);
   return data()->AsMap()->serialized_prototype();
 }
 
@@ -4613,7 +4695,19 @@ bool PropertyCellRef::Serialize() const {
 }
 
 void FunctionTemplateInfoRef::SerializeCallCode() {
-  if (data_->should_access_heap()) return;
+  if (data_->should_access_heap()) {
+    CHECK_EQ(broker()->mode(), JSHeapBroker::kSerializing);
+    // CallHandlerInfo::data may still hold a serialized heap object, so we
+    // have to make the broker aware of it.
+    // TODO(v8:7790): Remove this case once ObjectRef is never serialized.
+    Handle<HeapObject> call_code(object()->call_code(kAcquireLoad),
+                                 broker()->isolate());
+    if (call_code->IsCallHandlerInfo()) {
+      broker()->GetOrCreateData(
+          Handle<CallHandlerInfo>::cast(call_code)->data());
+    }
+    return;
+  }
   CHECK_EQ(broker()->mode(), JSHeapBroker::kSerializing);
   data()->AsFunctionTemplateInfo()->SerializeCallCode(broker());
 }

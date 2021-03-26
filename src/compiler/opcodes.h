@@ -681,6 +681,7 @@
   V(Comment)                             \
   V(Load)                                \
   V(PoisonedLoad)                        \
+  V(LoadImmutable)                       \
   V(Store)                               \
   V(StackSlot)                           \
   V(Word32Popcnt)                        \
@@ -733,6 +734,8 @@
   V(Float64ExtractHighWord32)            \
   V(Float64InsertLowWord32)              \
   V(Float64InsertHighWord32)             \
+  V(Float32Select)                       \
+  V(Float64Select)                       \
   V(TaggedPoisonOnSpeculation)           \
   V(Word32PoisonOnSpeculation)           \
   V(Word64PoisonOnSpeculation)           \
@@ -979,8 +982,6 @@
   V(I16x8AllTrue)               \
   V(I8x16AllTrue)               \
   V(LoadTransform)              \
-  V(PrefetchTemporal)           \
-  V(PrefetchNonTemporal)        \
   V(LoadLane)                   \
   V(StoreLane)
 

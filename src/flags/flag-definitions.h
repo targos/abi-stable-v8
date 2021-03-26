@@ -260,8 +260,9 @@ DEFINE_IMPLICATION(harmony_weak_refs_with_cleanup_some, harmony_weak_refs)
   V(harmony_import_assertions, "harmony import assertions")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_INPROGRESS(V) \
-  HARMONY_INPROGRESS_BASE(V)  \
+#define HARMONY_INPROGRESS(V)                             \
+  HARMONY_INPROGRESS_BASE(V)                              \
+  V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher") \
   V(harmony_intl_displaynames_date_types, "Intl.DisplayNames date types")
 #else
 #define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
@@ -519,7 +520,7 @@ DEFINE_BOOL(use_ic, true, "use inline caching")
 DEFINE_INT(budget_for_feedback_vector_allocation, 940,
            "The budget in amount of bytecode executed by a function before we "
            "decide to allocate feedback vectors")
-DEFINE_INT(scale_factor_for_feedback_allocation, 12,
+DEFINE_INT(scale_factor_for_feedback_allocation, 8,
            "scale bytecode size for feedback vector allocation.")
 DEFINE_BOOL(feedback_allocation_on_bytecode_size, true,
             "Instead of a fixed budget for lazy feedback vector allocation, "
@@ -944,7 +945,7 @@ DEFINE_BOOL(wasm_stack_checks, true,
 DEFINE_BOOL(wasm_math_intrinsics, true,
             "intrinsify some Math imports into wasm")
 
-DEFINE_BOOL(wasm_loop_unrolling, true,
+DEFINE_BOOL(wasm_loop_unrolling, false,
             "enable loop unrolling for wasm functions (experimental)")
 DEFINE_BOOL(wasm_trap_handler, true,
             "use signal handlers to catch out of bounds memory access in wasm"
@@ -965,11 +966,7 @@ DEFINE_DEBUG_BOOL(trace_wasm_lazy_compilation, false,
                   "trace lazy compilation of wasm functions")
 DEFINE_BOOL(wasm_lazy_validation, false,
             "enable lazy validation for lazily compiled wasm functions")
-DEFINE_BOOL(wasm_simd_post_mvp, false,
-            "allow experimental SIMD operations for prototyping that are not "
-            "included in the current proposal")
 DEFINE_BOOL(wasm_simd_ssse3_codegen, false, "allow wasm SIMD SSSE3 codegen")
-DEFINE_IMPLICATION(wasm_simd_post_mvp, experimental_wasm_simd)
 
 DEFINE_BOOL(wasm_code_gc, true, "enable garbage collection of wasm code")
 DEFINE_BOOL(trace_wasm_code_gc, false, "trace garbage collection of wasm code")
@@ -1543,13 +1540,15 @@ DEFINE_BOOL(experimental_flush_embedded_blob_icache, false,
 #undef FLAG
 #if V8_SHORT_BUILTIN_CALLS
 #define FLAG FLAG_FULL
+#define V8_SHORT_BUILTIN_CALLS_BOOL true
 #else
 #define FLAG FLAG_READONLY
+#define V8_SHORT_BUILTIN_CALLS_BOOL false
 #endif
 
-DEFINE_BOOL(short_builtin_calls, false,
+DEFINE_BOOL(short_builtin_calls, V8_SHORT_BUILTIN_CALLS_BOOL,
             "Put embedded builtins code into the code range for shorter "
-            "builtin calls/jumps")
+            "builtin calls/jumps if system has >=4GB memory")
 
 #undef FLAG
 #define FLAG FLAG_FULL

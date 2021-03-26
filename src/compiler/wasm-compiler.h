@@ -286,6 +286,9 @@ class WasmGraphBuilder {
                   wasm::WasmCodePosition position);
   void TrapIfFalse(wasm::TrapReason reason, Node* cond,
                    wasm::WasmCodePosition position);
+  Node* Select(Node *cond, Node* true_node, Node* false_node,
+               wasm::ValueType type);
+
   void TrapIfEq32(wasm::TrapReason reason, Node* node, int32_t val,
                   wasm::WasmCodePosition position);
   void ZeroCheck32(wasm::TrapReason reason, Node* node,
@@ -341,8 +344,6 @@ class WasmGraphBuilder {
   Node* CurrentMemoryPages();
   void TraceMemoryOperation(bool is_store, MachineRepresentation, Node* index,
                             uintptr_t offset, wasm::WasmCodePosition);
-  Node* Prefetch(Node* index, uint64_t offset, uint32_t alignment,
-                 bool temporal);
   Node* LoadMem(wasm::ValueType type, MachineType memtype, Node* index,
                 uint64_t offset, uint32_t alignment,
                 wasm::WasmCodePosition position);

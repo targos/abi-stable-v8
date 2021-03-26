@@ -1501,10 +1501,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       }
       break;
     }
-    case kArm64Prfm: {
-      __ prfm(MiscField::decode(opcode), i.MemoryOperand(0));
-      break;
-    }
     case kArm64Clz:
       __ Clz(i.OutputRegister64(), i.InputRegister64(0));
       break;
@@ -2972,6 +2968,23 @@ void CodeGenerator::AssembleArchBoolean(Instruction* instr,
   Register reg = i.OutputRegister(instr->OutputCount() - 1);
   Condition cc = FlagsConditionToCondition(condition);
   __ Cset(reg, cc);
+}
+
+void CodeGenerator::AssembleArchSelect(Instruction* instr,
+                                       FlagsCondition condition) {
+  Arm64OperandConverter i(this, instr);
+  MachineRepresentation rep =
+    LocationOperand::cast(instr->OutputAt(0))->representation();
+  Condition cc = FlagsConditionToCondition(condition);
+  DCHECK_EQ(instr->InputCount(), 4);
+  if (rep == MachineRepresentation::kFloat32) {
+    __ Fcsel(i.OutputFloat32Register(), i.InputFloat32Register(2),
+             i.InputFloat32Register(3), cc);
+  } else {
+    DCHECK_EQ(rep, MachineRepresentation::kFloat64);
+    __ Fcsel(i.OutputFloat64Register(), i.InputFloat64Register(2),
+             i.InputFloat64Register(3), cc);
+  }
 }
 
 void CodeGenerator::AssembleArchBinarySearchSwitch(Instruction* instr) {

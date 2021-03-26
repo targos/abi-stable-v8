@@ -23,6 +23,7 @@
 #include "src/codegen/label.h"
 #include "src/codegen/reglist.h"
 #include "src/codegen/reloc-info.h"
+#include "src/codegen/shared-ia32-x64/macro-assembler-shared-ia32-x64.h"
 #include "src/codegen/turbo-assembler.h"
 #include "src/common/globals.h"
 #include "src/execution/frames.h"
@@ -70,9 +71,9 @@ class StackArgumentsAccessor {
   DISALLOW_IMPLICIT_CONSTRUCTORS(StackArgumentsAccessor);
 };
 
-class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
+class V8_EXPORT_PRIVATE TurboAssembler : public SharedTurboAssembler {
  public:
-  using TurboAssemblerBase::TurboAssemblerBase;
+  using SharedTurboAssembler::SharedTurboAssembler;
 
   void CheckPageFlag(Register object, Register scratch, int mask, Condition cc,
                      Label* condition_met,
@@ -711,29 +712,11 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // These Wasm SIMD ops do not have direct lowerings on IA32. These
   // helpers are optimized to produce the fastest and smallest codegen.
   // Defined here to allow usage on both TurboFan and Liftoff.
-  void I64x2ExtMul(XMMRegister dst, XMMRegister src1, XMMRegister src2,
-                   XMMRegister scratch, bool low, bool is_signed);
-  // Requires that dst == src1 if AVX is not supported.
-  void I32x4ExtMul(XMMRegister dst, XMMRegister src1, XMMRegister src2,
-                   XMMRegister scratch, bool low, bool is_signed);
   void I16x8ExtMulLow(XMMRegister dst, XMMRegister src1, XMMRegister src2,
                       XMMRegister scratch, bool is_signed);
-  void I16x8ExtMulHighS(XMMRegister dst, XMMRegister src1, XMMRegister src2,
-                        XMMRegister scratch);
-  void I16x8ExtMulHighU(XMMRegister dst, XMMRegister src1, XMMRegister src2,
-                        XMMRegister scratch);
   // Requires dst == mask when AVX is not supported.
   void S128Select(XMMRegister dst, XMMRegister mask, XMMRegister src1,
                   XMMRegister src2, XMMRegister scratch);
-  void I64x2SConvertI32x4High(XMMRegister dst, XMMRegister src);
-  void I64x2UConvertI32x4High(XMMRegister dst, XMMRegister src,
-                              XMMRegister scratch);
-  void I32x4SConvertI16x8High(XMMRegister dst, XMMRegister src);
-  void I32x4UConvertI16x8High(XMMRegister dst, XMMRegister src,
-                              XMMRegister scratch);
-  void I16x8SConvertI8x16High(XMMRegister dst, XMMRegister src);
-  void I16x8UConvertI8x16High(XMMRegister dst, XMMRegister src,
-                              XMMRegister scratch);
   void I16x8Q15MulRSatS(XMMRegister dst, XMMRegister src1, XMMRegister src2,
                         XMMRegister scratch);
   void S128Store32Lane(Operand dst, XMMRegister src, uint8_t laneidx);
@@ -744,11 +727,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
                                XMMRegister scratch, Register tmp);
   void I32x4TruncSatF64x2UZero(XMMRegister dst, XMMRegister src,
                                XMMRegister scratch, Register tmp);
-  void I64x2Abs(XMMRegister dst, XMMRegister src, XMMRegister scratch);
-  void I64x2GtS(XMMRegister dst, XMMRegister src0, XMMRegister src1,
-                XMMRegister scratch);
-  void I64x2GeS(XMMRegister dst, XMMRegister src0, XMMRegister src1,
-                XMMRegister scratch);
   void I16x8ExtAddPairwiseI8x16S(XMMRegister dst, XMMRegister src,
                                  XMMRegister tmp, Register scratch);
   void I16x8ExtAddPairwiseI8x16U(XMMRegister dst, XMMRegister src,
@@ -758,7 +736,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void I32x4ExtAddPairwiseI16x8U(XMMRegister dst, XMMRegister src,
                                  XMMRegister tmp);
   void I8x16Swizzle(XMMRegister dst, XMMRegister src, XMMRegister mask,
-                    XMMRegister scratch, Register tmp);
+                    XMMRegister scratch, Register tmp, bool omit_add = false);
 
   void Push(Register src) { push(src); }
   void Push(Operand src) { push(src); }

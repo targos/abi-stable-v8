@@ -1823,8 +1823,17 @@ void Shell::TestVerifySourcePositions(
 
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   HandleScope handle_scope(isolate);
-  i::Handle<i::JSFunction> function =
-      i::Handle<i::JSFunction>::cast(Utils::OpenHandle(*arg_fun));
+
+  auto callable = i::Handle<i::JSFunctionOrBoundFunction>::cast(
+      Utils::OpenHandle(*arg_fun));
+  while (callable->IsJSBoundFunction()) {
+    auto bound_function = i::Handle<i::JSBoundFunction>::cast(callable);
+    auto bound_target = bound_function->bound_target_function();
+    callable =
+        handle(i::JSFunctionOrBoundFunction::cast(bound_target), i_isolate);
+  }
+
+  i::Handle<i::JSFunction> function = i::Handle<i::JSFunction>::cast(callable);
   if (!function->shared().HasBytecodeArray()) {
     Throw(isolate, "Function has no BytecodeArray attached.");
     return;
@@ -1842,6 +1851,11 @@ void Shell::TestVerifySourcePositions(
                i_isolate);
     offset_iterator = std::make_unique<i::baseline::BytecodeOffsetIterator>(
         bytecode_offsets, bytecodes);
+    // A freshly initiated BytecodeOffsetIterator points to the prologue.
+    DCHECK_EQ(offset_iterator->current_pc_start_offset(), 0);
+    DCHECK_EQ(offset_iterator->current_bytecode_offset(),
+              i::kFunctionEntryBytecodeOffset);
+    offset_iterator->Advance();
   }
   while (!bytecode_iterator.done()) {
     if (has_baseline) {

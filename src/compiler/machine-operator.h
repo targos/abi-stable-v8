@@ -270,6 +270,8 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
     kWord64Popcnt = 1u << 15,
     kWord32ReverseBits = 1u << 16,
     kWord64ReverseBits = 1u << 17,
+    kFloat32Select = 1u << 18,
+    kFloat64Select = 1u << 19,
     kInt32AbsWithOverflow = 1u << 20,
     kInt64AbsWithOverflow = 1u << 21,
     kWord32Rol = 1u << 22,
@@ -281,7 +283,8 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
         kFloat64RoundTiesAway | kFloat32RoundTiesEven | kFloat64RoundTiesEven |
         kWord32Ctz | kWord64Ctz | kWord32Popcnt | kWord64Popcnt |
         kWord32ReverseBits | kWord64ReverseBits | kInt32AbsWithOverflow |
-        kInt64AbsWithOverflow | kWord32Rol | kWord64Rol | kSatConversionIsSafe
+        kInt64AbsWithOverflow | kWord32Rol | kWord64Rol | kSatConversionIsSafe |
+        kFloat32Select | kFloat64Select
   };
   using Flags = base::Flags<Flag, unsigned>;
 
@@ -577,6 +580,10 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
   const OptionalOperator Float32RoundTiesEven();
   const OptionalOperator Float64RoundTiesEven();
 
+  // Floating point conditional selects.
+  const OptionalOperator Float32Select();
+  const OptionalOperator Float64Select();
+
   // Floating point neg.
   const Operator* Float32Neg();
   const Operator* Float64Neg();
@@ -841,14 +848,12 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
 
   // load [base + index]
   const Operator* Load(LoadRepresentation rep);
+  const Operator* LoadImmutable(LoadRepresentation rep);
   const Operator* PoisonedLoad(LoadRepresentation rep);
   const Operator* ProtectedLoad(LoadRepresentation rep);
 
   const Operator* LoadTransform(MemoryAccessKind kind,
                                 LoadTransformation transform);
-
-  const Operator* PrefetchTemporal();
-  const Operator* PrefetchNonTemporal();
 
   // SIMD load: replace a specified lane with [base + index].
   const Operator* LoadLane(MemoryAccessKind kind, LoadRepresentation rep,

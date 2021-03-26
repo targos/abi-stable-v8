@@ -2714,8 +2714,8 @@ void LiftoffAssembler::PushRegisters(LiftoffRegList regs) {
 }
 
 void LiftoffAssembler::PopRegisters(LiftoffRegList regs) {
-  MultiPop(regs.GetGpList());
   MultiPopDoubles(regs.GetFpList());
+  MultiPop(regs.GetGpList());
 }
 
 void LiftoffAssembler::RecordSpillsInSafepoint(Safepoint& safepoint,
@@ -2850,7 +2850,7 @@ void LiftoffAssembler::TailCallIndirect(Register target) {
 }
 
 void LiftoffAssembler::CallRuntimeStub(WasmCode::RuntimeStubId sid) {
-  bailout(kUnsupportedArchitecture, "CallRuntimeStub");
+  Call(static_cast<Address>(sid), RelocInfo::WASM_STUB_CALL);
 }
 
 void LiftoffAssembler::AllocateStackSlot(Register addr, uint32_t size) {

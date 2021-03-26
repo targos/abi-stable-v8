@@ -461,6 +461,9 @@ Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
 
   if (input->IsString() || input->IsNumber() || input->IsOddball()) {
     return Object::ToString(isolate, input).ToHandleChecked();
+  } else if (input->IsJSProxy()) {
+    HeapObject target = Handle<JSProxy>::cast(input)->target(isolate);
+    return NoSideEffectsToString(isolate, Handle<Object>(target, isolate));
   } else if (input->IsBigInt()) {
     MaybeHandle<String> maybe_string =
         BigInt::ToString(isolate, Handle<BigInt>::cast(input), 10, kDontThrow);
@@ -1314,8 +1317,12 @@ Handle<SharedFunctionInfo> FunctionTemplateInfo::GetOrCreateSharedFunctionInfo(
 }
 
 bool FunctionTemplateInfo::IsTemplateFor(Map map) {
-  RuntimeCallTimerScope timer(GetIsolate(),
-                              RuntimeCallCounterId::kIsTemplateFor);
+  RuntimeCallTimerScope timer(
+      LocalHeap::Current() == nullptr
+          ? GetIsolate()->counters()->runtime_call_stats()
+          : LocalIsolate::FromHeap(LocalHeap::Current())->runtime_call_stats(),
+      RuntimeCallCounterId::kIsTemplateFor);
+
   // There is a constraint on the object; check.
   if (!map.IsJSObjectMap()) return false;
   // Fetch the constructor function of the object.
@@ -1342,14 +1349,14 @@ bool FunctionTemplateInfo::IsTemplateFor(Map map) {
 // static
 FunctionTemplateRareData FunctionTemplateInfo::AllocateFunctionTemplateRareData(
     Isolate* isolate, Handle<FunctionTemplateInfo> function_template_info) {
-  DCHECK(function_template_info->rare_data().IsUndefined(isolate));
+  DCHECK(function_template_info->rare_data(kAcquireLoad).IsUndefined(isolate));
   Handle<Struct> struct_obj = isolate->factory()->NewStruct(
       FUNCTION_TEMPLATE_RARE_DATA_TYPE, AllocationType::kOld);
   Handle<FunctionTemplateRareData> rare_data =
       i::Handle<FunctionTemplateRareData>::cast(struct_obj);
   rare_data->set_c_function(Smi(0));
   rare_data->set_c_signature(Smi(0));
-  function_template_info->set_rare_data(*rare_data);
+  function_template_info->set_rare_data(*rare_data, kReleaseStore);
   return *rare_data;
 }
 

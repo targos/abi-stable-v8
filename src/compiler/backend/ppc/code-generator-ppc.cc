@@ -43,6 +43,7 @@ class PPCOperandConverter final : public InstructionOperandConverter {
       case kFlags_deoptimize_and_poison:
       case kFlags_set:
       case kFlags_trap:
+      case kFlags_select:
         return SetRC;
       case kFlags_none:
         return LeaveRC;
@@ -2923,6 +2924,18 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ vadduwm(i.OutputSimd128Register(), kScratchSimd128Reg, tempFPReg1);
       break;
     }
+    case kPPC_I64x2Abs: {
+      Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
+      Simd128Register src = i.InputSimd128Register(0);
+      constexpr int shift_bits = 63;
+      __ li(ip, Operand(shift_bits));
+      __ mtvsrd(kScratchSimd128Reg, ip);
+      __ vspltb(kScratchSimd128Reg, kScratchSimd128Reg, Operand(7));
+      __ vsrad(kScratchSimd128Reg, src, kScratchSimd128Reg);
+      __ vxor(tempFPReg1, src, kScratchSimd128Reg);
+      __ vsubudm(i.OutputSimd128Register(), tempFPReg1, kScratchSimd128Reg);
+      break;
+    }
     case kPPC_I32x4Abs: {
       Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
       Simd128Register src = i.InputSimd128Register(0);
@@ -3645,7 +3658,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ li(kScratchReg, Operand(1));
       __ mtvsrd(kScratchSimd128Reg, kScratchReg);
       __ vsplth(kScratchSimd128Reg, kScratchSimd128Reg, Operand(3));
-      EXT_ADD_PAIRWISE(vmulesh, vmulesh, vadduwm)
+      EXT_ADD_PAIRWISE(vmulesh, vmulosh, vadduwm)
       break;
     }
     case kPPC_I32x4ExtAddPairwiseI16x8U: {
@@ -3655,7 +3668,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ li(kScratchReg, Operand(1));
       __ mtvsrd(kScratchSimd128Reg, kScratchReg);
       __ vsplth(kScratchSimd128Reg, kScratchSimd128Reg, Operand(3));
-      EXT_ADD_PAIRWISE(vmuleuh, vmuleuh, vadduwm)
+      EXT_ADD_PAIRWISE(vmuleuh, vmulouh, vadduwm)
       break;
     }
 
@@ -3664,7 +3677,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Simd128Register dst = i.OutputSimd128Register();
       Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
       __ xxspltib(kScratchSimd128Reg, Operand(1));
-      EXT_ADD_PAIRWISE(vmulesb, vmulesb, vadduhm)
+      EXT_ADD_PAIRWISE(vmulesb, vmulosb, vadduhm)
       break;
     }
     case kPPC_I16x8ExtAddPairwiseI8x16U: {
@@ -3672,7 +3685,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Simd128Register dst = i.OutputSimd128Register();
       Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
       __ xxspltib(kScratchSimd128Reg, Operand(1));
-      EXT_ADD_PAIRWISE(vmuleub, vmuleub, vadduhm)
+      EXT_ADD_PAIRWISE(vmuleub, vmuloub, vadduhm)
       break;
     }
 #undef EXT_ADD_PAIRWISE
@@ -3821,6 +3834,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ vinsertw(kScratchSimd128Reg, dst, Operand(4));
       __ vxor(dst, dst, dst);
       __ vinsertd(dst, kScratchSimd128Reg, Operand(lane_number));
+      break;
+    }
+    case kPPC_I8x16Popcnt: {
+      __ vpopcntb(i.OutputSimd128Register(), i.InputSimd128Register(0));
       break;
     }
     case kPPC_StoreCompressTagged: {
@@ -4051,6 +4068,11 @@ void CodeGenerator::AssembleArchTableSwitch(Instruction* instr) {
   __ ShiftLeftImm(r0, input, Operand(kSystemPointerSizeLog2));
   __ LoadPX(kScratchReg, MemOperand(kScratchReg, r0));
   __ Jump(kScratchReg);
+}
+
+void CodeGenerator::AssembleArchSelect(Instruction* instr,
+                                       FlagsCondition condition) {
+  UNIMPLEMENTED();
 }
 
 void CodeGenerator::FinishFrame(Frame* frame) {
