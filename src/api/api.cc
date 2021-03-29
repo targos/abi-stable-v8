@@ -1930,6 +1930,17 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   i::TimerEventScope<i::TimerEventExecute> timer_scope(isolate);
   auto fun = i::Handle<i::JSFunction>::cast(Utils::OpenHandle(this));
 
+  // TODO(crbug.com/1193459): remove once ablation study is completed
+  if (i::FLAG_script_run_delay) {
+    v8::base::OS::Sleep(
+        v8::base::TimeDelta::FromMilliseconds(i::FLAG_script_run_delay));
+  }
+  if (i::FLAG_script_run_delay_once && !isolate->did_run_script_delay()) {
+    v8::base::OS::Sleep(
+        v8::base::TimeDelta::FromMilliseconds(i::FLAG_script_run_delay_once));
+    isolate->set_did_run_script_delay(true);
+  }
+
   i::Handle<i::Object> receiver = isolate->global_proxy();
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(
@@ -6700,7 +6711,7 @@ Local<v8::Object> v8::Object::New(Isolate* isolate,
   // properties, and so we default to creating a properties backing store
   // large enough to hold all of them, while we start with no elements
   // (see http://bit.ly/v8-fast-object-create-cpp for the motivation).
-  if (V8_DICT_MODE_PROTOTYPES_BOOL) {
+  if (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
     i::Handle<i::SwissNameDictionary> properties =
         i_isolate->factory()->NewSwissNameDictionary(static_cast<int>(length));
     AddPropertiesAndElementsToObject(i_isolate, properties, elements, names,
