@@ -77,6 +77,10 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
       cpu.part() == base::CPU::PPC_POWER9) {
     supported_ |= (1u << FPR_GPR_MOV);
   }
+  // V8 PPC Simd implementations need P9 at a minimum.
+  if (cpu.part() == base::CPU::PPC_POWER9) {
+    supported_ |= (1u << SIMD);
+  }
 #endif
   if (cpu.part() == base::CPU::PPC_POWER6 ||
       cpu.part() == base::CPU::PPC_POWER7 ||
@@ -108,6 +112,7 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
   supported_ |= (1u << ISELECT);
   supported_ |= (1u << VSX);
   supported_ |= (1u << MODULO);
+  supported_ |= (1u << SIMD);
 #if V8_TARGET_ARCH_PPC64
   supported_ |= (1u << FPR_GPR_MOV);
 #endif
@@ -1871,6 +1876,12 @@ void Assembler::xxspltib(const Simd128Register rt, const Operand& imm) {
   int TX = 1;
   CHECK(is_uint8(imm.immediate()));
   emit(XXSPLTIB | rt.code() * B21 | imm.immediate() * B11 | TX);
+}
+
+void Assembler::xxbrq(const Simd128Register rt, const Simd128Register rb) {
+  int BX = 1;
+  int TX = 1;
+  emit(XXBRQ | rt.code() * B21 | 31 * B16 | rb.code() * B11 | BX * B1 | TX);
 }
 
 // Pseudo instructions.
