@@ -461,14 +461,134 @@ void LiftoffAssembler::AtomicExchange(Register dst_addr, Register offset_reg,
                                       uintptr_t offset_imm,
                                       LiftoffRegister value,
                                       LiftoffRegister result, StoreType type) {
-  bailout(kAtomics, "AtomicExchange");
+  lay(ip,
+      MemOperand(dst_addr, offset_reg == no_reg ? r0 : offset_reg, offset_imm));
+
+  switch (type.value()) {
+    case StoreType::kI32Store8:
+    case StoreType::kI64Store8: {
+      AtomicExchangeU8(ip, value.gp(), result.gp(), r0);
+      LoadU8(result.gp(), result.gp());
+      break;
+    }
+    case StoreType::kI32Store16:
+    case StoreType::kI64Store16: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r1, value.gp());
+      ShiftRightU32(r1, r1, Operand(16));
+#else
+      LoadU16(r1, value.gp());
+#endif
+      AtomicExchangeU16(ip, r1, result.gp(), r0);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(result.gp(), result.gp());
+      ShiftRightU32(result.gp(), result.gp(), Operand(16));
+#else
+      LoadU16(result.gp(), result.gp());
+#endif
+      break;
+    }
+    case StoreType::kI32Store:
+    case StoreType::kI64Store32: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r1, value.gp());
+#else
+      LoadU32(r1, value.gp());
+#endif
+      Label do_cs;
+      bind(&do_cs);
+      cs(result.gp(), r1, MemOperand(ip));
+      bne(&do_cs, Label::kNear);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(result.gp(), result.gp());
+#endif
+      LoadU32(result.gp(), result.gp());
+      break;
+    }
+    case StoreType::kI64Store: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvgr(r1, value.gp());
+#else
+      mov(r1, value.gp());
+#endif
+      Label do_cs;
+      bind(&do_cs);
+      csg(result.gp(), r1, MemOperand(ip));
+      bne(&do_cs, Label::kNear);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvgr(result.gp(), result.gp());
+#endif
+      break;
+    }
+    default:
+      UNREACHABLE();
+  }
 }
 
 void LiftoffAssembler::AtomicCompareExchange(
     Register dst_addr, Register offset_reg, uintptr_t offset_imm,
     LiftoffRegister expected, LiftoffRegister new_value, LiftoffRegister result,
     StoreType type) {
-  bailout(kAtomics, "AtomicCompareExchange");
+  lay(ip,
+      MemOperand(dst_addr, offset_reg == no_reg ? r0 : offset_reg, offset_imm));
+
+  switch (type.value()) {
+    case StoreType::kI32Store8:
+    case StoreType::kI64Store8: {
+      AtomicCmpExchangeU8(ip, result.gp(), expected.gp(), new_value.gp(), r0,
+                          r1);
+      LoadU8(result.gp(), result.gp());
+      break;
+    }
+    case StoreType::kI32Store16:
+    case StoreType::kI64Store16: {
+      Push(r2, r3);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r2, expected.gp());
+      lrvr(r3, new_value.gp());
+      ShiftRightU32(r2, r2, Operand(16));
+      ShiftRightU32(r3, r3, Operand(16));
+#else
+      LoadU16(r2, expected.gp());
+      LoadU16(r3, new_value.gp());
+#endif
+      AtomicCmpExchangeU16(ip, result.gp(), r2, r3, r0, r1);
+      LoadU16(result.gp(), result.gp());
+      Pop(r2, r3);
+      break;
+    }
+    case StoreType::kI32Store:
+    case StoreType::kI64Store32: {
+      Push(r2, r3);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r2, expected.gp());
+      lrvr(r3, new_value.gp());
+#else
+      LoadU32(r2, expected.gp());
+      LoadU32(r3, new_value.gp());
+#endif
+      CmpAndSwap(r2, r3, MemOperand(ip));
+      LoadU32(result.gp(), r2);
+      Pop(r2, r3);
+      break;
+    }
+    case StoreType::kI64Store: {
+      Push(r2, r3);
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvgr(r2, expected.gp());
+      lrvgr(r3, new_value.gp());
+#else
+      mov(r2, expected.gp());
+      mov(r3, new_value.gp());
+#endif
+      CmpAndSwap64(r2, r3, MemOperand(ip));
+      mov(result.gp(), r2);
+      Pop(r2, r3);
+      break;
+    }
+    default:
+      UNREACHABLE();
+  }
 }
 
 void LiftoffAssembler::AtomicFence() { bailout(kAtomics, "AtomicFence"); }

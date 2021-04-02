@@ -2132,14 +2132,6 @@ void TurboAssembler::Pmulhrsw(XMMRegister dst, XMMRegister src1,
   }
 }
 
-void TurboAssembler::I16x8ExtMulLow(XMMRegister dst, XMMRegister src1,
-                                    XMMRegister src2, bool is_signed) {
-  is_signed ? Pmovsxbw(kScratchDoubleReg, src1)
-            : Pmovzxbw(kScratchDoubleReg, src1);
-  is_signed ? Pmovsxbw(dst, src2) : Pmovzxbw(dst, src2);
-  Pmullw(dst, kScratchDoubleReg);
-}
-
 void TurboAssembler::I16x8Q15MulRSatS(XMMRegister dst, XMMRegister src1,
                                       XMMRegister src2) {
   // k = i16x8.splat(0x8000)
@@ -2149,16 +2141,6 @@ void TurboAssembler::I16x8Q15MulRSatS(XMMRegister dst, XMMRegister src1,
   Pmulhrsw(dst, src1, src2);
   Pcmpeqw(kScratchDoubleReg, dst);
   Pxor(dst, kScratchDoubleReg);
-}
-
-void TurboAssembler::S128Store32Lane(Operand dst, XMMRegister src,
-                                     uint8_t laneidx) {
-  if (laneidx == 0) {
-    Movss(dst, src);
-  } else {
-    DCHECK_GE(3, laneidx);
-    Extractps(dst, src, laneidx);
-  }
 }
 
 void TurboAssembler::S128Store64Lane(Operand dst, XMMRegister src,

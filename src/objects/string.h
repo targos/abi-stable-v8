@@ -549,6 +549,12 @@ class String : public TorqueGeneratedString<String, Name> {
       Vector<const Char> str, IsolateRoot isolate,
       const SharedStringAccessGuardIfNeeded& access_guard) const;
 
+  // Out-of-line IsEqualToImpl for ConsString.
+  template <typename Char>
+  V8_NOINLINE static bool IsConsStringEqualToImpl(
+      ConsString string, int slice_offset, Vector<const Char> str,
+      IsolateRoot isolate, const SharedStringAccessGuardIfNeeded& access_guard);
+
   V8_EXPORT_PRIVATE static Handle<String> SlowFlatten(
       Isolate* isolate, Handle<ConsString> cons, AllocationType allocation);
 

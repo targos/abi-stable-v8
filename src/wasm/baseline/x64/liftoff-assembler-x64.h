@@ -3222,13 +3222,15 @@ void LiftoffAssembler::emit_i16x8_extadd_pairwise_i8x16_u(LiftoffRegister dst,
 void LiftoffAssembler::emit_i16x8_extmul_low_i8x16_s(LiftoffRegister dst,
                                                      LiftoffRegister src1,
                                                      LiftoffRegister src2) {
-  I16x8ExtMulLow(dst.fp(), src1.fp(), src2.fp(), /*is_signed=*/true);
+  I16x8ExtMulLow(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg,
+                 /*is_signed=*/true);
 }
 
 void LiftoffAssembler::emit_i16x8_extmul_low_i8x16_u(LiftoffRegister dst,
                                                      LiftoffRegister src1,
                                                      LiftoffRegister src2) {
-  I16x8ExtMulLow(dst.fp(), src1.fp(), src2.fp(), /*is_signed=*/false);
+  I16x8ExtMulLow(dst.fp(), src1.fp(), src2.fp(), kScratchDoubleReg,
+                 /*is_signed=*/false);
 }
 
 void LiftoffAssembler::emit_i16x8_extmul_high_i8x16_s(LiftoffRegister dst,
@@ -3509,13 +3511,8 @@ void LiftoffAssembler::emit_i64x2_mul(LiftoffRegister dst, LiftoffRegister lhs,
   Pmuludq(tmp2.fp(), lhs.fp());
   Paddq(tmp2.fp(), tmp1.fp());
   Psllq(tmp2.fp(), 32);
-  if (CpuFeatures::IsSupported(AVX)) {
-    CpuFeatureScope scope(this, AVX);
-    vpmuludq(dst.fp(), lhs.fp(), rhs.fp());
-  } else {
-    if (dst.fp() != lhs.fp()) movaps(dst.fp(), lhs.fp());
-    pmuludq(dst.fp(), rhs.fp());
-  }
+  liftoff::EmitSimdCommutativeBinOp<&Assembler::vpmuludq, &Assembler::pmuludq>(
+      this, dst, lhs, rhs);
   Paddq(dst.fp(), tmp2.fp());
 }
 

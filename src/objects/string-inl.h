@@ -524,31 +524,10 @@ bool String::IsEqualToImpl(
 
       case kConsStringTag | kOneByteStringTag:
       case kConsStringTag | kTwoByteStringTag: {
-        ConsStringIterator iter(ConsString::cast(string), slice_offset);
-        const Char* p = data;
-        size_t remaining_len = len;
-        for (String segment = iter.Next(&slice_offset); !segment.is_null();
-             segment = iter.Next(&slice_offset)) {
-          int str_len = segment.length();
-          if (kEqType == EqualityType::kPrefix) {
-            str_len = std::min(str_len, static_cast<int>(remaining_len));
-            remaining_len -= str_len;
-          }
-          DCHECK_LE(p + str_len, data + len);
-          if (!segment.IsEqualToImpl<EqualityType::kNoLengthCheck>(
-                  VectorOf(p, str_len), isolate, access_guard)) {
-            return false;
-          }
-          p += str_len;
-          if (kEqType == EqualityType::kPrefix && remaining_len == 0) {
-            break;
-          }
-        }
-        DCHECK_EQ(p, data + len);
-        if (kEqType == EqualityType::kPrefix) {
-          DCHECK_EQ(remaining_len, 0);
-        }
-        return true;
+        // The ConsString path is more complex and rare, so call out to an
+        // out-of-line handler.
+        return IsConsStringEqualToImpl<Char>(
+            ConsString::cast(string), slice_offset, str, isolate, access_guard);
       }
 
       case kThinStringTag | kOneByteStringTag:
@@ -560,6 +539,35 @@ bool String::IsEqualToImpl(
         UNREACHABLE();
     }
   }
+}
+
+// static
+template <typename Char>
+bool String::IsConsStringEqualToImpl(
+    ConsString string, int slice_offset, Vector<const Char> str,
+    IsolateRoot isolate, const SharedStringAccessGuardIfNeeded& access_guard) {
+  // Already checked the len in IsEqualToImpl. Check GE rather than EQ in case
+  // this is a prefix check.
+  DCHECK_GE(string.length(), str.size());
+
+  ConsStringIterator iter(ConsString::cast(string), slice_offset);
+  Vector<const Char> remaining_str = str;
+  for (String segment = iter.Next(&slice_offset); !segment.is_null();
+       segment = iter.Next(&slice_offset)) {
+    // Compare the individual segment against the appropriate subvector of the
+    // remaining string.
+    size_t len = std::min<size_t>(segment.length(), remaining_str.size());
+    Vector<const Char> sub_str = remaining_str.SubVector(0, len);
+    if (!segment.IsEqualToImpl<EqualityType::kNoLengthCheck>(sub_str, isolate,
+                                                             access_guard)) {
+      return false;
+    }
+    remaining_str += len;
+    if (remaining_str.empty()) break;
+  }
+  DCHECK_EQ(remaining_str.data(), str.end());
+  DCHECK_EQ(remaining_str.size(), 0);
+  return true;
 }
 
 bool String::IsOneByteEqualTo(Vector<const char> str) { return IsEqualTo(str); }
