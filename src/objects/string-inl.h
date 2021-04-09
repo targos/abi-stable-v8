@@ -272,12 +272,12 @@ inline TResult StringShape::DispatchToSpecificType(String str,
 }
 
 DEF_GETTER(String, IsOneByteRepresentation, bool) {
-  uint32_t type = map(isolate).instance_type();
+  uint32_t type = map(cage_base).instance_type();
   return (type & kStringEncodingMask) == kOneByteStringTag;
 }
 
 DEF_GETTER(String, IsTwoByteRepresentation, bool) {
-  uint32_t type = map(isolate).instance_type();
+  uint32_t type = map(cage_base).instance_type();
   return (type & kStringEncodingMask) == kTwoByteStringTag;
 }
 
@@ -460,7 +460,7 @@ bool String::IsEqualTo(Vector<const Char> str, Isolate* isolate) const {
 template <String::EqualityType kEqType, typename Char>
 bool String::IsEqualTo(Vector<const Char> str) const {
   DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
-  return IsEqualToImpl<kEqType>(str, GetIsolateForPtrCompr(*this),
+  return IsEqualToImpl<kEqType>(str, GetPtrComprCageBase(*this),
                                 SharedStringAccessGuardIfNeeded::NotNeeded());
 }
 
@@ -472,7 +472,7 @@ bool String::IsEqualTo(Vector<const Char> str, LocalIsolate* isolate) const {
 
 template <String::EqualityType kEqType, typename Char>
 bool String::IsEqualToImpl(
-    Vector<const Char> str, IsolateRoot isolate,
+    Vector<const Char> str, PtrComprCageBase cage_base,
     const SharedStringAccessGuardIfNeeded& access_guard) const {
   size_t len = str.size();
   switch (kEqType) {
@@ -493,7 +493,7 @@ bool String::IsEqualToImpl(
   String string = *this;
   const Char* data = str.data();
   while (true) {
-    int32_t type = string.map(isolate).instance_type();
+    int32_t type = string.map(cage_base).instance_type();
     switch (type & (kStringRepresentationMask | kStringEncodingMask)) {
       case kSeqStringTag | kOneByteStringTag:
         return CompareCharsEqual(
@@ -518,7 +518,7 @@ bool String::IsEqualToImpl(
       case kSlicedStringTag | kTwoByteStringTag: {
         SlicedString slicedString = SlicedString::cast(string);
         slice_offset += slicedString.offset();
-        string = slicedString.parent(isolate);
+        string = slicedString.parent(cage_base);
         continue;
       }
 
@@ -526,13 +526,14 @@ bool String::IsEqualToImpl(
       case kConsStringTag | kTwoByteStringTag: {
         // The ConsString path is more complex and rare, so call out to an
         // out-of-line handler.
-        return IsConsStringEqualToImpl<Char>(
-            ConsString::cast(string), slice_offset, str, isolate, access_guard);
+        return IsConsStringEqualToImpl<Char>(ConsString::cast(string),
+                                             slice_offset, str, cage_base,
+                                             access_guard);
       }
 
       case kThinStringTag | kOneByteStringTag:
       case kThinStringTag | kTwoByteStringTag:
-        string = ThinString::cast(string).actual(isolate);
+        string = ThinString::cast(string).actual(cage_base);
         continue;
 
       default:
@@ -545,7 +546,8 @@ bool String::IsEqualToImpl(
 template <typename Char>
 bool String::IsConsStringEqualToImpl(
     ConsString string, int slice_offset, Vector<const Char> str,
-    IsolateRoot isolate, const SharedStringAccessGuardIfNeeded& access_guard) {
+    PtrComprCageBase cage_base,
+    const SharedStringAccessGuardIfNeeded& access_guard) {
   // Already checked the len in IsEqualToImpl. Check GE rather than EQ in case
   // this is a prefix check.
   DCHECK_GE(string.length(), str.size());
@@ -558,7 +560,7 @@ bool String::IsConsStringEqualToImpl(
     // remaining string.
     size_t len = std::min<size_t>(segment.length(), remaining_str.size());
     Vector<const Char> sub_str = remaining_str.SubVector(0, len);
-    if (!segment.IsEqualToImpl<EqualityType::kNoLengthCheck>(sub_str, isolate,
+    if (!segment.IsEqualToImpl<EqualityType::kNoLengthCheck>(sub_str, cage_base,
                                                              access_guard)) {
       return false;
     }
@@ -841,7 +843,7 @@ Object ConsString::unchecked_second() {
 }
 
 DEF_GETTER(ThinString, unchecked_actual, HeapObject) {
-  return TaggedField<HeapObject, kActualOffset>::load(isolate, *this);
+  return TaggedField<HeapObject, kActualOffset>::load(cage_base, *this);
 }
 
 bool ExternalString::is_uncached() const {
@@ -856,7 +858,7 @@ void ExternalString::AllocateExternalPointerEntries(Isolate* isolate) {
 }
 
 DEF_GETTER(ExternalString, resource_as_address, Address) {
-  return ReadExternalPointerField(kResourceOffset, isolate,
+  return ReadExternalPointerField(kResourceOffset, cage_base,
                                   kExternalStringResourceTag);
 }
 
@@ -904,7 +906,7 @@ DEF_GETTER(ExternalOneByteString, resource,
 
 DEF_GETTER(ExternalOneByteString, mutable_resource,
            ExternalOneByteString::Resource*) {
-  return reinterpret_cast<Resource*>(resource_as_address(isolate));
+  return reinterpret_cast<Resource*>(resource_as_address(cage_base));
 }
 
 void ExternalOneByteString::update_data_cache(Isolate* isolate) {
@@ -969,7 +971,7 @@ DEF_GETTER(ExternalTwoByteString, resource,
 
 DEF_GETTER(ExternalTwoByteString, mutable_resource,
            ExternalTwoByteString::Resource*) {
-  return reinterpret_cast<Resource*>(resource_as_address(isolate));
+  return reinterpret_cast<Resource*>(resource_as_address(cage_base));
 }
 
 void ExternalTwoByteString::update_data_cache(Isolate* isolate) {

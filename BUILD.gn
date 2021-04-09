@@ -333,7 +333,7 @@ if (v8_enable_pointer_compression == "") {
       v8_current_cpu == "arm64" || v8_current_cpu == "x64"
 }
 if (v8_enable_pointer_compression_shared_cage == "") {
-  v8_enable_pointer_compression_shared_cage = v8_enable_pointer_compression
+  v8_enable_pointer_compression_shared_cage = false
 }
 if (v8_enable_fast_torque == "") {
   v8_enable_fast_torque = v8_enable_fast_mksnapshot
@@ -403,6 +403,10 @@ if (v8_enable_shared_ro_heap && v8_enable_pointer_compression) {
       is_linux || is_chromeos || is_android,
       "Sharing read-only heap with pointer compression is only supported on Linux or Android")
 }
+
+assert(
+    !v8_enable_pointer_compression_shared_cage || !v8_enable_shared_ro_heap,
+    "Sharing read-only heap is not yet supported when sharing a pointer compression cage")
 
 assert(!v8_use_multi_snapshots || !v8_control_flow_integrity,
        "Control-flow integrity does not support multisnapshots")
@@ -554,6 +558,7 @@ external_v8_defines = [
   "V8_ENABLE_CHECKS",
   "V8_COMPRESS_POINTERS",
   "V8_COMPRESS_POINTERS_IN_SHARED_CAGE",
+  "V8_COMPRESS_POINTERS_IN_ISOLATE_CAGE",
   "V8_31BIT_SMIS_ON_64BIT_ARCH",
   "V8_COMPRESS_ZONES",
   "V8_HEAP_SANDBOX",
@@ -573,6 +578,8 @@ if (v8_enable_pointer_compression) {
 }
 if (v8_enable_pointer_compression_shared_cage) {
   enabled_external_v8_defines += [ "V8_COMPRESS_POINTERS_IN_SHARED_CAGE" ]
+} else if (v8_enable_pointer_compression) {
+  enabled_external_v8_defines += [ "V8_COMPRESS_POINTERS_IN_ISOLATE_CAGE" ]
 }
 if (v8_enable_pointer_compression || v8_enable_31bit_smis_on_64bit_arch) {
   enabled_external_v8_defines += [ "V8_31BIT_SMIS_ON_64BIT_ARCH" ]
@@ -5323,7 +5330,7 @@ if (is_fuchsia && !build_with_chromium) {
   cr_fuchsia_package("d8_fuchsia_pkg") {
     testonly = true
     binary = ":d8"
-    manifest = "//build/config/fuchsia/tests-with-exec.cmx"
+    manifest = "gni/v8.cmx"
     package_name_override = "d8"
   }
 
