@@ -26,7 +26,7 @@ void CallInterfaceDescriptorData::InitializePlatformSpecific(
 #ifdef DEBUG
     CHECK_NE(registers[i], kRootRegister);
 #ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
-    CHECK_NE(registers[i], kPointerCageBaseRegister);
+    CHECK_NE(registers[i], kPtrComprCageBaseRegister);
 #endif
     // Check for duplicated registers.
     for (int j = i + 1; j < register_parameter_count; j++) {
@@ -335,7 +335,7 @@ void BaselineOutOfLinePrologueDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   // TODO(v8:11421): Implement on other platforms.
 #if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || V8_TARGET_ARCH_IA32 || \
-    V8_TARGET_ARCH_ARM
+    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64
   Register registers[] = {kContextRegister,
                           kJSFunctionRegister,
                           kJavaScriptCallArgCountRegister,
@@ -353,7 +353,7 @@ void BaselineLeaveFrameDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   // TODO(v8:11421): Implement on other platforms.
 #if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || \
-    V8_TARGET_ARCH_ARM
+    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64
   Register registers[] = {ParamsSizeRegister(), WeightRegister()};
   data->InitializePlatformSpecific(kParameterCount, registers);
 #else

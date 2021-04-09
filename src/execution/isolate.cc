@@ -318,10 +318,6 @@ void Isolate::SetEmbeddedBlob(const uint8_t* code, uint32_t code_size,
     }
   }
 #endif  // DEBUG
-
-  if (FLAG_experimental_flush_embedded_blob_icache) {
-    FlushInstructionCache(const_cast<uint8_t*>(code), code_size);
-  }
 }
 
 void Isolate::ClearEmbeddedBlob() {
@@ -1404,11 +1400,12 @@ Object Isolate::StackOverflow() {
   Handle<JSFunction> fun = range_error_function();
   Handle<Object> msg = factory()->NewStringFromAsciiChecked(
       MessageFormatter::TemplateString(MessageTemplate::kStackOverflow));
+  Handle<Object> options = factory()->undefined_value();
   Handle<Object> no_caller;
   Handle<Object> exception;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       this, exception,
-      ErrorUtils::Construct(this, fun, fun, msg, SKIP_NONE, no_caller,
+      ErrorUtils::Construct(this, fun, fun, msg, options, SKIP_NONE, no_caller,
                             ErrorUtils::StackTraceCollection::kSimple));
 
   Throw(*exception);

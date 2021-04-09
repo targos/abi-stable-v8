@@ -373,18 +373,6 @@
     # TODO(almuthanna): Add a new test config for the fuzzilli suite.
     'tests': [],
   },
-  'v8_linux64_gc_stress_custom_snapshot_dbg_ng_triggered': {
-    'swarming_dimensions' : {
-      'os': 'Ubuntu-16.04',
-    },
-    'tests': [
-      {
-        'name': 'mjsunit',
-        'test_args': ['--gc-stress', '--no-harness'],
-        'shards': 3,
-      },
-    ],
-  },
   'v8_linux64_fyi_rel_ng_triggered': {
     'swarming_dimensions' : {
       'os': 'Ubuntu-16.04',
@@ -401,6 +389,26 @@
       {'name': 'mjsunit', 'variant': 'experimental_regexp'},
       # Concurrent inlining.
       {'name': 'mjsunit', 'variant': 'concurrent_inlining'},
+    ],
+  },
+  'v8_linux64_gc_stress_custom_snapshot_dbg_ng_triggered': {
+    'swarming_dimensions' : {
+      'os': 'Ubuntu-16.04',
+    },
+    'tests': [
+      {
+        'name': 'mjsunit',
+        'test_args': ['--gc-stress', '--no-harness'],
+        'shards': 3,
+      },
+    ],
+  },
+  'v8_linux64_gcov_coverage': {
+    'swarming_dimensions' : {
+      'os': 'Ubuntu-16.04',
+    },
+    'tests': [
+      {'name': 'v8testing'},
     ],
   },
   'v8_linux64_msan_rel_ng_triggered': {
@@ -760,6 +768,7 @@
     },
     'tests': [
       {'name': 'v8testing', 'shards': 8},
+      {'name': 'v8testing', 'variant': 'future', 'shards': 2},
     ],
   },
   'v8_mac_arm64_sim_dbg_ng_triggered': {
@@ -770,6 +779,7 @@
     },
     'tests': [
       {'name': 'v8testing', 'shards': 8},
+      {'name': 'v8testing', 'variant': 'future', 'shards': 2},
     ],
   },
   'v8_mac_arm64_sim_nodcheck_rel_ng_triggered': {
@@ -780,6 +790,7 @@
     },
     'tests': [
       {'name': 'v8testing', 'shards': 8},
+      {'name': 'v8testing', 'variant': 'future', 'shards': 2},
     ],
   },
   ##############################################################################
@@ -1427,8 +1438,8 @@
       'priority': 35,
     },
     'tests': [
-      {'name': 'd8testing'},
-      {'name': 'd8testing', 'variant': 'extra'},
+      {'name': 'v8testing'},
+      {'name': 'v8testing', 'variant': 'extra'},
     ],
   },
   'V8 Mac - arm64 - debug': {
@@ -1460,6 +1471,7 @@
     },
     'tests': [
       {'name': 'v8testing', 'shards': 8},
+      {'name': 'v8testing', 'variant': 'future', 'shards': 2},
     ],
   },
   'V8 Mac - arm64 - sim - release': {
@@ -1475,6 +1487,7 @@
     },
     'tests': [
       {'name': 'v8testing', 'shards': 8},
+      {'name': 'v8testing', 'variant': 'future', 'shards': 2},
     ],
   },
   'V8 Win32': {

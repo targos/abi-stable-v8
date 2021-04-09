@@ -1404,6 +1404,11 @@ static void InstallError(
     int error_function_length = 1, int in_object_properties = 2) {
   Factory* factory = isolate->factory();
 
+  if (FLAG_harmony_error_cause) {
+    error_function_length += 1;
+    in_object_properties += 1;
+  }
+
   // Most Error objects consist of a message and a stack trace.
   // Reserve two in-object properties for these.
   const int kErrorObjectSize =
@@ -1411,7 +1416,6 @@ static void InstallError(
   Handle<JSFunction> error_fun = InstallFunction(
       isolate, global, name, JS_ERROR_TYPE, kErrorObjectSize,
       in_object_properties, factory->the_hole_value(), error_constructor);
-  error_fun->shared().DontAdaptArguments();
   error_fun->shared().set_length(error_function_length);
 
   if (context_index == Context::ERROR_FUNCTION_INDEX) {
@@ -1430,6 +1434,11 @@ static void InstallError(
                           DONT_ENUM);
     JSObject::AddProperty(isolate, prototype, factory->message_string(),
                           factory->empty_string(), DONT_ENUM);
+
+    if (FLAG_harmony_error_cause) {
+      JSObject::AddProperty(isolate, prototype, factory->cause_string(),
+                            factory->undefined_value(), DONT_ENUM);
+    }
 
     if (context_index == Context::ERROR_FUNCTION_INDEX) {
       Handle<JSFunction> to_string_fun =
@@ -3862,6 +3871,61 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
     native_context()->set_bound_function_with_constructor_map(*map);
   }
 
+  {  // -- F i n a l i z a t i o n R e g i s t r y
+    Handle<JSFunction> finalization_registry_fun = InstallFunction(
+        isolate_, global, factory->FinalizationRegistry_string(),
+        JS_FINALIZATION_REGISTRY_TYPE, JSFinalizationRegistry::kHeaderSize, 0,
+        factory->the_hole_value(), Builtins::kFinalizationRegistryConstructor);
+    InstallWithIntrinsicDefaultProto(
+        isolate_, finalization_registry_fun,
+        Context::JS_FINALIZATION_REGISTRY_FUNCTION_INDEX);
+
+    finalization_registry_fun->shared().DontAdaptArguments();
+    finalization_registry_fun->shared().set_length(1);
+
+    Handle<JSObject> finalization_registry_prototype(
+        JSObject::cast(finalization_registry_fun->instance_prototype()),
+        isolate());
+
+    InstallToStringTag(isolate_, finalization_registry_prototype,
+                       factory->FinalizationRegistry_string());
+
+    SimpleInstallFunction(isolate_, finalization_registry_prototype, "register",
+                          Builtins::kFinalizationRegistryRegister, 2, false);
+
+    SimpleInstallFunction(isolate_, finalization_registry_prototype,
+                          "unregister",
+                          Builtins::kFinalizationRegistryUnregister, 1, false);
+
+    // The cleanupSome function is created but not exposed, as it is used
+    // internally by InvokeFinalizationRegistryCleanupFromTask.
+    //
+    // It is exposed by FLAG_harmony_weak_refs_with_cleanup_some.
+    Handle<JSFunction> cleanup_some_fun = SimpleCreateFunction(
+        isolate_, factory->InternalizeUtf8String("cleanupSome"),
+        Builtins::kFinalizationRegistryPrototypeCleanupSome, 0, false);
+    native_context()->set_finalization_registry_cleanup_some(*cleanup_some_fun);
+  }
+
+  {  // -- W e a k R e f
+    Handle<JSFunction> weak_ref_fun = InstallFunction(
+        isolate_, global, "WeakRef", JS_WEAK_REF_TYPE, JSWeakRef::kHeaderSize,
+        0, factory->the_hole_value(), Builtins::kWeakRefConstructor);
+    InstallWithIntrinsicDefaultProto(isolate_, weak_ref_fun,
+                                     Context::JS_WEAK_REF_FUNCTION_INDEX);
+
+    weak_ref_fun->shared().DontAdaptArguments();
+    weak_ref_fun->shared().set_length(1);
+
+    Handle<JSObject> weak_ref_prototype(
+        JSObject::cast(weak_ref_fun->instance_prototype()), isolate());
+
+    InstallToStringTag(isolate_, weak_ref_prototype, factory->WeakRef_string());
+
+    SimpleInstallFunction(isolate_, weak_ref_prototype, "deref",
+                          Builtins::kWeakRefDeref, 0, true);
+  }
+
   {  // --- sloppy arguments map
     Handle<String> arguments_string = factory->Arguments_string();
     Handle<JSFunction> function = CreateFunctionForBuiltinWithPrototype(
@@ -4325,6 +4389,7 @@ EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_top_level_await)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_import_assertions)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_private_brand_checks)
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_class_static_blocks)
+EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_error_cause)
 
 #ifdef V8_INTL_SUPPORT
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_intl_best_fit_matcher)
@@ -4353,75 +4418,8 @@ void Genesis::InitializeGlobal_harmony_atomics() {
   InstallToStringTag(isolate_, isolate()->atomics_object(), "Atomics");
 }
 
-void Genesis::InitializeGlobal_harmony_weak_refs() {
-  if (!FLAG_harmony_weak_refs) return;
-
-  Factory* factory = isolate()->factory();
-  Handle<JSGlobalObject> global(native_context()->global_object(), isolate());
-
-  {
-    // Create %FinalizationRegistry%
-    Handle<JSFunction> finalization_registry_fun = InstallFunction(
-        isolate(), global, factory->FinalizationRegistry_string(),
-        JS_FINALIZATION_REGISTRY_TYPE, JSFinalizationRegistry::kHeaderSize, 0,
-        factory->the_hole_value(), Builtins::kFinalizationRegistryConstructor);
-    InstallWithIntrinsicDefaultProto(
-        isolate(), finalization_registry_fun,
-        Context::JS_FINALIZATION_REGISTRY_FUNCTION_INDEX);
-
-    finalization_registry_fun->shared().DontAdaptArguments();
-    finalization_registry_fun->shared().set_length(1);
-
-    Handle<JSObject> finalization_registry_prototype(
-        JSObject::cast(finalization_registry_fun->instance_prototype()),
-        isolate());
-
-    InstallToStringTag(isolate(), finalization_registry_prototype,
-                       factory->FinalizationRegistry_string());
-
-    SimpleInstallFunction(isolate(), finalization_registry_prototype,
-                          "register", Builtins::kFinalizationRegistryRegister,
-                          2, false);
-
-    SimpleInstallFunction(isolate(), finalization_registry_prototype,
-                          "unregister",
-                          Builtins::kFinalizationRegistryUnregister, 1, false);
-
-    // The cleanupSome function is created but not exposed, as it is used
-    // internally by InvokeFinalizationRegistryCleanupFromTask.
-    //
-    // It is exposed by FLAG_harmony_weak_refs_with_cleanup_some.
-    Handle<JSFunction> cleanup_some_fun = SimpleCreateFunction(
-        isolate(), factory->InternalizeUtf8String("cleanupSome"),
-        Builtins::kFinalizationRegistryPrototypeCleanupSome, 0, false);
-    native_context()->set_finalization_registry_cleanup_some(*cleanup_some_fun);
-  }
-  {
-    // Create %WeakRef%
-    Handle<JSFunction> weak_ref_fun = InstallFunction(
-        isolate(), global, factory->WeakRef_string(), JS_WEAK_REF_TYPE,
-        JSWeakRef::kHeaderSize, 0, factory->the_hole_value(),
-        Builtins::kWeakRefConstructor);
-    InstallWithIntrinsicDefaultProto(isolate(), weak_ref_fun,
-                                     Context::JS_WEAK_REF_FUNCTION_INDEX);
-
-    weak_ref_fun->shared().DontAdaptArguments();
-    weak_ref_fun->shared().set_length(1);
-
-    Handle<JSObject> weak_ref_prototype(
-        JSObject::cast(weak_ref_fun->instance_prototype()), isolate());
-
-    InstallToStringTag(isolate(), weak_ref_prototype,
-                       factory->WeakRef_string());
-
-    SimpleInstallFunction(isolate(), weak_ref_prototype, "deref",
-                          Builtins::kWeakRefDeref, 0, true);
-  }
-}
-
 void Genesis::InitializeGlobal_harmony_weak_refs_with_cleanup_some() {
   if (!FLAG_harmony_weak_refs_with_cleanup_some) return;
-  DCHECK(FLAG_harmony_weak_refs);
 
   Handle<JSFunction> finalization_registry_fun =
       isolate()->js_finalization_registry_fun();
