@@ -909,10 +909,14 @@ DEFINE_DEBUG_BOOL(trace_liftoff, false,
                   "trace Liftoff, the baseline compiler for WebAssembly")
 DEFINE_BOOL(trace_wasm_memory, false,
             "print all memory updates performed in wasm code")
-// Fuzzers use {wasm_tier_mask_for_testing} together with {liftoff} and
-// {no_wasm_tier_up} to force some functions to be compiled with Turbofan.
+// Fuzzers use {wasm_tier_mask_for_testing} and {wasm_debug_mask_for_testing}
+// together with {liftoff} and {no_wasm_tier_up} to force some functions to be
+// compiled with Turbofan or for debug.
 DEFINE_INT(wasm_tier_mask_for_testing, 0,
            "bitmask of functions to compile with TurboFan instead of Liftoff")
+DEFINE_INT(wasm_debug_mask_for_testing, 0,
+           "bitmask of functions to compile for debugging, only applies if the "
+           "tier is Liftoff")
 
 DEFINE_BOOL(validate_asm, true, "validate asm.js modules before compiling")
 // asm.js validation is disabled since it triggers wasm code generation.
@@ -965,6 +969,8 @@ DEFINE_BOOL(wasm_loop_unrolling, false,
 DEFINE_BOOL(wasm_trap_handler, true,
             "use signal handlers to catch out of bounds memory access in wasm"
             " (currently Linux x86_64 only)")
+// "no bounds checks" implies "no trap handlers".
+DEFINE_NEG_NEG_IMPLICATION(wasm_bounds_checks, wasm_trap_handler)
 DEFINE_BOOL(wasm_fuzzer_gen_test, false,
             "generate a test case when running a wasm fuzzer")
 DEFINE_IMPLICATION(wasm_fuzzer_gen_test, single_threaded)
@@ -1610,6 +1616,7 @@ DEFINE_BOOL(trace_regexp_assembler, false,
             "trace regexp macro assembler calls.")
 DEFINE_BOOL(trace_regexp_parser, false, "trace regexp parsing")
 DEFINE_BOOL(trace_regexp_tier_up, false, "trace regexp tiering up execution")
+DEFINE_BOOL(trace_regexp_graph, false, "trace the regexp graph")
 
 DEFINE_BOOL(enable_experimental_regexp_engine, false,
             "recognize regexps with 'l' flag, run them on experimental engine")

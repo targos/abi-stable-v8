@@ -99,7 +99,25 @@ int LiftoffAssembler::PrepareStackFrame() {
 
 void LiftoffAssembler::PrepareTailCall(int num_callee_stack_params,
                                        int stack_param_delta) {
-  bailout(kUnsupportedArchitecture, "PrepareTailCall");
+  Register scratch = r1;
+  // Push the return address and frame pointer to complete the stack frame.
+  lay(sp, MemOperand(sp, -2 * kSystemPointerSize));
+  LoadU64(scratch, MemOperand(fp, kSystemPointerSize));
+  StoreU64(scratch, MemOperand(sp, kSystemPointerSize));
+  LoadU64(scratch, MemOperand(fp));
+  StoreU64(scratch, MemOperand(sp));
+
+  // Shift the whole frame upwards.
+  int slot_count = num_callee_stack_params + 2;
+  for (int i = slot_count - 1; i >= 0; --i) {
+    LoadU64(scratch, MemOperand(sp, i * kSystemPointerSize));
+    StoreU64(scratch,
+             MemOperand(fp, (i - stack_param_delta) * kSystemPointerSize));
+  }
+
+  // Set the new stack and frame pointer.
+  lay(sp, MemOperand(fp, -stack_param_delta * kSystemPointerSize));
+  Pop(r14, fp);
 }
 
 void LiftoffAssembler::AlignFrameSize() {}
@@ -424,7 +442,56 @@ void LiftoffAssembler::AtomicLoad(LiftoffRegister dst, Register src_addr,
 void LiftoffAssembler::AtomicStore(Register dst_addr, Register offset_reg,
                                    uintptr_t offset_imm, LiftoffRegister src,
                                    StoreType type, LiftoffRegList pinned) {
-  bailout(kAtomics, "AtomicStore");
+  lay(ip,
+      MemOperand(dst_addr, offset_reg == no_reg ? r0 : offset_reg, offset_imm));
+
+  switch (type.value()) {
+    case StoreType::kI32Store8:
+    case StoreType::kI64Store8: {
+      AtomicExchangeU8(ip, src.gp(), r1, r0);
+      break;
+    }
+    case StoreType::kI32Store16:
+    case StoreType::kI64Store16: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r1, src.gp());
+      ShiftRightU32(r1, r1, Operand(16));
+#else
+      LoadU16(r1, src.gp());
+#endif
+      Push(r2);
+      AtomicExchangeU16(ip, r1, r2, r0);
+      Pop(r2);
+      break;
+    }
+    case StoreType::kI32Store:
+    case StoreType::kI64Store32: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvr(r1, src.gp());
+#else
+      LoadU32(r1, src.gp());
+#endif
+      Label do_cs;
+      bind(&do_cs);
+      cs(r0, r1, MemOperand(ip));
+      bne(&do_cs, Label::kNear);
+      break;
+    }
+    case StoreType::kI64Store: {
+#ifdef V8_TARGET_BIG_ENDIAN
+      lrvgr(r1, src.gp());
+#else
+      mov(r1, src.gp());
+#endif
+      Label do_cs;
+      bind(&do_cs);
+      csg(r0, r1, MemOperand(ip));
+      bne(&do_cs, Label::kNear);
+      break;
+    }
+    default:
+      UNREACHABLE();
+  }
 }
 
 void LiftoffAssembler::AtomicAdd(Register dst_addr, Register offset_reg,
@@ -1586,7 +1653,9 @@ void LiftoffAssembler::emit_cond_jump(LiftoffCondition liftoff_cond,
 void LiftoffAssembler::emit_i32_cond_jumpi(LiftoffCondition liftoff_cond,
                                            Label* label, Register lhs,
                                            int32_t imm) {
-  bailout(kUnsupportedArchitecture, "emit_i32_cond_jumpi");
+  Condition cond = liftoff::ToCondition(liftoff_cond);
+  CmpS32(lhs, Operand(imm));
+  b(cond, label);
 }
 
 #define EMIT_EQZ(test, src) \

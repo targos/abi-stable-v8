@@ -47,7 +47,7 @@ vars = {
   'checkout_google_benchmark' : False,
 
   # GN CIPD package version.
-  'gn_version': 'git_revision:5667cc61018864b17542e0baff8b790f245583b0',
+  'gn_version': 'git_revision:dba01723a441c358d843a575cb7720d54ddcdf92',
 
   # luci-go CIPD package version.
   'luci_go': 'git_revision:d6d24b11ecded4d89f3dfd1b2e5a0072a3d4ab15',
@@ -88,9 +88,9 @@ vars = {
 
 deps = {
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + '5ed00b7f982c74cca00db08f8b147f068b8ccc7e',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + '52bfb9d2b24f79f93acf3cf93735dc0571b0a618',
   'third_party/depot_tools':
-    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + 'da768751d43b1f287bf99bea703ea13e2eedcf4d',
+    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '3f562c04e0a226ca2db884189a0fca9ffbd3af7d',
   'third_party/icu':
     Var('chromium_url') + '/chromium/deps/icu.git' + '@' + 'd879aac9717d15679125cfe8c26b482006f107f3',
   'third_party/instrumented_libraries':
@@ -136,7 +136,7 @@ deps = {
     'condition': 'host_os == "win"',
   },
   'base/trace_event/common':
-    Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + '7af6071eddf11ad91fbd5df54138f9d3c6d980d5',
+    Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + 'cab90cbdaaf4444d67aef6ce3cef09fc5fdeb560',
   'third_party/android_ndk': {
     'url': Var('chromium_url') + '/android_ndk.git' + '@' + '401019bf85744311b26c88ced255cd53401af8b7',
     'condition': 'checkout_android',
@@ -184,7 +184,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'third_party/catapult': {
-    'url': Var('chromium_url') + '/catapult.git' + '@' + '3d2081b50b203dbd2faafeb925e6791462475f68',
+    'url': Var('chromium_url') + '/catapult.git' + '@' + '41a5e5e465ad93d6e08224613d3544334a6278bc',
     'condition': 'checkout_android',
   },
   'third_party/colorama/src': {
@@ -239,7 +239,7 @@ deps = {
       'packages': [
           {
               'package': 'fuchsia/third_party/aemu/linux-amd64',
-              'version': '3rPTIlJKMg1Z5vCo_OfxOVIQD_pJ1XvXE7OcYDYNk8cC'
+              'version': 'RQd3qSR12Rp6wgHjC31u-jwbITCfk3M-ZJyL6s1ju4sC'
           },
       ],
       'condition': 'host_os == "linux" and checkout_fuchsia',
@@ -256,7 +256,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'tools/clang':
-    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'e9b86a1f25c13a300aeae99c5701e9096fc741c4',
+    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'a387faa2a6741f565e45d78804a49a0e55de5909',
   'tools/luci-go': {
       'packages': [
         {
@@ -476,11 +476,23 @@ hooks = [
               ],
   },
   {
+    # Case-insensitivity for the Win SDK. Must run before win_toolchain below.
+    'name': 'ciopfs_linux',
+    'pattern': '.',
+    'condition': 'checkout_win and host_os == "linux"',
+    'action': [ 'download_from_google_storage',
+                '--no_resume',
+                '--no_auth',
+                '--bucket', 'chromium-browser-clang/ciopfs',
+                '-s', 'build/ciopfs.sha1',
+    ]
+  },
+  {
     # Update the Windows toolchain if necessary.
     'name': 'win_toolchain',
     'pattern': '.',
     'condition': 'checkout_win',
-    'action': ['python', 'build/vs_toolchain.py', 'update'],
+    'action': ['python', 'build/vs_toolchain.py', 'update', '--force'],
   },
   {
     # Update the Mac toolchain if necessary.

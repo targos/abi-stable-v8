@@ -1814,18 +1814,22 @@ void Shell::LogGetAndStop(const v8::FunctionCallbackInfo<v8::Value>& args) {
 void Shell::TestVerifySourcePositions(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   Isolate* isolate = args.GetIsolate();
-  if (args.Length() != 1 || !args[0]->IsFunction()) {
+  // Check if the argument is a valid function.
+  if (args.Length() != 1) {
     Throw(isolate, "Expected function as single argument.");
     return;
   }
-  Local<Value> arg_fun = args[0];
-  while (arg_fun->IsProxy()) arg_fun = arg_fun.As<Proxy>()->GetTarget();
+  auto arg_handle = Utils::OpenHandle(*args[0]);
+  if (!arg_handle->IsHeapObject() || !i::Handle<i::HeapObject>::cast(arg_handle)
+                                          ->IsJSFunctionOrBoundFunction()) {
+    Throw(isolate, "Expected function as single argument.");
+    return;
+  }
 
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   HandleScope handle_scope(isolate);
 
-  auto callable = i::Handle<i::JSFunctionOrBoundFunction>::cast(
-      Utils::OpenHandle(*arg_fun));
+  auto callable = i::Handle<i::JSFunctionOrBoundFunction>::cast(arg_handle);
   while (callable->IsJSBoundFunction()) {
     auto bound_function = i::Handle<i::JSBoundFunction>::cast(callable);
     auto bound_target = bound_function->bound_target_function();
@@ -2662,6 +2666,7 @@ Local<ObjectTemplate> Shell::CreateTestRunnerTemplate(Isolate* isolate) {
   // installed on the global object can be hidden with the --omit-quit flag
   // (e.g. on asan bots).
   test_template->Set(isolate, "quit", FunctionTemplate::New(isolate, Quit));
+
   return test_template;
 }
 
@@ -2717,6 +2722,15 @@ Local<ObjectTemplate> Shell::CreateD8Template(Isolate* isolate) {
     test_template->Set(
         isolate, "verifySourcePositions",
         FunctionTemplate::New(isolate, TestVerifySourcePositions));
+    // Correctness fuzzing will attempt to compare results of tests with and
+    // without turbo_fast_api_calls, so we don't expose the fast_c_api
+    // constructor when --correctness_fuzzer_suppressions is on.
+    if (i::FLAG_turbo_fast_api_calls &&
+        !i::FLAG_correctness_fuzzer_suppressions) {
+      test_template->Set(isolate, "fast_c_api",
+                         Shell::CreateTestFastCApiTemplate(isolate));
+    }
+
     d8_template->Set(isolate, "test", test_template);
   }
   return d8_template;
