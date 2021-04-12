@@ -468,13 +468,13 @@ void PrintSloppyArgumentElements(std::ostream& os, ElementsKind kind,
   }
 }
 
-void PrintEmbedderData(PtrComprCageBase cage_base, std::ostream& os,
+void PrintEmbedderData(Isolate* isolate, std::ostream& os,
                        EmbedderDataSlot slot) {
   DisallowGarbageCollection no_gc;
   Object value = slot.load_tagged();
   os << Brief(value);
   void* raw_pointer;
-  if (slot.ToAlignedPointer(cage_base, &raw_pointer)) {
+  if (slot.ToAlignedPointer(isolate, &raw_pointer)) {
     os << ", aligned pointer: " << raw_pointer;
   }
 }
@@ -579,11 +579,11 @@ static void JSObjectPrintBody(std::ostream& os,
   }
   int embedder_fields = obj.GetEmbedderFieldCount();
   if (embedder_fields > 0) {
-    PtrComprCageBase cage_base = GetPtrComprCageBase(obj);
+    Isolate* isolate = GetIsolateForHeapSandbox(obj);
     os << " - embedder fields = {";
     for (int i = 0; i < embedder_fields; i++) {
       os << "\n    ";
-      PrintEmbedderData(cage_base, os, EmbedderDataSlot(obj, i));
+      PrintEmbedderData(isolate, os, EmbedderDataSlot(obj, i));
     }
     os << "\n }\n";
   }
@@ -762,14 +762,14 @@ void ObjectBoilerplateDescription::ObjectBoilerplateDescriptionPrint(
 }
 
 void EmbedderDataArray::EmbedderDataArrayPrint(std::ostream& os) {
-  PtrComprCageBase cage_base = GetPtrComprCageBase(*this);
+  Isolate* isolate = GetIsolateForHeapSandbox(*this);
   PrintHeader(os, "EmbedderDataArray");
   os << "\n - length: " << length();
   EmbedderDataSlot start(*this, 0);
   EmbedderDataSlot end(*this, length());
   for (EmbedderDataSlot slot = start; slot < end; ++slot) {
     os << "\n    ";
-    PrintEmbedderData(cage_base, os, slot);
+    PrintEmbedderData(isolate, os, slot);
   }
   os << "\n";
 }
@@ -2170,9 +2170,11 @@ void Script::ScriptPrint(std::ostream& os) {  // NOLINT
   if (!is_wasm) {
     if (has_eval_from_shared()) {
       os << "\n - eval from shared: " << Brief(eval_from_shared());
-    }
-    if (is_wrapped()) {
+    } else if (is_wrapped()) {
       os << "\n - wrapped arguments: " << Brief(wrapped_arguments());
+    } else if (type() == TYPE_WEB_SNAPSHOT) {
+      os << "\n - shared function info table: "
+         << Brief(shared_function_info_table());
     }
     os << "\n - eval from position: " << eval_from_position();
   }

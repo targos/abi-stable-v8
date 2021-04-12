@@ -1926,25 +1926,43 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   ENTER_V8(isolate, context, Script, Run, MaybeLocal<Value>(),
            InternalEscapableScope);
   i::HistogramTimerScope execute_timer(isolate->counters()->execute(), true);
-  i::AggregatingHistogramTimerScope timer(isolate->counters()->compile_lazy());
+  i::AggregatingHistogramTimerScope histogram_timer(
+      isolate->counters()->compile_lazy());
   i::TimerEventScope<i::TimerEventExecute> timer_scope(isolate);
   auto fun = i::Handle<i::JSFunction>::cast(Utils::OpenHandle(this));
 
   // TODO(crbug.com/1193459): remove once ablation study is completed
-  if (i::FLAG_script_run_delay) {
-    v8::base::OS::Sleep(
-        v8::base::TimeDelta::FromMilliseconds(i::FLAG_script_run_delay));
+  base::ElapsedTimer timer;
+  base::TimeDelta delta;
+  if (i::FLAG_script_delay) {
+    delta = v8::base::TimeDelta::FromMillisecondsD(i::FLAG_script_delay);
   }
-  if (i::FLAG_script_run_delay_once && !isolate->did_run_script_delay()) {
-    v8::base::OS::Sleep(
-        v8::base::TimeDelta::FromMilliseconds(i::FLAG_script_run_delay_once));
+  if (i::FLAG_script_delay_once && !isolate->did_run_script_delay()) {
+    delta = v8::base::TimeDelta::FromMillisecondsD(i::FLAG_script_delay_once);
     isolate->set_did_run_script_delay(true);
+  }
+  if (i::FLAG_script_delay_fraction > 0.0) {
+    timer.Start();
+  } else if (delta.InMicroseconds() > 0) {
+    timer.Start();
+    while (timer.Elapsed() < delta) {
+      // Busy wait.
+    }
   }
 
   i::Handle<i::Object> receiver = isolate->global_proxy();
   Local<Value> result;
   has_pending_exception = !ToLocal<Value>(
       i::Execution::Call(isolate, fun, receiver, 0, nullptr), &result);
+
+  if (i::FLAG_script_delay_fraction > 0.0) {
+    delta = v8::base::TimeDelta::FromMillisecondsD(
+        timer.Elapsed().InMillisecondsF() * i::FLAG_script_delay_fraction);
+    timer.Restart();
+    while (timer.Elapsed() < delta) {
+      // Busy wait.
+    }
+  }
 
   RETURN_ON_FAILED_EXECUTION(Value);
   RETURN_ESCAPED(result);
@@ -10343,8 +10361,7 @@ void InvokeAccessorGetterCallback(
     v8::AccessorNameGetterCallback getter) {
   // Leaving JavaScript.
   Isolate* isolate = reinterpret_cast<Isolate*>(info.GetIsolate());
-  RuntimeCallTimerScope timer(isolate,
-                              RuntimeCallCounterId::kAccessorGetterCallback);
+  RCS_SCOPE(isolate, RuntimeCallCounterId::kAccessorGetterCallback);
   Address getter_address = reinterpret_cast<Address>(getter);
   VMState<EXTERNAL> state(isolate);
   ExternalCallbackScope call_scope(isolate, getter_address);
@@ -10354,7 +10371,7 @@ void InvokeAccessorGetterCallback(
 void InvokeFunctionCallback(const v8::FunctionCallbackInfo<v8::Value>& info,
                             v8::FunctionCallback callback) {
   Isolate* isolate = reinterpret_cast<Isolate*>(info.GetIsolate());
-  RuntimeCallTimerScope timer(isolate, RuntimeCallCounterId::kFunctionCallback);
+  RCS_SCOPE(isolate, RuntimeCallCounterId::kFunctionCallback);
   Address callback_address = reinterpret_cast<Address>(callback);
   VMState<EXTERNAL> state(isolate);
   ExternalCallbackScope call_scope(isolate, callback_address);
@@ -10366,8 +10383,8 @@ void InvokeFinalizationRegistryCleanupFromTask(
     Handle<JSFinalizationRegistry> finalization_registry,
     Handle<Object> callback) {
   Isolate* isolate = finalization_registry->native_context().GetIsolate();
-  RuntimeCallTimerScope timer(
-      isolate, RuntimeCallCounterId::kFinalizationRegistryCleanupFromTask);
+  RCS_SCOPE(isolate,
+            RuntimeCallCounterId::kFinalizationRegistryCleanupFromTask);
   // Do not use ENTER_V8 because this is always called from a running
   // FinalizationRegistryCleanupTask within V8 and we should not log it as an
   // API call. This method is implemented here to avoid duplication of the

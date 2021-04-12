@@ -285,10 +285,7 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
   V(harmony_error_cause, "harmony error cause property")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_STAGED(V)               \
-  HARMONY_STAGED_BASE(V)                \
-  V(harmony_intl_dateformat_day_period, \
-    "Add dayPeriod option to DateTimeFormat")
+#define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
 #else
 #define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
 #endif
@@ -302,7 +299,10 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
   V(harmony_top_level_await, "harmony top level await")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_SHIPPING(V) HARMONY_SHIPPING_BASE(V)
+#define HARMONY_SHIPPING(V)             \
+  HARMONY_SHIPPING_BASE(V)              \
+  V(harmony_intl_dateformat_day_period, \
+    "Add dayPeriod option to DateTimeFormat")
 #else
 #define HARMONY_SHIPPING(V) HARMONY_SHIPPING_BASE(V)
 #endif
@@ -829,8 +829,11 @@ DEFINE_BOOL(turbo_collect_feedback_in_generic_lowering, true,
 DEFINE_BOOL(isolate_script_cache_ageing, true,
             "enable ageing of the isolate script cache.")
 
-DEFINE_INT(script_run_delay, 0, "sleep [ms] on every Script::Run")
-DEFINE_INT(script_run_delay_once, 0, "sleep [ms] on the first Script::Run")
+DEFINE_FLOAT(script_delay, 0, "busy wait [ms] on every Script::Run")
+DEFINE_FLOAT(script_delay_once, 0, "busy wait [ms] on the first Script::Run")
+DEFINE_FLOAT(script_delay_fraction, 0.0,
+             "busy wait after each Script::Run by the given fraction of the "
+             "run's duration")
 
 // Favor memory over execution speed.
 DEFINE_BOOL(optimize_for_size, false,
