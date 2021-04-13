@@ -4355,17 +4355,27 @@ Local<Value> v8::Object::GetPrototype() {
 Maybe<bool> v8::Object::SetPrototype(Local<Context> context,
                                      Local<Value> value) {
   auto isolate = reinterpret_cast<i::Isolate*>(context->GetIsolate());
-  ENTER_V8(isolate, context, Object, SetPrototype, Nothing<bool>(),
-           i::HandleScope);
   auto self = Utils::OpenHandle(this);
   auto value_obj = Utils::OpenHandle(*value);
-  // We do not allow exceptions thrown while setting the prototype
-  // to propagate outside.
-  TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate));
-  auto result =
-      i::JSReceiver::SetPrototype(self, value_obj, false, i::kThrowOnError);
-  has_pending_exception = result.IsNothing();
-  RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
+  if (self->IsJSProxy()) {
+    ENTER_V8(isolate, context, Object, SetPrototype, Nothing<bool>(),
+             i::HandleScope);
+    // We do not allow exceptions thrown while setting the prototype
+    // to propagate outside.
+    TryCatch try_catch(reinterpret_cast<v8::Isolate*>(isolate));
+    auto result = i::JSProxy::SetPrototype(i::Handle<i::JSProxy>::cast(self),
+                                           value_obj, false, i::kThrowOnError);
+    has_pending_exception = result.IsNothing();
+    RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
+  } else {
+    ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
+    auto result = i::JSObject::SetPrototype(i::Handle<i::JSObject>::cast(self),
+                                            value_obj, false, i::kThrowOnError);
+    if (result.IsNothing()) {
+      isolate->clear_pending_exception();
+      return Nothing<bool>();
+    }
+  }
   return Just(true);
 }
 
@@ -5621,19 +5631,33 @@ Local<Value> Symbol::Description() const {
     // RO_SPACE. Since RO_SPACE objects are immovable we can use the
     // Handle(Address*) constructor with the address of the description
     // field in the Symbol object without needing an isolate.
-    DCHECK(!COMPRESS_POINTERS_BOOL);
+    DCHECK(!COMPRESS_POINTERS_IN_ISOLATE_CAGE_BOOL);
+#ifndef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
     i::Handle<i::HeapObject> ro_description(reinterpret_cast<i::Address*>(
         sym->GetFieldAddress(i::Symbol::kDescriptionOffset)));
     return Utils::ToLocal(ro_description);
+#else
+    isolate = reinterpret_cast<i::Isolate*>(Isolate::GetCurrent());
+#endif
   }
 
-  i::Handle<i::Object> description(sym->description(), isolate);
+  return Description(reinterpret_cast<Isolate*>(isolate));
+}
 
+Local<Value> Symbol::Description(Isolate* isolate) const {
+  i::Handle<i::Symbol> sym = Utils::OpenHandle(this);
+  i::Handle<i::Object> description(sym->description(),
+                                   reinterpret_cast<i::Isolate*>(isolate));
   return Utils::ToLocal(description);
 }
 
 Local<Value> Private::Name() const {
-  return reinterpret_cast<const Symbol*>(this)->Description();
+  const Symbol* sym = reinterpret_cast<const Symbol*>(this);
+  i::Handle<i::Symbol> i_sym = Utils::OpenHandle(sym);
+  // v8::Private symbols are created by API and are therefore writable, so we
+  // can always recover an Isolate.
+  i::Isolate* isolate = i::GetIsolateFromWritableObject(*i_sym);
+  return sym->Description(reinterpret_cast<Isolate*>(isolate));
 }
 
 double Number::Value() const {
