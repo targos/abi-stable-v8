@@ -43,3 +43,7 @@ Diff: https://github.com/targos/abi-stable-v8/compare/f565e72d5ba88daae35a59d0f9
 Branch point of 9.2: TBD
 
 ABI-stable tag: TBD
+
+Diff: TBD
+
+- [ed5b25f698](https://github.com/targos/abi-stable-v8/commit/ed5b25f6986a32df20fe0fb99ab79e11dd7f82e1) - Reverted [[api] Remove previously deprecated Function::GetDisplayName().](https://github.com/v8/v8/commit/6165fef8cc9dde52973e54c915e6905221b3f8fb)
