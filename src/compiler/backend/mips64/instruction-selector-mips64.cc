@@ -512,8 +512,8 @@ void InstructionSelector::VisitLoad(Node* node) {
       break;
     case MachineRepresentation::kCompressedPointer:  // Fall through.
     case MachineRepresentation::kCompressed:         // Fall through.
+    case MachineRepresentation::kMapWord:            // Fall through.
     case MachineRepresentation::kNone:
-    case MachineRepresentation::kMapWord:
       UNREACHABLE();
   }
   if (node->opcode() == IrOpcode::kPoisonedLoad) {
@@ -590,6 +590,7 @@ void InstructionSelector::VisitStore(Node* node) {
         break;
       case MachineRepresentation::kCompressedPointer:  // Fall through.
       case MachineRepresentation::kCompressed:         // Fall through.
+      case MachineRepresentation::kMapWord:            // Fall through.
       case MachineRepresentation::kNone:
         UNREACHABLE();
     }
@@ -1854,8 +1855,8 @@ void InstructionSelector::VisitUnalignedLoad(Node* node) {
     case MachineRepresentation::kBit:                // Fall through.
     case MachineRepresentation::kCompressedPointer:  // Fall through.
     case MachineRepresentation::kCompressed:         // Fall through.
+    case MachineRepresentation::kMapWord:            // Fall through.
     case MachineRepresentation::kNone:
-    case MachineRepresentation::kMapWord:
       UNREACHABLE();
   }
 
@@ -1908,6 +1909,7 @@ void InstructionSelector::VisitUnalignedStore(Node* node) {
     case MachineRepresentation::kBit:                // Fall through.
     case MachineRepresentation::kCompressedPointer:  // Fall through.
     case MachineRepresentation::kCompressed:         // Fall through.
+    case MachineRepresentation::kMapWord:            // Fall through.
     case MachineRepresentation::kNone:
       UNREACHABLE();
   }
@@ -3293,6 +3295,12 @@ VISIT_EXTADD_PAIRWISE(I16x8ExtAddPairwiseI8x16U, MSAU8)
 VISIT_EXTADD_PAIRWISE(I32x4ExtAddPairwiseI16x8S, MSAS16)
 VISIT_EXTADD_PAIRWISE(I32x4ExtAddPairwiseI16x8U, MSAU16)
 #undef VISIT_EXTADD_PAIRWISE
+
+void InstructionSelector::AddOutputToSelectContinuation(OperandGenerator* g,
+                                                        int first_input_index,
+                                                        Node* node) {
+  UNREACHABLE();
+}
 
 // static
 MachineOperatorBuilder::Flags
