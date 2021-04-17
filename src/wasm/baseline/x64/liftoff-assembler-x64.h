@@ -70,6 +70,8 @@ inline Operand GetStackSlot(int offset) { return Operand(rbp, -offset); }
 // TODO(clemensb): Make this a constexpr variable once Operand is constexpr.
 inline Operand GetInstanceOperand() { return GetStackSlot(kInstanceOffset); }
 
+inline Operand GetOSRTargetSlot() { return GetStackSlot(kOSRTargetOffset); }
+
 inline Operand GetMemOp(LiftoffAssembler* assm, Register addr, Register offset,
                         uintptr_t offset_imm) {
   if (is_uint31(offset_imm)) {
@@ -249,7 +251,7 @@ void LiftoffAssembler::AbortCompilation() {}
 
 // static
 constexpr int LiftoffAssembler::StaticStackFrameSize() {
-  return liftoff::kInstanceOffset;
+  return kOSRTargetOffset;
 }
 
 int LiftoffAssembler::SlotSizeForType(ValueKind kind) {
@@ -320,6 +322,10 @@ void LiftoffAssembler::LoadTaggedPointerFromInstance(Register dst,
 
 void LiftoffAssembler::SpillInstance(Register instance) {
   movq(liftoff::GetInstanceOperand(), instance);
+}
+
+void LiftoffAssembler::ResetOSRTarget() {
+  movq(liftoff::GetOSRTargetSlot(), Immediate(0));
 }
 
 void LiftoffAssembler::FillInstanceInto(Register dst) {
@@ -3510,7 +3516,7 @@ void LiftoffAssembler::emit_i64x2_mul(LiftoffRegister dst, LiftoffRegister lhs,
   Psrlq(tmp2.fp(), byte{32});
   Pmuludq(tmp2.fp(), lhs.fp());
   Paddq(tmp2.fp(), tmp1.fp());
-  Psllq(tmp2.fp(), 32);
+  Psllq(tmp2.fp(), byte{32});
   liftoff::EmitSimdCommutativeBinOp<&Assembler::vpmuludq, &Assembler::pmuludq>(
       this, dst, lhs, rhs);
   Paddq(dst.fp(), tmp2.fp());
@@ -3586,11 +3592,11 @@ void LiftoffAssembler::emit_f32x4_neg(LiftoffRegister dst,
                                       LiftoffRegister src) {
   if (dst.fp() == src.fp()) {
     Pcmpeqd(kScratchDoubleReg, kScratchDoubleReg);
-    Pslld(kScratchDoubleReg, static_cast<byte>(31));
+    Pslld(kScratchDoubleReg, byte{31});
     Xorps(dst.fp(), kScratchDoubleReg);
   } else {
     Pcmpeqd(dst.fp(), dst.fp());
-    Pslld(dst.fp(), static_cast<byte>(31));
+    Pslld(dst.fp(), byte{31});
     Xorps(dst.fp(), src.fp());
   }
 }
@@ -3674,7 +3680,7 @@ void LiftoffAssembler::emit_f32x4_min(LiftoffRegister dst, LiftoffRegister lhs,
   // propagate -0's and NaNs, which may be non-canonical.
   Orps(kScratchDoubleReg, dst.fp());
   // Canonicalize NaNs by quieting and clearing the payload.
-  Cmpps(dst.fp(), kScratchDoubleReg, int8_t{3});
+  Cmpunordps(dst.fp(), kScratchDoubleReg);
   Orps(kScratchDoubleReg, dst.fp());
   Psrld(dst.fp(), byte{10});
   Andnps(dst.fp(), kScratchDoubleReg);
@@ -3706,7 +3712,7 @@ void LiftoffAssembler::emit_f32x4_max(LiftoffRegister dst, LiftoffRegister lhs,
   // Propagate sign discrepancy and (subtle) quiet NaNs.
   Subps(kScratchDoubleReg, dst.fp());
   // Canonicalize NaNs by clearing the payload. Sign is non-deterministic.
-  Cmpps(dst.fp(), kScratchDoubleReg, int8_t{3});
+  Cmpunordps(dst.fp(), kScratchDoubleReg);
   Psrld(dst.fp(), byte{10});
   Andnps(dst.fp(), kScratchDoubleReg);
 }
@@ -3830,7 +3836,7 @@ void LiftoffAssembler::emit_f64x2_min(LiftoffRegister dst, LiftoffRegister lhs,
   // propagate -0's and NaNs, which may be non-canonical.
   Orpd(kScratchDoubleReg, dst.fp());
   // Canonicalize NaNs by quieting and clearing the payload.
-  Cmppd(dst.fp(), kScratchDoubleReg, int8_t{3});
+  Cmpunordpd(dst.fp(), kScratchDoubleReg);
   Orpd(kScratchDoubleReg, dst.fp());
   Psrlq(dst.fp(), byte{13});
   Andnpd(dst.fp(), kScratchDoubleReg);
@@ -3862,7 +3868,7 @@ void LiftoffAssembler::emit_f64x2_max(LiftoffRegister dst, LiftoffRegister lhs,
   // Propagate sign discrepancy and (subtle) quiet NaNs.
   Subpd(kScratchDoubleReg, dst.fp());
   // Canonicalize NaNs by clearing the payload. Sign is non-deterministic.
-  Cmppd(dst.fp(), kScratchDoubleReg, int8_t{3});
+  Cmpunordpd(dst.fp(), kScratchDoubleReg);
   Psrlq(dst.fp(), byte{13});
   Andnpd(dst.fp(), kScratchDoubleReg);
 }
@@ -4422,6 +4428,12 @@ void LiftoffAssembler::AllocateStackSlot(Register addr, uint32_t size) {
 
 void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
   addq(rsp, Immediate(size));
+}
+
+void LiftoffAssembler::MaybeOSR() {
+  cmpq(liftoff::GetOSRTargetSlot(), Immediate(0));
+  j(not_equal, static_cast<Address>(WasmCode::kWasmOnStackReplace),
+    RelocInfo::WASM_STUB_CALL);
 }
 
 void LiftoffStackSlots::Construct(int param_slots) {
