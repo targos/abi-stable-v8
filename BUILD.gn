@@ -95,7 +95,13 @@ declare_args() {
   v8_win64_unwinding_info = true
 
   # Enable code comments for builtins in the snapshot (impacts performance).
+  # This also enables v8_code_comments.
   v8_enable_snapshot_code_comments = false
+
+  # Allow runtime-enabled code comments (with --code-comments). Enabled by
+  # default in debug builds.
+  # Sets -dV8_CODE_COMMENTS
+  v8_code_comments = ""
 
   # Enable native counters from the snapshot (impacts performance, sets
   # -dV8_SNAPSHOT_NATIVE_CODE_COUNTERS).
@@ -303,6 +309,9 @@ declare_args() {
 
   # Enable map packing & unpacking (sets -dV8_MAP_PACKING).
   v8_enable_map_packing = false
+
+  # Allow for JS promise hooks (instead of just C++).
+  v8_allow_javascript_in_promise_hooks = false
 }
 
 # Derived defaults.
@@ -323,6 +332,13 @@ if (v8_enable_test_features == "") {
 }
 if (v8_enable_v8_checks == "") {
   v8_enable_v8_checks = v8_enable_debugging_features
+}
+if (v8_enable_snapshot_code_comments) {
+  assert(v8_code_comments || v8_code_comments == "",
+         "v8_enable_snapshot_code_comments conflicts with v8_code_comments.")
+  v8_code_comments = true
+} else if (v8_code_comments == "") {
+  v8_code_comments = v8_enable_debugging_features
 }
 if (v8_check_microtasks_scopes_consistency == "") {
   v8_check_microtasks_scopes_consistency =
@@ -743,6 +759,9 @@ config("features") {
   if (v8_enable_handle_zapping) {
     defines += [ "ENABLE_HANDLE_ZAPPING" ]
   }
+  if (v8_code_comments == true) {
+    defines += [ "V8_CODE_COMMENTS" ]
+  }
   if (v8_enable_snapshot_native_code_counters) {
     defines += [ "V8_SNAPSHOT_NATIVE_CODE_COUNTERS" ]
   }
@@ -820,6 +839,9 @@ config("features") {
   }
   if (v8_dict_property_const_tracking) {
     defines += [ "V8_DICT_PROPERTY_CONST_TRACKING" ]
+  }
+  if (v8_allow_javascript_in_promise_hooks) {
+    defines += [ "V8_ALLOW_JAVASCRIPT_IN_PROMISE_HOOKS" ]
   }
 }
 
@@ -1262,6 +1284,8 @@ action("postmortem-metadata") {
     "src/objects/map.cc",
     "src/objects/map.h",
     "src/objects/map-inl.h",
+    "src/objects/megadom-handler.h",
+    "src/objects/megadom-handler-inl.h",
     "src/objects/name.h",
     "src/objects/name-inl.h",
     "src/objects/objects.h",
@@ -1450,6 +1474,7 @@ torque_files = [
   "src/objects/js-weak-refs.tq",
   "src/objects/literal-objects.tq",
   "src/objects/map.tq",
+  "src/objects/megadom-handler.tq",
   "src/objects/microtask.tq",
   "src/objects/module.tq",
   "src/objects/name.tq",
@@ -2476,7 +2501,6 @@ v8_header_set("v8_internal_headers") {
     "src/compiler/select-lowering.h",
     "src/compiler/serializer-for-background-compilation.h",
     "src/compiler/serializer-hints.h",
-    "src/compiler/simd-scalar-lowering.h",
     "src/compiler/simplified-lowering.h",
     "src/compiler/simplified-operator-reducer.h",
     "src/compiler/simplified-operator.h",
@@ -2664,7 +2688,6 @@ v8_header_set("v8_internal_headers") {
     "src/init/heap-symbols.h",
     "src/init/icu_util.h",
     "src/init/isolate-allocator.h",
-    "src/init/ptr-compr-cage.h",
     "src/init/setup-isolate.h",
     "src/init/startup-data-util.h",
     "src/init/v8.h",
@@ -2815,6 +2838,8 @@ v8_header_set("v8_internal_headers") {
     "src/objects/map.h",
     "src/objects/maybe-object-inl.h",
     "src/objects/maybe-object.h",
+    "src/objects/megadom-handler-inl.h",
+    "src/objects/megadom-handler.h",
     "src/objects/microtask-inl.h",
     "src/objects/microtask.h",
     "src/objects/module-inl.h",
@@ -3402,6 +3427,7 @@ v8_compiler_sources = [
   "src/compiler/graph-trimmer.cc",
   "src/compiler/graph-visualizer.cc",
   "src/compiler/graph.cc",
+  "src/compiler/heap-refs.cc",
   "src/compiler/js-call-reducer.cc",
   "src/compiler/js-context-specialization.cc",
   "src/compiler/js-create-lowering.cc",
@@ -3470,7 +3496,6 @@ v8_compiler_sources = [
 if (v8_enable_webassembly) {
   v8_compiler_sources += [
     "src/compiler/int64-lowering.cc",
-    "src/compiler/simd-scalar-lowering.cc",
     "src/compiler/wasm-compiler.cc",
   ]
 }
@@ -3752,7 +3777,6 @@ v8_source_set("v8_base_without_compiler") {
     "src/init/bootstrapper.cc",
     "src/init/icu_util.cc",
     "src/init/isolate-allocator.cc",
-    "src/init/ptr-compr-cage.cc",
     "src/init/startup-data-util.cc",
     "src/init/v8.cc",
     "src/interpreter/bytecode-array-builder.cc",
@@ -4202,7 +4226,7 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/ppc/assembler-ppc.cc",
       "src/codegen/ppc/constants-ppc.cc",
       "src/codegen/ppc/cpu-ppc.cc",
-      "src/codegen/ppc/interface-descriptors-ppc.cc",
+      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.cc",
       "src/compiler/backend/ppc/code-generator-ppc.cc",
       "src/compiler/backend/ppc/instruction-scheduler-ppc.cc",
@@ -4222,7 +4246,7 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/ppc/assembler-ppc.cc",
       "src/codegen/ppc/constants-ppc.cc",
       "src/codegen/ppc/cpu-ppc.cc",
-      "src/codegen/ppc/interface-descriptors-ppc.cc",
+      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.cc",
       "src/compiler/backend/ppc/code-generator-ppc.cc",
       "src/compiler/backend/ppc/instruction-scheduler-ppc.cc",
@@ -4242,7 +4266,7 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/s390/assembler-s390.cc",
       "src/codegen/s390/constants-s390.cc",
       "src/codegen/s390/cpu-s390.cc",
-      "src/codegen/s390/interface-descriptors-s390.cc",
+      "src/codegen/s390/interface-descriptors-s390-inl.h",
       "src/codegen/s390/macro-assembler-s390.cc",
       "src/compiler/backend/s390/code-generator-s390.cc",
       "src/compiler/backend/s390/instruction-scheduler-s390.cc",
@@ -4820,8 +4844,13 @@ v8_source_set("fuzzer_support") {
 
 v8_source_set("v8_bigint") {
   sources = [
+    "src/bigint/bigint-internal.cc",
+    "src/bigint/bigint-internal.h",
     "src/bigint/bigint.h",
+    "src/bigint/digit-arithmetic.h",
+    "src/bigint/mul-schoolbook.cc",
     "src/bigint/vector-arithmetic.cc",
+    "src/bigint/vector-arithmetic.h",
   ]
 
   configs = [ ":internal_config" ]

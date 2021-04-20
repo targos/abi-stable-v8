@@ -12,6 +12,7 @@
 #include "src/codegen/callable.h"
 #include "src/codegen/code-factory.h"
 #include "src/codegen/external-reference-table.h"
+#include "src/codegen/interface-descriptors-inl.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/register-configuration.h"
 #include "src/debug/debug.h"
@@ -40,6 +41,12 @@ namespace internal {
 void TurboAssembler::DoubleMax(DoubleRegister result_reg,
                                DoubleRegister left_reg,
                                DoubleRegister right_reg) {
+  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
+    vfmax(result_reg, left_reg, right_reg, Condition(1), Condition(8),
+          Condition(3));
+    return;
+  }
+
   Label check_zero, return_left, return_right, return_nan, done;
   cdbr(left_reg, right_reg);
   bunordered(&return_nan, Label::kNear);
@@ -80,6 +87,11 @@ void TurboAssembler::DoubleMax(DoubleRegister result_reg,
 void TurboAssembler::DoubleMin(DoubleRegister result_reg,
                                DoubleRegister left_reg,
                                DoubleRegister right_reg) {
+  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
+    vfmin(result_reg, left_reg, right_reg, Condition(1), Condition(8),
+          Condition(3));
+    return;
+  }
   Label check_zero, return_left, return_right, return_nan, done;
   cdbr(left_reg, right_reg);
   bunordered(&return_nan, Label::kNear);
@@ -126,6 +138,11 @@ void TurboAssembler::DoubleMin(DoubleRegister result_reg,
 void TurboAssembler::FloatMax(DoubleRegister result_reg,
                               DoubleRegister left_reg,
                               DoubleRegister right_reg) {
+  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
+    vfmax(result_reg, left_reg, right_reg, Condition(1), Condition(8),
+          Condition(2));
+    return;
+  }
   Label check_zero, return_left, return_right, return_nan, done;
   cebr(left_reg, right_reg);
   bunordered(&return_nan, Label::kNear);
@@ -166,6 +183,12 @@ void TurboAssembler::FloatMax(DoubleRegister result_reg,
 void TurboAssembler::FloatMin(DoubleRegister result_reg,
                               DoubleRegister left_reg,
                               DoubleRegister right_reg) {
+  if (CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1)) {
+    vfmin(result_reg, left_reg, right_reg, Condition(1), Condition(8),
+          Condition(2));
+    return;
+  }
+
   Label check_zero, return_left, return_right, return_nan, done;
   cebr(left_reg, right_reg);
   bunordered(&return_nan, Label::kNear);
@@ -1965,11 +1988,11 @@ void TurboAssembler::Check(Condition cond, AbortReason reason, CRegister cr) {
 void TurboAssembler::Abort(AbortReason reason) {
   Label abort_start;
   bind(&abort_start);
-#ifdef DEBUG
-  const char* msg = GetAbortReason(reason);
-  RecordComment("Abort message: ");
-  RecordComment(msg);
-#endif
+  if (FLAG_code_comments) {
+    const char* msg = GetAbortReason(reason);
+    RecordComment("Abort message: ");
+    RecordComment(msg);
+  }
 
   // Avoid emitting call to builtin if requested.
   if (trap_on_abort()) {
