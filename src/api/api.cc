@@ -6431,6 +6431,15 @@ bool FunctionTemplate::HasInstance(v8::Local<v8::Value> value) {
   return false;
 }
 
+bool FunctionTemplate::IsLeafTemplateForApiObject(v8::Value* value) const {
+  i::DisallowGarbageCollection no_gc;
+
+  i::Object object = *Utils::OpenHandle(value);
+
+  auto self = Utils::OpenHandle(this);
+  return self->IsLeafTemplateForApiObject(object);
+}
+
 Local<External> v8::External::New(Isolate* isolate, void* value) {
   STATIC_ASSERT(sizeof(value) == sizeof(i::Address));
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
@@ -7302,13 +7311,8 @@ Local<Promise> Promise::Resolver::GetPromise() {
 Maybe<bool> Promise::Resolver::Resolve(Local<Context> context,
                                        Local<Value> value) {
   auto isolate = reinterpret_cast<i::Isolate*>(context->GetIsolate());
-#if defined(V8_ALLOW_JAVASCRIPT_IN_PROMISE_HOOKS)
   ENTER_V8(isolate, context, Promise_Resolver, Resolve, Nothing<bool>(),
            i::HandleScope);
-#else
-  ENTER_V8_NO_SCRIPT(isolate, context, Promise_Resolver, Resolve,
-                     Nothing<bool>(), i::HandleScope);
-#endif
   auto self = Utils::OpenHandle(this);
   auto promise = i::Handle<i::JSPromise>::cast(self);
 
@@ -7325,13 +7329,8 @@ Maybe<bool> Promise::Resolver::Resolve(Local<Context> context,
 Maybe<bool> Promise::Resolver::Reject(Local<Context> context,
                                       Local<Value> value) {
   auto isolate = reinterpret_cast<i::Isolate*>(context->GetIsolate());
-#if defined(V8_ALLOW_JAVASCRIPT_IN_PROMISE_HOOKS)
   ENTER_V8(isolate, context, Promise_Resolver, Reject, Nothing<bool>(),
            i::HandleScope);
-#else
-  ENTER_V8_NO_SCRIPT(isolate, context, Promise_Resolver, Reject,
-                     Nothing<bool>(), i::HandleScope);
-#endif
   auto self = Utils::OpenHandle(this);
   auto promise = i::Handle<i::JSPromise>::cast(self);
 
