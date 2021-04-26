@@ -67,8 +67,8 @@ enum class OddballType : uint8_t {
 // too. For example, it CANNOT contain FixedArrayBase if it doesn't contain
 // FixedDoubleArray, BytecodeArray and FixedArray.
 // DO NOT VIOLATE THESE TWO PROPERTIES!
-// Classes on this list will skip serialization when
-// FLAG_turbo_direct_heap_access is on. Otherwise, they might get serialized.
+// Classes on this list will skip serialization when --concurrent-inlining is
+// on. Otherwise, they might get serialized.
 #define HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(V) \
   /* Subtypes of FixedArray */                      \
   V(ObjectBoilerplateDescription)                   \
@@ -105,14 +105,14 @@ enum class OddballType : uint8_t {
 #define HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(V) \
   /* Subtypes of HeapObject */                                    \
   V(BigInt)                                                       \
-  V(HeapNumber)                                                   \
-  V(Map)
+  V(HeapNumber)
 
 // This list is sorted such that subtypes appear before their supertypes.
 // DO NOT VIOLATE THIS PROPERTY!
 // Types in this list can be serialized on demand from the background thread.
 #define HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(V) \
   /* Subtypes of HeapObject */                           \
+  V(Map)                                                 \
   V(PropertyCell)
 
 // This list is sorted such that subtypes appear before their supertypes.
@@ -198,7 +198,7 @@ class V8_EXPORT_PRIVATE ObjectRef {
   bool IsNullOrUndefined() const;
   bool IsTheHole() const;
 
-  bool BooleanValue() const;
+  base::Optional<bool> TryGetBooleanValue() const;
   Maybe<double> OddballToNumber() const;
 
   Isolate* isolate() const;
