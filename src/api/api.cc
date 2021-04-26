@@ -1931,10 +1931,10 @@ MaybeLocal<Value> Script::Run(Local<Context> context) {
   // TODO(crbug.com/1193459): remove once ablation study is completed
   base::ElapsedTimer timer;
   base::TimeDelta delta;
-  if (i::FLAG_script_delay) {
+  if (i::FLAG_script_delay > 0) {
     delta = v8::base::TimeDelta::FromMillisecondsD(i::FLAG_script_delay);
   }
-  if (i::FLAG_script_delay_once && !isolate->did_run_script_delay()) {
+  if (i::FLAG_script_delay_once > 0 && !isolate->did_run_script_delay()) {
     delta = v8::base::TimeDelta::FromMillisecondsD(i::FLAG_script_delay_once);
     isolate->set_did_run_script_delay(true);
   }
@@ -9814,7 +9814,21 @@ CpuProfilingOptions::CpuProfilingOptions(CpuProfilingMode mode,
                                          MaybeLocal<Context> filter_context)
     : mode_(mode),
       max_samples_(max_samples),
-      sampling_interval_us_(sampling_interval_us) {}
+      sampling_interval_us_(sampling_interval_us) {
+  if (!filter_context.IsEmpty()) {
+    Local<Context> local_filter_context = filter_context.ToLocalChecked();
+    filter_context_.Reset(local_filter_context->GetIsolate(),
+                          local_filter_context);
+    filter_context_.SetWeak();
+  }
+}
+
+void* CpuProfilingOptions::raw_filter_context() const {
+  return reinterpret_cast<void*>(
+      i::Context::cast(*Utils::OpenPersistent(filter_context_))
+          .native_context()
+          .address());
+}
 
 void CpuProfiler::Dispose() { delete reinterpret_cast<i::CpuProfiler*>(this); }
 

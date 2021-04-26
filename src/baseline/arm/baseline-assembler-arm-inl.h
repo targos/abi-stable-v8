@@ -151,7 +151,7 @@ void BaselineAssembler::CmpInstanceType(Register map,
                                         InstanceType instance_type) {
   ScratchRegisterScope temps(this);
   Register type = temps.AcquireScratch();
-  if (emit_debug_code()) {
+  if (FLAG_debug_code) {
     __ AssertNotSmi(map);
     __ CompareObjectType(map, type, type, MAP_TYPE);
     __ Assert(eq, AbortReason::kUnexpectedValue);
@@ -198,10 +198,10 @@ void BaselineAssembler::Move(MemOperand output, Register source) {
   __ str(source, output);
 }
 void BaselineAssembler::Move(Register output, ExternalReference reference) {
-  __ mov(output, Operand(reference));
+  __ Move32BitImmediate(output, Operand(reference));
 }
 void BaselineAssembler::Move(Register output, Handle<HeapObject> value) {
-  __ mov(output, Operand(value));
+  __ Move32BitImmediate(output, Operand(value));
 }
 void BaselineAssembler::Move(Register output, int32_t value) {
   __ mov(output, Operand(value));

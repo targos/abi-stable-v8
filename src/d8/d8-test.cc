@@ -22,6 +22,19 @@
 namespace v8 {
 namespace {
 
+#define CHECK_SELF_OR_FALLBACK(return_value) \
+  if (!self) {                               \
+    options.fallback = 1;                    \
+    return return_value;                     \
+  }
+
+#define CHECK_SELF_OR_THROW()                                               \
+  if (!self) {                                                              \
+    args.GetIsolate()->ThrowError(                                          \
+        "This method is not defined on objects inheriting from FastCAPI."); \
+    return;                                                                 \
+  }
+
 class FastCApiObject {
  public:
   static double AddAllFastCallback(v8::Value* receiver, bool should_fallback,
@@ -31,6 +44,7 @@ class FastCApiObject {
                                    FastApiCallbackOptions& options) {
     CHECK(receiver->IsObject());
     FastCApiObject* self = UnwrapObject(Object::Cast(receiver));
+    CHECK_SELF_OR_FALLBACK(0);
     self->fast_call_count_++;
 
     if (should_fallback) {
@@ -46,6 +60,7 @@ class FastCApiObject {
     Isolate* isolate = args.GetIsolate();
 
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     self->slow_call_count_++;
 
     HandleScope handle_scope(isolate);
@@ -82,6 +97,7 @@ class FastCApiObject {
                                      FastApiCallbackOptions& options) {
     CHECK(receiver->IsObject());
     FastCApiObject* self = UnwrapObject(Object::Cast(receiver));
+    CHECK_SELF_OR_FALLBACK(0);
     self->fast_call_count_++;
 
     if (should_fallback) {
@@ -95,6 +111,7 @@ class FastCApiObject {
     Isolate* isolate = args.GetIsolate();
 
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     self->slow_call_count_++;
 
     HandleScope handle_scope(isolate);
@@ -115,6 +132,7 @@ class FastCApiObject {
                                            FastApiCallbackOptions& options) {
     CHECK(receiver->IsObject());
     FastCApiObject* self = UnwrapObject(Object::Cast(receiver));
+    CHECK_SELF_OR_FALLBACK(false);
     self->fast_call_count_++;
 
     if (should_fallback) {
@@ -122,6 +140,9 @@ class FastCApiObject {
       return false;
     }
 
+    if (!arg->IsObject()) {
+      return false;
+    }
     Object* object = Object::Cast(arg);
     if (!IsValidApiObject(object)) return false;
 
@@ -140,6 +161,7 @@ class FastCApiObject {
     Isolate* isolate = args.GetIsolate();
 
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     self->slow_call_count_++;
 
     HandleScope handle_scope(isolate);
@@ -150,13 +172,15 @@ class FastCApiObject {
           "is_valid_api_object should be called with 2 arguments");
       return;
     }
-    Object* object = Object::Cast(*args[1]);
-    if (!IsValidApiObject(object)) {
-      result = false;
-    } else {
-      result = PerIsolateData::Get(args.GetIsolate())
-                   ->GetTestApiObjectCtor()
-                   ->IsLeafTemplateForApiObject(object);
+    if (args[1]->IsObject()) {
+      Object* object = Object::Cast(*args[1]);
+      if (!IsValidApiObject(object)) {
+        result = false;
+      } else {
+        result = PerIsolateData::Get(args.GetIsolate())
+                     ->GetTestApiObjectCtor()
+                     ->IsLeafTemplateForApiObject(object);
+      }
     }
 
     args.GetReturnValue().Set(Boolean::New(isolate, result));
@@ -164,22 +188,26 @@ class FastCApiObject {
 
   static void FastCallCount(const FunctionCallbackInfo<Value>& args) {
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     args.GetReturnValue().Set(
         Number::New(args.GetIsolate(), self->fast_call_count()));
   }
   static void SlowCallCount(const FunctionCallbackInfo<Value>& args) {
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     args.GetReturnValue().Set(
         Number::New(args.GetIsolate(), self->slow_call_count()));
   }
   static void ResetCounts(const FunctionCallbackInfo<Value>& args) {
     FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
     self->reset_counts();
     args.GetReturnValue().Set(Undefined(args.GetIsolate()));
   }
-  static void SupportsFPParams(const FunctionCallbackInfo<Value>& info) {
-    FastCApiObject* self = UnwrapObject(*info.This());
-    info.GetReturnValue().Set(self->supports_fp_params_);
+  static void SupportsFPParams(const FunctionCallbackInfo<Value>& args) {
+    FastCApiObject* self = UnwrapObject(*args.This());
+    CHECK_SELF_OR_THROW();
+    args.GetReturnValue().Set(self->supports_fp_params_);
   }
 
   int fast_call_count() const { return fast_call_count_; }
@@ -214,6 +242,9 @@ class FastCApiObject {
   bool supports_fp_params_ = false;
 #endif  // V8_ENABLE_FP_PARAMS_IN_C_LINKAGE
 };
+
+#undef CHECK_SELF_OR_THROW
+#undef CHECK_SELF_OR_FALLBACK
 
 // The object is statically initialized for simplicity, typically the embedder
 // will take care of managing their C++ objects lifetime.

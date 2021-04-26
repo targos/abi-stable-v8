@@ -103,6 +103,11 @@ declare_args() {
   # Sets -dV8_CODE_COMMENTS
   v8_code_comments = ""
 
+  # Allow runtime-enabled debug code (with --debug-code). Enabled by default in
+  # debug builds.
+  # Sets -dV8_ENABLE_DEBUG_CODE
+  v8_enable_debug_code = ""
+
   # Enable native counters from the snapshot (impacts performance, sets
   # -dV8_SNAPSHOT_NATIVE_CODE_COUNTERS).
   # This option will generate extra code in the snapshot to increment counters,
@@ -339,6 +344,9 @@ if (v8_enable_snapshot_code_comments) {
   v8_code_comments = true
 } else if (v8_code_comments == "") {
   v8_code_comments = v8_enable_debugging_features
+}
+if (v8_enable_debug_code == "") {
+  v8_enable_debug_code = v8_enable_debugging_features
 }
 if (v8_check_microtasks_scopes_consistency == "") {
   v8_check_microtasks_scopes_consistency =
@@ -761,6 +769,9 @@ config("features") {
   }
   if (v8_code_comments == true) {
     defines += [ "V8_CODE_COMMENTS" ]
+  }
+  if (v8_enable_debug_code) {
+    defines += [ "V8_ENABLE_DEBUG_CODE" ]
   }
   if (v8_enable_snapshot_native_code_counters) {
     defines += [ "V8_SNAPSHOT_NATIVE_CODE_COUNTERS" ]
@@ -1928,6 +1939,7 @@ action("v8_dump_build_config") {
     "v8_enable_atomic_object_field_writes=" +
         "$v8_enable_atomic_object_field_writes",
     "v8_enable_concurrent_marking=$v8_enable_concurrent_marking",
+    "v8_enable_single_generation=$v8_enable_single_generation",
     "v8_enable_i18n_support=$v8_enable_i18n_support",
     "v8_enable_verify_predictable=$v8_enable_verify_predictable",
     "v8_enable_verify_csa=$v8_enable_verify_csa",
@@ -3183,6 +3195,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/ia32/assembler-ia32-inl.h",
       "src/codegen/ia32/assembler-ia32.h",
       "src/codegen/ia32/constants-ia32.h",
+      "src/codegen/ia32/interface-descriptors-ia32-inl.h",
       "src/codegen/ia32/macro-assembler-ia32.h",
       "src/codegen/ia32/register-ia32.h",
       "src/codegen/ia32/sse-instr.h",
@@ -3201,6 +3214,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/x64/assembler-x64.h",
       "src/codegen/x64/constants-x64.h",
       "src/codegen/x64/fma-instr.h",
+      "src/codegen/x64/interface-descriptors-x64-inl.h",
       "src/codegen/x64/macro-assembler-x64.h",
       "src/codegen/x64/register-x64.h",
       "src/codegen/x64/sse-instr.h",
@@ -3230,6 +3244,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/arm/assembler-arm-inl.h",
       "src/codegen/arm/assembler-arm.h",
       "src/codegen/arm/constants-arm.h",
+      "src/codegen/arm/interface-descriptors-arm-inl.h",
       "src/codegen/arm/macro-assembler-arm.h",
       "src/codegen/arm/register-arm.h",
       "src/compiler/backend/arm/instruction-codes-arm.h",
@@ -3249,6 +3264,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/arm64/decoder-arm64-inl.h",
       "src/codegen/arm64/decoder-arm64.h",
       "src/codegen/arm64/instructions-arm64.h",
+      "src/codegen/arm64/interface-descriptors-arm64-inl.h",
       "src/codegen/arm64/macro-assembler-arm64-inl.h",
       "src/codegen/arm64/macro-assembler-arm64.h",
       "src/codegen/arm64/register-arm64.h",
@@ -3307,6 +3323,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/ppc/assembler-ppc-inl.h",
       "src/codegen/ppc/assembler-ppc.h",
       "src/codegen/ppc/constants-ppc.h",
+      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.h",
       "src/codegen/ppc/register-ppc.h",
       "src/compiler/backend/ppc/instruction-codes-ppc.h",
@@ -3323,6 +3340,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/ppc/assembler-ppc-inl.h",
       "src/codegen/ppc/assembler-ppc.h",
       "src/codegen/ppc/constants-ppc.h",
+      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.h",
       "src/codegen/ppc/register-ppc.h",
       "src/compiler/backend/ppc/instruction-codes-ppc.h",
@@ -3339,6 +3357,7 @@ v8_header_set("v8_internal_headers") {
       "src/codegen/s390/assembler-s390-inl.h",
       "src/codegen/s390/assembler-s390.h",
       "src/codegen/s390/constants-s390.h",
+      "src/codegen/s390/interface-descriptors-s390-inl.h",
       "src/codegen/s390/macro-assembler-s390.h",
       "src/codegen/s390/register-s390.h",
       "src/compiler/backend/s390/instruction-codes-s390.h",
@@ -4082,7 +4101,6 @@ v8_source_set("v8_base_without_compiler") {
     sources += [  ### gcmole(arch:ia32) ###
       "src/codegen/ia32/assembler-ia32.cc",
       "src/codegen/ia32/cpu-ia32.cc",
-      "src/codegen/ia32/interface-descriptors-ia32-inl.h",
       "src/codegen/ia32/macro-assembler-ia32.cc",
       "src/codegen/shared-ia32-x64/macro-assembler-shared-ia32-x64.cc",
       "src/compiler/backend/ia32/code-generator-ia32.cc",
@@ -4100,7 +4118,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/shared-ia32-x64/macro-assembler-shared-ia32-x64.cc",
       "src/codegen/x64/assembler-x64.cc",
       "src/codegen/x64/cpu-x64.cc",
-      "src/codegen/x64/interface-descriptors-x64-inl.h",
       "src/codegen/x64/macro-assembler-x64.cc",
       "src/compiler/backend/x64/code-generator-x64.cc",
       "src/compiler/backend/x64/instruction-scheduler-x64.cc",
@@ -4135,7 +4152,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/arm/assembler-arm.cc",
       "src/codegen/arm/constants-arm.cc",
       "src/codegen/arm/cpu-arm.cc",
-      "src/codegen/arm/interface-descriptors-arm-inl.h",
       "src/codegen/arm/macro-assembler-arm.cc",
       "src/compiler/backend/arm/code-generator-arm.cc",
       "src/compiler/backend/arm/instruction-scheduler-arm.cc",
@@ -4157,7 +4173,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/arm64/decoder-arm64.cc",
       "src/codegen/arm64/instructions-arm64-constants.cc",
       "src/codegen/arm64/instructions-arm64.cc",
-      "src/codegen/arm64/interface-descriptors-arm64-inl.h",
       "src/codegen/arm64/macro-assembler-arm64.cc",
       "src/codegen/arm64/register-arm64.cc",
       "src/codegen/arm64/utils-arm64.cc",
@@ -4226,7 +4241,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/ppc/assembler-ppc.cc",
       "src/codegen/ppc/constants-ppc.cc",
       "src/codegen/ppc/cpu-ppc.cc",
-      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.cc",
       "src/compiler/backend/ppc/code-generator-ppc.cc",
       "src/compiler/backend/ppc/instruction-scheduler-ppc.cc",
@@ -4246,7 +4260,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/ppc/assembler-ppc.cc",
       "src/codegen/ppc/constants-ppc.cc",
       "src/codegen/ppc/cpu-ppc.cc",
-      "src/codegen/ppc/interface-descriptors-ppc-inl.h",
       "src/codegen/ppc/macro-assembler-ppc.cc",
       "src/compiler/backend/ppc/code-generator-ppc.cc",
       "src/compiler/backend/ppc/instruction-scheduler-ppc.cc",
@@ -4266,7 +4279,6 @@ v8_source_set("v8_base_without_compiler") {
       "src/codegen/s390/assembler-s390.cc",
       "src/codegen/s390/constants-s390.cc",
       "src/codegen/s390/cpu-s390.cc",
-      "src/codegen/s390/interface-descriptors-s390-inl.h",
       "src/codegen/s390/macro-assembler-s390.cc",
       "src/compiler/backend/s390/code-generator-s390.cc",
       "src/compiler/backend/s390/instruction-scheduler-s390.cc",
