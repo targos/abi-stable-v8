@@ -6,6 +6,7 @@
 
 #include "src/api/api-arguments.h"
 #include "src/codegen/code-factory.h"
+#include "src/codegen/interface-descriptors-inl.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/frame-constants.h"
@@ -1726,12 +1727,12 @@ void Generate_ContinueToBuiltinHelper(MacroAssembler* masm,
                 sp, BuiltinContinuationFrameConstants::kFixedFrameSizeFromFp));
   // Load builtin index (stored as a Smi) and use it to get the builtin start
   // address from the builtins table.
-  __ Pop(t0);
+  __ Pop(t6);
   __ Add64(sp, sp,
            Operand(BuiltinContinuationFrameConstants::kFixedFrameSizeFromFp));
   __ Pop(ra);
-  __ LoadEntryFromBuiltinIndex(t0);
-  __ Jump(t0);
+  __ LoadEntryFromBuiltinIndex(t6);
+  __ Jump(t6);
 }
 }  // namespace
 
@@ -3475,9 +3476,9 @@ void Generate_DeoptimizationEntry(MacroAssembler* masm,
     }
   }
 
-  __ pop(t3);  // Get continuation, leave pc on stack.
+  __ pop(t6);  // Get continuation, leave pc on stack.
   __ pop(ra);
-  __ Jump(t3);
+  __ Jump(t6);
   __ stop();
 }
 

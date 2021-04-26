@@ -420,10 +420,6 @@ DEFINE_BOOL_READONLY(
     single_generation, V8_GENERATION_BOOL,
     "allocate all objects from young generation to old generation")
 
-// Prevent inline allocation into new space
-DEFINE_NEG_IMPLICATION(single_generation, inline_new)
-DEFINE_NEG_IMPLICATION(single_generation, turbo_allocation_folding)
-
 #ifdef V8_ENABLE_CONSERVATIVE_STACK_SCANNING
 #define V8_ENABLE_CONSERVATIVE_STACK_SCANNING_BOOL true
 #else
@@ -659,6 +655,9 @@ DEFINE_NEG_IMPLICATION(stress_concurrent_inlining, lazy_feedback_allocation)
 DEFINE_WEAK_VALUE_IMPLICATION(stress_concurrent_inlining, interrupt_budget,
                               15 * KB)
 DEFINE_IMPLICATION(concurrent_inlining, turbo_direct_heap_access)
+DEFINE_BOOL(
+    turbo_concurrent_get_property_access_info, false,
+    "concurrently call GetPropertyAccessInfo (only with --concurrent-inlining)")
 DEFINE_INT(max_serializer_nesting, 25,
            "maximum levels for nesting child serializers")
 DEFINE_WEAK_IMPLICATION(future, concurrent_inlining)
@@ -1293,8 +1292,8 @@ DEFINE_STRING(sim_arm64_optional_features, "none",
               "enable optional features on the simulator for testing: none or "
               "all")
 DEFINE_BOOL(debug_riscv, false, "enable debug prints")
-// TODO(RISCV): https://github.com/v8-riscv/v8/issues/330
-DEFINE_BOOL(disable_riscv_constant_pool, true,
+
+DEFINE_BOOL(disable_riscv_constant_pool, false,
             "disable constant pool (RISCV only)")
 
 // Controlling source positions for Torque/CSA code.

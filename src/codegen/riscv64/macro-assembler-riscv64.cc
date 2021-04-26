@@ -12,6 +12,7 @@
 #include "src/codegen/callable.h"
 #include "src/codegen/code-factory.h"
 #include "src/codegen/external-reference-table.h"
+#include "src/codegen/interface-descriptors-inl.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/register-configuration.h"
 #include "src/debug/debug.h"
@@ -4583,12 +4584,10 @@ void TurboAssembler::ResetSpeculationPoisonRegister() {
 void TurboAssembler::CallForDeoptimization(Builtins::Name target, int,
                                            Label* exit, DeoptimizeKind kind,
                                            Label* ret, Label*) {
-  UseScratchRegisterScope temps(this);
   BlockTrampolinePoolScope block_trampoline_pool(this);
-  Register scratch = temps.Acquire();
-  Ld(scratch,
+  Ld(t6,
      MemOperand(kRootRegister, IsolateData::builtin_entry_slot_offset(target)));
-  Call(scratch);
+  Call(t6);
   DCHECK_EQ(SizeOfCodeGeneratedSince(exit),
             (kind == DeoptimizeKind::kLazy)
                 ? Deoptimizer::kLazyDeoptExitSize

@@ -5393,6 +5393,8 @@ void Heap::SetUpSpaces() {
     dead_object_stats_.reset(new ObjectStats(this));
   }
   local_embedder_heap_tracer_.reset(new LocalEmbedderHeapTracer(isolate()));
+  embedder_roots_handler_ =
+      &local_embedder_heap_tracer()->default_embedder_roots_handler();
 
   LOG(isolate_, IntPtrTEvent("heap-capacity", Capacity()));
   LOG(isolate_, IntPtrTEvent("heap-available", Available()));
@@ -5529,6 +5531,14 @@ void Heap::SetEmbedderHeapTracer(EmbedderHeapTracer* tracer) {
   // Setting a tracer is only supported when CppHeap is not used.
   DCHECK_IMPLIES(tracer, !cpp_heap_);
   local_embedder_heap_tracer()->SetRemoteTracer(tracer);
+}
+
+void Heap::SetEmbedderRootsHandler(EmbedderRootsHandler* handler) {
+  embedder_roots_handler_ = handler;
+}
+
+EmbedderRootsHandler* Heap::GetEmbedderRootsHandler() const {
+  return embedder_roots_handler_;
 }
 
 EmbedderHeapTracer* Heap::GetEmbedderHeapTracer() const {
@@ -5671,6 +5681,8 @@ void Heap::TearDown() {
   dead_object_stats_.reset();
 
   local_embedder_heap_tracer_.reset();
+  embedder_roots_handler_ = nullptr;
+
   if (cpp_heap_) {
     CppHeap::From(cpp_heap_)->DetachIsolate();
     cpp_heap_ = nullptr;
