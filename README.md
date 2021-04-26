@@ -49,3 +49,4 @@ Diff: TBD
 - [ed5b25f698](https://github.com/targos/abi-stable-v8/commit/ed5b25f6986a32df20fe0fb99ab79e11dd7f82e1) - Reverted [[api] Remove previously deprecated Function::GetDisplayName().](https://github.com/v8/v8/commit/6165fef8cc9dde52973e54c915e6905221b3f8fb)
 - [ed7f09bf18](https://github.com/targos/abi-stable-v8/commit/ed7f09bf181d596376cdc84c724547e0e485c5a2) - Reverted [[api] Remove deprecated Symbol::Name()](https://github.com/v8/v8/commit/bbc72ef6c7d6d8e2c4dd074d7713e5c841003163)
 - [a39efa8cd6](https://github.com/targos/abi-stable-v8/commit/a39efa8cd6bd5b864e56ad76c5dc89231d5e9f30) - Reverted API change from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004)
+- [a5913d18a2](https://github.com/targos/abi-stable-v8/commit/a5913d18a29bf04101a11d9afd3fc4d650196669) - Reverted [[cpu-profiler] Reintroduce support for context filtering](https://github.com/v8/v8/commit/0aacfb2a6ecbeda1d1d97ca113afd8253a1b9670)
