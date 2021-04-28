@@ -41,7 +41,7 @@ declare_args() {
   v8_enable_future = false
 
   # Sets -DSYSTEM_INSTRUMENTATION. Enables OS-dependent event tracing
-  v8_enable_system_instrumentation = true
+  v8_enable_system_instrumentation = is_win || is_mac
 
   # Sets the GUID for the ETW provider
   v8_etw_guid = ""
@@ -383,6 +383,12 @@ if (v8_enable_atomic_object_field_writes == "") {
 }
 if (v8_enable_atomic_marking_state == "") {
   v8_enable_atomic_marking_state = v8_enable_concurrent_marking
+}
+if (v8_enable_third_party_heap) {
+  v8_disable_write_barriers = true
+  v8_enable_single_generation = true
+  v8_enable_shared_ro_heap = false
+  v8_enable_pointer_compression = false
 }
 assert(!v8_enable_concurrent_marking || v8_enable_atomic_object_field_writes,
        "Concurrent marking requires atomic object field writes.")
@@ -2508,7 +2514,6 @@ v8_header_set("v8_internal_headers") {
     "src/compiler/refs-map.h",
     "src/compiler/representation-change.h",
     "src/compiler/schedule.h",
-    "src/compiler/scheduled-machine-lowering.h",
     "src/compiler/scheduler.h",
     "src/compiler/select-lowering.h",
     "src/compiler/serializer-for-background-compilation.h",
@@ -2994,9 +2999,6 @@ v8_header_set("v8_internal_headers") {
     "src/roots/roots.h",
     "src/runtime/runtime-utils.h",
     "src/runtime/runtime.h",
-    "src/sanitizer/asan.h",
-    "src/sanitizer/lsan-page-allocator.h",
-    "src/sanitizer/msan.h",
     "src/sanitizer/tsan.h",
     "src/snapshot/code-serializer.h",
     "src/snapshot/context-deserializer.h",
@@ -3493,7 +3495,6 @@ v8_compiler_sources = [
   "src/compiler/refs-map.cc",
   "src/compiler/representation-change.cc",
   "src/compiler/schedule.cc",
-  "src/compiler/scheduled-machine-lowering.cc",
   "src/compiler/scheduler.cc",
   "src/compiler/select-lowering.cc",
   "src/compiler/serializer-for-background-compilation.cc",
@@ -3971,7 +3972,6 @@ v8_source_set("v8_base_without_compiler") {
     "src/runtime/runtime-typedarray.cc",
     "src/runtime/runtime-weak-refs.cc",
     "src/runtime/runtime.cc",
-    "src/sanitizer/lsan-page-allocator.cc",
     "src/snapshot/code-serializer.cc",
     "src/snapshot/context-deserializer.cc",
     "src/snapshot/context-serializer.cc",
@@ -4556,8 +4556,6 @@ v8_component("v8_libbase") {
     "src/base/atomic-utils.h",
     "src/base/atomicops.h",
     "src/base/atomicops_internals_atomicword_compat.h",
-    "src/base/atomicops_internals_portable.h",
-    "src/base/atomicops_internals_std.h",
     "src/base/base-export.h",
     "src/base/bit-field.h",
     "src/base/bits-iterator.h",
@@ -4617,6 +4615,10 @@ v8_component("v8_libbase") {
     "src/base/safe_conversions.h",
     "src/base/safe_conversions_arm_impl.h",
     "src/base/safe_conversions_impl.h",
+    "src/base/sanitizer/asan.h",
+    "src/base/sanitizer/lsan-page-allocator.cc",
+    "src/base/sanitizer/lsan-page-allocator.h",
+    "src/base/sanitizer/msan.h",
     "src/base/small-vector.h",
     "src/base/sys-info.cc",
     "src/base/sys-info.h",
@@ -4779,8 +4781,6 @@ v8_component("v8_libplatform") {
     "src/libplatform/delayed-task-queue.h",
     "src/libplatform/task-queue.cc",
     "src/libplatform/task-queue.h",
-    "src/libplatform/tracing/recorder-default.cc",
-    "src/libplatform/tracing/recorder.h",
     "src/libplatform/tracing/trace-buffer.cc",
     "src/libplatform/tracing/trace-buffer.h",
     "src/libplatform/tracing/trace-config.cc",
@@ -4811,8 +4811,6 @@ v8_component("v8_libplatform") {
   if (v8_use_perfetto) {
     sources -= [
       "//base/trace_event/common/trace_event_common.h",
-      "src/libplatform/tracing/recorder-default.cc",
-      "src/libplatform/tracing/recorder.h",
       "src/libplatform/tracing/trace-buffer.cc",
       "src/libplatform/tracing/trace-buffer.h",
       "src/libplatform/tracing/trace-object.cc",
@@ -4827,12 +4825,15 @@ v8_component("v8_libplatform") {
       # TODO(skyostil): Switch TraceEventListener to protozero.
       "//third_party/perfetto/protos/perfetto/trace:lite",
     ]
-  } else if (is_win) {
-    sources -= [ "src/libplatform/tracing/recorder-default.cc" ]
-    sources += [ "src/libplatform/tracing/recorder-win.cc" ]
-  } else if (is_mac) {
-    sources -= [ "src/libplatform/tracing/recorder-default.cc" ]
-    sources += [ "src/libplatform/tracing/recorder-mac.cc" ]
+  }
+
+  if (v8_enable_system_instrumentation) {
+    sources += [ "src/libplatform/tracing/recorder.h" ]
+    if (is_mac) {
+      sources += [ "src/libplatform/tracing/recorder-mac.cc" ]
+    } else if (is_win) {
+      sources += [ "src/libplatform/tracing/recorder-win.cc" ]
+    }
   }
 }
 
@@ -4874,7 +4875,6 @@ v8_source_set("v8_cppgc_shared") {
     "src/heap/base/stack.h",
     "src/heap/base/worklist.cc",
     "src/heap/base/worklist.h",
-    "src/heap/cppgc/sanitizers.h",
   ]
 
   if (is_clang || !is_win) {
@@ -5021,6 +5021,7 @@ v8_source_set("cppgc_base") {
     "src/heap/cppgc/marking-visitor.h",
     "src/heap/cppgc/marking-worklists.cc",
     "src/heap/cppgc/marking-worklists.h",
+    "src/heap/cppgc/memory.h",
     "src/heap/cppgc/metric-recorder.h",
     "src/heap/cppgc/name-trait.cc",
     "src/heap/cppgc/object-allocator.cc",

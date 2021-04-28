@@ -995,6 +995,7 @@ void Heap::RemoveAllocationObserversFromAllSpaces(
 }
 
 void Heap::PublishPendingAllocations() {
+  if (FLAG_enable_third_party_heap) return;
   new_space_->MarkLabStartInitialized();
   PagedSpaceIterator spaces(this);
   for (PagedSpace* space = spaces.Next(); space != nullptr;
@@ -1280,10 +1281,8 @@ void Heap::GarbageCollectionEpilogueInSafepoint(GarbageCollector collector) {
   }
 
   // Set main thread state back to Running from CollectionRequested.
-  LocalHeap* main_thread_local_heap = isolate()->main_thread_local_heap();
-
   LocalHeap::ThreadState old_state =
-      main_thread_local_heap->state_.exchange(LocalHeap::kRunning);
+      main_thread_local_heap()->state_.exchange(LocalHeap::kRunning);
 
   CHECK(old_state == LocalHeap::kRunning ||
         old_state == LocalHeap::kCollectionRequested);
@@ -3129,6 +3128,8 @@ bool Heap::IsImmovable(HeapObject object) {
 }
 
 bool Heap::IsLargeObject(HeapObject object) {
+  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL)
+    return third_party_heap::Heap::InLargeObjectSpace(object.address());
   return BasicMemoryChunk::FromHeapObject(object)->IsLargePage();
 }
 
@@ -5423,6 +5424,11 @@ void Heap::SetUpSpaces() {
   write_protect_code_memory_ = FLAG_write_protect_code_memory;
 }
 
+void Heap::InitializeMainThreadLocalHeap(LocalHeap* main_thread_local_heap) {
+  DCHECK_NULL(main_thread_local_heap_);
+  main_thread_local_heap_ = main_thread_local_heap;
+}
+
 void Heap::InitializeHashSeed() {
   DCHECK(!deserialization_complete_);
   uint64_t new_hash_seed;
@@ -6145,13 +6151,14 @@ HeapObjectIterator::HeapObjectIterator(
       break;
   }
   object_iterator_ = space_iterator_->Next()->GetObjectIterator(heap_);
+  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL) heap_->tp_heap_->ResetIterator();
 }
 
 HeapObjectIterator::~HeapObjectIterator() {
 #ifdef DEBUG
   // Assert that in filtering mode we have iterated through all
   // objects. Otherwise, heap will be left in an inconsistent state.
-  if (filtering_ != kNoFiltering) {
+  if (!V8_ENABLE_THIRD_PARTY_HEAP_BOOL && filtering_ != kNoFiltering) {
     DCHECK_NULL(object_iterator_);
   }
 #endif
@@ -6168,6 +6175,7 @@ HeapObject HeapObjectIterator::Next() {
 }
 
 HeapObject HeapObjectIterator::NextObject() {
+  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL) return heap_->tp_heap_->NextObject();
   // No iterator means we are done.
   if (object_iterator_.get() == nullptr) return HeapObject();
 
@@ -6803,6 +6811,7 @@ template void Heap::WriteBarrierForRange<MaybeObjectSlot>(
 template <typename TSlot>
 void Heap::WriteBarrierForRange(HeapObject object, TSlot start_slot,
                                 TSlot end_slot) {
+  if (FLAG_disable_write_barriers) return;
   MemoryChunk* source_page = MemoryChunk::FromHeapObject(object);
   base::Flags<RangeWriteBarrierMode> mode;
 

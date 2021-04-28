@@ -27,11 +27,8 @@ namespace compiler {
 #define TRACE(broker, x) TRACE_BROKER(broker, x)
 #define TRACE_MISSING(broker, x) TRACE_BROKER_MISSING(broker, x)
 
-#define FORWARD_DECL(Name) class Name##Data;
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(FORWARD_DECL)
-HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(FORWARD_DECL)
-HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(FORWARD_DECL)
-HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(FORWARD_DECL)
+#define FORWARD_DECL(Name, ...) class Name##Data;
+HEAP_BROKER_OBJECT_LIST(FORWARD_DECL)
 #undef FORWARD_DECL
 
 // There are several kinds of ObjectData values.
@@ -80,20 +77,6 @@ bool IsReadOnlyHeapObject(Object object) {
           ReadOnlyHeap::Contains(HeapObject::cast(object)));
 }
 
-template <class T>
-constexpr bool IsSerializedHeapObject() {
-  return false;
-}
-
-#define DEFINE_MARKER(Name)                       \
-  template <>                                     \
-  constexpr bool IsSerializedHeapObject<Name>() { \
-    return true;                                  \
-  }                                               \
-  STATIC_ASSERT(IsSerializedHeapObject<Name>());
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(DEFINE_MARKER)
-#undef DEFINE_MARKER
-
 }  // namespace
 
 class ObjectData : public ZoneObject {
@@ -133,18 +116,12 @@ class ObjectData : public ZoneObject {
                   IsReadOnlyHeapObject(*object));
   }
 
-#define DECLARE_IS(Name) bool Is##Name() const;
-  HEAP_BROKER_SERIALIZED_OBJECT_LIST(DECLARE_IS)
-  HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DECLARE_IS)
-  HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DECLARE_IS)
-  HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DECLARE_IS)
+#define DECLARE_IS(Name, ...) bool Is##Name() const;
+  HEAP_BROKER_OBJECT_LIST(DECLARE_IS)
 #undef DECLARE_IS
 
-#define DECLARE_AS(Name) Name##Data* As##Name();
-  HEAP_BROKER_SERIALIZED_OBJECT_LIST(DECLARE_AS)
-  HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DECLARE_AS)
-  HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DECLARE_AS)
-  HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DECLARE_AS)
+#define DECLARE_AS(Name, ...) Name##Data* As##Name();
+  HEAP_BROKER_OBJECT_LIST(DECLARE_AS)
 #undef DECLARE_AS
 
   Handle<Object> object() const { return object_; }
@@ -171,6 +148,44 @@ class ObjectData : public ZoneObject {
   JSHeapBroker* const broker_;  // For DCHECKs.
 #endif                          // DEBUG
 };
+
+namespace {
+
+template <class T>
+constexpr RefSerializationKind RefSerializationKindOf() {
+  CONSTEXPR_DCHECK(false);  // The default impl should never be called.
+  return RefSerializationKind::kSerialized;
+}
+
+#define DEFINE_REF_SERIALIZATION_KIND(Name, Kind)                 \
+  template <>                                                     \
+  constexpr RefSerializationKind RefSerializationKindOf<Name>() { \
+    return Kind;                                                  \
+  }
+HEAP_BROKER_OBJECT_LIST(DEFINE_REF_SERIALIZATION_KIND)
+#undef DEFINE_REF_SERIALIZATION_KIND
+
+template <class T>
+constexpr bool IsSerializedRef() {
+  return RefSerializationKindOf<T>() == RefSerializationKind::kSerialized;
+}
+
+RefSerializationKind RefSerializationKindOf(ObjectData* const data) {
+  Object o = *data->object();
+  if (o.IsSmi()) {
+    return RefSerializationKind::kNeverSerialized;
+#define DEFINE_REF_SERIALIZATION_KIND(Name, Kind) \
+  }                                               \
+  /* NOLINTNEXTLINE(readability/braces) */        \
+  else if (o.Is##Name()) {                        \
+    return RefSerializationKindOf<Name>();
+    HEAP_BROKER_OBJECT_LIST(DEFINE_REF_SERIALIZATION_KIND)
+#undef DEFINE_REF_SERIALIZATION_KIND
+  }
+  UNREACHABLE();
+}
+
+}  // namespace
 
 class HeapObjectData : public ObjectData {
  public:
@@ -376,8 +391,8 @@ void CallHandlerInfoData::Serialize(JSHeapBroker* broker) {
 class JSReceiverData : public HeapObjectData {
  public:
   JSReceiverData(JSHeapBroker* broker, ObjectData** storage,
-                 Handle<JSReceiver> object)
-      : HeapObjectData(broker, storage, object) {}
+                 Handle<JSReceiver> object, ObjectDataKind kind)
+      : HeapObjectData(broker, storage, object, kind) {}
 };
 
 class JSObjectData : public JSReceiverData {
@@ -572,7 +587,7 @@ class JSTypedArrayData : public JSObjectData {
 
   // TODO(v8:7790): Once JSObject is no longer serialized, also make
   // JSTypedArrayRef never-serialized.
-  STATIC_ASSERT(IsSerializedHeapObject<JSObject>());
+  STATIC_ASSERT(IsSerializedRef<JSObject>());
 
   void Serialize(JSHeapBroker* broker);
   bool serialized() const { return serialized_; }
@@ -1192,6 +1207,14 @@ class MapData : public HeapObjectData {
 
   void SerializeForElementStore(JSHeapBroker* broker);
 
+  bool has_extra_serialized_data() const {
+    return serialized_elements_kind_generalizations_ ||
+           serialized_own_descriptors_ || serialized_constructor_ ||
+           serialized_backpointer_ || serialized_prototype_ ||
+           serialized_root_map_ || serialized_for_element_load_ ||
+           serialized_for_element_store_;
+  }
+
  private:
   // The following fields should be const in principle, but construction
   // requires locking the MapUpdater lock. For this reason, it's easier to
@@ -1249,7 +1272,7 @@ AllocationSiteData::AllocationSiteData(JSHeapBroker* broker,
       GetAllocationType_(object->GetAllocationType()) {
   if (PointsToLiteral_) {
     IsFastLiteral_ = IsInlinableFastLiteral(
-        handle(object->boilerplate(), broker->isolate()));
+        handle(object->boilerplate(kAcquireLoad), broker->isolate()));
   } else {
     GetElementsKind_ = object->GetElementsKind();
     CanInlineCall_ = object->CanInlineCall();
@@ -1265,7 +1288,7 @@ void AllocationSiteData::SerializeBoilerplate(JSHeapBroker* broker) {
 
   CHECK(IsFastLiteral_);
   DCHECK_NULL(boilerplate_);
-  boilerplate_ = broker->GetOrCreateData(site->boilerplate());
+  boilerplate_ = broker->GetOrCreateData(site->boilerplate(kAcquireLoad));
   if (!boilerplate_->should_access_heap()) {
     boilerplate_->AsJSObject()->SerializeAsBoilerplate(broker);
   }
@@ -1670,8 +1693,9 @@ void FeedbackVectorData::Serialize(JSHeapBroker* broker) {
 class FixedArrayBaseData : public HeapObjectData {
  public:
   FixedArrayBaseData(JSHeapBroker* broker, ObjectData** storage,
-                     Handle<FixedArrayBase> object)
-      : HeapObjectData(broker, storage, object), length_(object->length()) {}
+                     Handle<FixedArrayBase> object, ObjectDataKind kind)
+      : HeapObjectData(broker, storage, object, kind),
+        length_(object->length()) {}
 
   int length() const { return length_; }
 
@@ -1750,14 +1774,17 @@ bool JSBoundFunctionData::Serialize(JSHeapBroker* broker) {
 
 JSObjectData::JSObjectData(JSHeapBroker* broker, ObjectData** storage,
                            Handle<JSObject> object)
-    : JSReceiverData(broker, storage, object),
+    : JSReceiverData(broker, storage, object,
+                     ObjectDataKind::kSerializedHeapObject),
       inobject_fields_(broker->zone()),
       own_constant_elements_(broker->zone()),
       own_properties_(broker->zone()) {}
 
 FixedArrayData::FixedArrayData(JSHeapBroker* broker, ObjectData** storage,
                                Handle<FixedArray> object)
-    : FixedArrayBaseData(broker, storage, object), contents_(broker->zone()) {}
+    : FixedArrayBaseData(broker, storage, object,
+                         ObjectDataKind::kSerializedHeapObject),
+      contents_(broker->zone()) {}
 
 void FixedArrayData::SerializeContents(JSHeapBroker* broker) {
   if (serialized_contents_) return;
@@ -1778,39 +1805,14 @@ void FixedArrayData::SerializeContents(JSHeapBroker* broker) {
 
 class FixedDoubleArrayData : public FixedArrayBaseData {
  public:
-  FixedDoubleArrayData(JSHeapBroker* broker, ObjectData** storage,
-                       Handle<FixedDoubleArray> object);
-
-  // Serializes all elements of the fixed array.
-  void SerializeContents(JSHeapBroker* broker);
-
-  Float64 Get(int i) const;
-
- private:
-  bool serialized_contents_ = false;
-  ZoneVector<Float64> contents_;
-};
-
-FixedDoubleArrayData::FixedDoubleArrayData(JSHeapBroker* broker,
-                                           ObjectData** storage,
-                                           Handle<FixedDoubleArray> object)
-    : FixedArrayBaseData(broker, storage, object), contents_(broker->zone()) {}
-
-void FixedDoubleArrayData::SerializeContents(JSHeapBroker* broker) {
-  if (serialized_contents_) return;
-  serialized_contents_ = true;
-
-  TraceScope tracer(broker, this, "FixedDoubleArrayData::SerializeContents");
-  Handle<FixedDoubleArray> self = Handle<FixedDoubleArray>::cast(object());
-  CHECK_EQ(self->length(), length());
-  CHECK(contents_.empty());
-  contents_.reserve(static_cast<size_t>(length()));
-
-  for (int i = 0; i < length(); i++) {
-    contents_.push_back(Float64::FromBits(self->get_representation(i)));
+  FixedDoubleArrayData(
+      JSHeapBroker* broker, ObjectData** storage,
+      Handle<FixedDoubleArray> object,
+      ObjectDataKind kind = ObjectDataKind::kNeverSerializedHeapObject)
+      : FixedArrayBaseData(broker, storage, object, kind) {
+    DCHECK(!broker->is_concurrent_inlining());
   }
-  TRACE(broker, "Copied " << contents_.size() << " elements");
-}
+};
 
 class BytecodeArrayData : public FixedArrayBaseData {
  public:
@@ -1822,7 +1824,8 @@ class BytecodeArrayData : public FixedArrayBaseData {
 
   BytecodeArrayData(JSHeapBroker* broker, ObjectData** storage,
                     Handle<BytecodeArray> object)
-      : FixedArrayBaseData(broker, storage, object),
+      : FixedArrayBaseData(broker, storage, object,
+                           ObjectDataKind::kNeverSerializedHeapObject),
         register_count_(object->register_count()),
         parameter_count_(object->parameter_count()),
         incoming_new_target_or_generator_register_(
@@ -2221,7 +2224,7 @@ class CodeData : public HeapObjectData {
   unsigned const inlined_bytecode_size_;
 };
 
-#define DEFINE_IS(Name)                                                 \
+#define DEFINE_IS(Name, ...)                                            \
   bool ObjectData::Is##Name() const {                                   \
     if (should_access_heap()) {                                         \
       return object()->Is##Name();                                      \
@@ -2231,36 +2234,25 @@ class CodeData : public HeapObjectData {
         static_cast<const HeapObjectData*>(this)->GetMapInstanceType(); \
     return InstanceTypeChecker::Is##Name(instance_type);                \
   }
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(DEFINE_IS)
-HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_IS)
-HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_IS)
-HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DEFINE_IS)
+HEAP_BROKER_OBJECT_LIST(DEFINE_IS)
 #undef DEFINE_IS
 
-#define DEFINE_AS(Name)                              \
-  Name##Data* ObjectData::As##Name() {               \
-    CHECK(Is##Name());                               \
-    CHECK(kind_ == kSerializedHeapObject ||          \
-          kind_ == kBackgroundSerializedHeapObject); \
-    return static_cast<Name##Data*>(this);           \
+// TODO(solanes, v8:10866): Remove support for kNeverSerialized objects here
+// once broker()->is_concurrent_inlining() is removed.
+// AsFoo() methods for NeverSerialized objects should only be used with direct
+// heap access off.
+#define DEFINE_AS(Name, Kind)                                      \
+  Name##Data* ObjectData::As##Name() {                             \
+    DCHECK_IMPLIES(Kind == RefSerializationKind::kNeverSerialized, \
+                   !broker()->is_concurrent_inlining());           \
+    DCHECK_IMPLIES(Kind == RefSerializationKind::kNeverSerialized, \
+                   kind_ == kSerializedHeapObject);                \
+    CHECK(Is##Name());                                             \
+    CHECK(kind_ == kSerializedHeapObject ||                        \
+          kind_ == kBackgroundSerializedHeapObject);               \
+    return static_cast<Name##Data*>(this);                         \
   }
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(DEFINE_AS)
-HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_AS)
-HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_AS)
-#undef DEFINE_AS
-
-// TODO(solanes, v8:10866): Remove once broker()->is_concurrent_inlining() is
-// removed.
-// This macro defines the Asxxx methods for NeverSerialized objects, which
-// should only be used with direct heap access off.
-#define DEFINE_AS(Name)                          \
-  Name##Data* ObjectData::As##Name() {           \
-    DCHECK(!broker()->is_concurrent_inlining()); \
-    CHECK(Is##Name());                           \
-    CHECK_EQ(kind_, kSerializedHeapObject);      \
-    return static_cast<Name##Data*>(this);       \
-  }
-HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DEFINE_AS)
+HEAP_BROKER_OBJECT_LIST(DEFINE_AS)
 #undef DEFINE_AS
 
 ObjectData* JSObjectData::GetInobjectField(int property_index) const {
@@ -2452,8 +2444,6 @@ void JSObjectData::SerializeRecursiveAsBoilerplate(JSHeapBroker* broker,
   } else {
     CHECK(boilerplate->HasDoubleElements());
     CHECK_LE(elements_object->Size(), kMaxRegularHeapObjectSize);
-    DCHECK_EQ(elements_->kind(), ObjectDataKind::kSerializedHeapObject);
-    elements_->AsFixedDoubleArray()->SerializeContents(broker);
   }
 
   // TODO(turbofan): Do we want to support out-of-object properties?
@@ -2530,7 +2520,10 @@ bool ObjectRef::equals(const ObjectRef& other) const {
     data_->used_status = ObjectData::Usage::kOnlyIdentityUsed;
   }
 #endif  // DEBUG
-  return data_ == other.data_;
+  // TODO(jgruber): Consider going back to reference-equality on data_ once
+  // ObjectData objects are guaranteed to be canonicalized (see also:
+  // ClearReconstructibleData).
+  return data_->object().is_identical_to(other.data_->object());
 }
 
 bool ObjectRef::ShouldHaveBeenSerialized() const {
@@ -2722,6 +2715,135 @@ void JSHeapBroker::InitializeAndStartSerializing(
   TRACE(this, "Finished serializing standard objects");
 }
 
+namespace {
+
+template <RefSerializationKind Kind, class DataT, class ObjectT>
+struct CreateDataFunctor {
+  bool operator()(JSHeapBroker* broker, RefsMap* refs,
+                  ObjectRef::BackgroundSerialization background_serialization,
+                  Handle<Object> object, RefsMap::Entry** entry_out,
+                  ObjectData** object_data_out) {
+    USE(broker, refs, background_serialization, object, entry_out,
+        object_data_out);
+    UNREACHABLE();
+  }
+};
+
+template <class DataT, class ObjectT>
+struct CreateDataFunctor<RefSerializationKind::kSerialized, DataT, ObjectT> {
+  bool operator()(JSHeapBroker* broker, RefsMap* refs,
+                  ObjectRef::BackgroundSerialization background_serialization,
+                  Handle<Object> object, RefsMap::Entry** entry_out,
+                  ObjectData** object_data_out) {
+    if (broker->mode() == JSHeapBroker::kSerializing) {
+      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+      *object_data_out = broker->zone()->New<DataT>(
+          broker, &entry->value, Handle<ObjectT>::cast(object));
+      *entry_out = entry;
+      return true;
+    }
+    return false;
+  }
+};
+
+template <class DataT, class ObjectT>
+struct CreateDataFunctor<RefSerializationKind::kBackgroundSerialized, DataT,
+                         ObjectT> {
+  bool operator()(JSHeapBroker* broker, RefsMap* refs,
+                  ObjectRef::BackgroundSerialization background_serialization,
+                  Handle<Object> object, RefsMap::Entry** entry_out,
+                  ObjectData** object_data_out) {
+    if (broker->is_concurrent_inlining()) {
+      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+      *object_data_out = broker->zone()->New<DataT>(
+          broker, &entry->value, Handle<ObjectT>::cast(object),
+          kBackgroundSerializedHeapObject);
+      *entry_out = entry;
+      return true;
+    } else if (broker->mode() == JSHeapBroker::kSerializing) {
+      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+      *object_data_out = broker->zone()->New<DataT>(
+          broker, &entry->value, Handle<ObjectT>::cast(object),
+          ObjectDataKind::kSerializedHeapObject);
+      *entry_out = entry;
+      return true;
+    }
+    return false;
+  }
+};
+
+template <class DataT, class ObjectT>
+struct CreateDataFunctor<RefSerializationKind::kPossiblyBackgroundSerialized,
+                         DataT, ObjectT> {
+  bool operator()(JSHeapBroker* broker, RefsMap* refs,
+                  ObjectRef::BackgroundSerialization background_serialization,
+                  Handle<Object> object, RefsMap::Entry** entry_out,
+                  ObjectData** object_data_out) {
+    if (broker->mode() == JSHeapBroker::kSerialized &&
+        background_serialization !=
+            ObjectRef::BackgroundSerialization::kAllowed) {
+      return false;
+    }
+    RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+    ObjectDataKind kind = (background_serialization ==
+                           ObjectRef::BackgroundSerialization::kAllowed)
+                              ? kBackgroundSerializedHeapObject
+                              : kSerializedHeapObject;
+    *object_data_out = broker->zone()->New<DataT>(
+        broker, &entry->value, Handle<ObjectT>::cast(object), kind);
+    *entry_out = entry;
+    return true;
+  }
+};
+
+template <class DataT, class ObjectT>
+struct CreateDataFunctor<RefSerializationKind::kNeverSerialized, DataT,
+                         ObjectT> {
+  bool operator()(JSHeapBroker* broker, RefsMap* refs,
+                  ObjectRef::BackgroundSerialization, Handle<Object> object,
+                  RefsMap::Entry** entry_out, ObjectData** object_data_out) {
+    // TODO(solanes, v8:10866): Remove the `(mode() == kSerializing)` case
+    // below when all classes skip serialization. Same for similar spots if we
+    // end up keeping them.
+    if (broker->is_concurrent_inlining()) {
+      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+      *object_data_out = broker->zone()->New<ObjectData>(
+          broker, &entry->value, object, kNeverSerializedHeapObject);
+      *entry_out = entry;
+      return true;
+    } else if (broker->mode() == JSHeapBroker::kSerializing) {
+      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
+      *object_data_out = broker->zone()->New<DataT>(
+          broker, &entry->value, Handle<ObjectT>::cast(object));
+      *entry_out = entry;
+      return true;
+    }
+    return false;
+  }
+};
+
+}  // namespace
+
+void JSHeapBroker::ClearReconstructibleData() {
+  RefsMap::Entry* p = refs_->Start();
+  while (p != nullptr) {
+    Address key = p->key;
+    ObjectData* value = p->value;
+    p = refs_->Next(p);
+    const auto kind = RefSerializationKindOf(value);
+    if (kind == RefSerializationKind::kNeverSerialized ||
+        kind == RefSerializationKind::kBackgroundSerialized) {
+      if (value->IsMap() &&
+          value->kind() == ObjectDataKind::kBackgroundSerializedHeapObject &&
+          value->AsMap()->has_extra_serialized_data()) {
+        continue;
+      }
+      // Can be reconstructed from the background thread.
+      CHECK_NOT_NULL(refs_->Remove(key));
+    }
+  }
+}
+
 ObjectData* JSHeapBroker::TryGetOrCreateData(
     Handle<Object> object, bool crash_on_error,
     ObjectRef::BackgroundSerialization background_serialization) {
@@ -2750,81 +2872,18 @@ ObjectData* JSHeapBroker::TryGetOrCreateData(
     entry = refs_->LookupOrInsert(object.address());
     object_data = zone()->New<ObjectData>(this, &(entry->value), object,
                                           kUnserializedReadOnlyHeapObject);
-// TODO(solanes, v8:10866): Remove the `(mode() == kSerializing)` case in this
-// macro when all classes skip serialization. Same for the other macros if we
-// end up keeping them.
-#define CREATE_DATA_FOR_DIRECT_READ(name)                                  \
-  }                                                                        \
-  /* NOLINTNEXTLINE(readability/braces) */                                 \
-  else if (object->Is##name()) {                                           \
-    if (is_concurrent_inlining()) {                                        \
-      entry = refs_->LookupOrInsert(object.address());                     \
-      object_data = zone()->New<ObjectData>(this, &(entry->value), object, \
-                                            kNeverSerializedHeapObject);   \
-    } else if (mode() == kSerializing) {                                   \
-      entry = refs_->LookupOrInsert(object.address());                     \
-      object_data = zone()->New<name##Data>(this, &(entry->value),         \
-                                            Handle<name>::cast(object));   \
-    } else {                                                               \
-      CHECK(!crash_on_error);                                              \
-      return nullptr;                                                      \
+#define CREATE_DATA(Name, Kind)                                   \
+  }                                                               \
+  /* NOLINTNEXTLINE(readability/braces) */                        \
+  else if (object->Is##Name()) {                                  \
+    CreateDataFunctor<Kind, Name##Data, Name> f;                  \
+    if (!f(this, refs_, background_serialization, object, &entry, \
+           &object_data)) {                                       \
+      CHECK(!crash_on_error);                                     \
+      return nullptr;                                             \
     }
-    HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(CREATE_DATA_FOR_DIRECT_READ)
-#undef CREATE_DATA_FOR_DIRECT_READ
-#define CREATE_DATA_FOR_POSSIBLE_SERIALIZATION(name)                     \
-  }                                                                      \
-  /* NOLINTNEXTLINE(readability/braces) */                               \
-  else if (object->Is##name()) {                                         \
-    if (mode() == kSerialized &&                                         \
-        background_serialization !=                                      \
-            ObjectRef::BackgroundSerialization::kAllowed) {              \
-      CHECK(!crash_on_error);                                            \
-      return nullptr;                                                    \
-    }                                                                    \
-    entry = refs_->LookupOrInsert(object.address());                     \
-    ObjectDataKind kind = (background_serialization ==                   \
-                           ObjectRef::BackgroundSerialization::kAllowed) \
-                              ? kBackgroundSerializedHeapObject          \
-                              : kSerializedHeapObject;                   \
-    object_data = zone()->New<name##Data>(this, &(entry->value),         \
-                                          Handle<name>::cast(object), kind);
-    HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(
-        CREATE_DATA_FOR_POSSIBLE_SERIALIZATION)
-#undef CREATE_DATA_FOR_POSSIBLE_SERIALIZATION
-#define CREATE_DATA_FOR_BACKGROUND_SERIALIZATION(name)                        \
-  }                                                                           \
-  /* NOLINTNEXTLINE(readability/braces) */                                    \
-  else if (object->Is##name()) {                                              \
-    if (is_concurrent_inlining()) {                                           \
-      entry = refs_->LookupOrInsert(object.address());                        \
-      object_data = zone()->New<name##Data>(this, &(entry->value),            \
-                                            Handle<name>::cast(object),       \
-                                            kBackgroundSerializedHeapObject); \
-    } else if (mode() == kSerializing) {                                      \
-      entry = refs_->LookupOrInsert(object.address());                        \
-      object_data = zone()->New<name##Data>(this, &(entry->value),            \
-                                            Handle<name>::cast(object));      \
-    } else {                                                                  \
-      CHECK(!crash_on_error);                                                 \
-      return nullptr;                                                         \
-    }
-    HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(
-        CREATE_DATA_FOR_BACKGROUND_SERIALIZATION)
-#undef CREATE_DATA_FOR_SERIALIZATION
-#define CREATE_DATA_FOR_SERIALIZATION(name)                              \
-  }                                                                      \
-  /* NOLINTNEXTLINE(readability/braces) */                               \
-  else if (object->Is##name()) {                                         \
-    if (mode() == kSerializing) {                                        \
-      entry = refs_->LookupOrInsert(object.address());                   \
-      object_data = zone()->New<name##Data>(this, &(entry->value),       \
-                                            Handle<name>::cast(object)); \
-    } else {                                                             \
-      CHECK(!crash_on_error);                                            \
-      return nullptr;                                                    \
-    }
-    HEAP_BROKER_SERIALIZED_OBJECT_LIST(CREATE_DATA_FOR_SERIALIZATION)
-#undef CREATE_DATA_FOR_SERIALIZATION
+    HEAP_BROKER_OBJECT_LIST(CREATE_DATA)
+#undef CREATE_DATA
   } else {
     UNREACHABLE();
   }
@@ -2834,16 +2893,13 @@ ObjectData* JSHeapBroker::TryGetOrCreateData(
   return object_data;
 }
 
-#define DEFINE_IS_AND_AS(Name)                                    \
+#define DEFINE_IS_AND_AS(Name, ...)                               \
   bool ObjectRef::Is##Name() const { return data()->Is##Name(); } \
   Name##Ref ObjectRef::As##Name() const {                         \
     DCHECK(Is##Name());                                           \
     return Name##Ref(broker(), data());                           \
   }
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(DEFINE_IS_AND_AS)
-HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_IS_AND_AS)
-HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DEFINE_IS_AND_AS)
-HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DEFINE_IS_AND_AS)
+HEAP_BROKER_OBJECT_LIST(DEFINE_IS_AND_AS)
 #undef DEFINE_IS_AND_AS
 
 bool ObjectRef::IsSmi() const { return data()->is_smi(); }
@@ -2950,14 +3006,14 @@ bool MapRef::HasOnlyStablePrototypesWithFastElements(
 }
 
 bool MapRef::supports_fast_array_iteration() const {
-  if (data_->should_access_heap()) {
+  if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     return SupportsFastArrayIteration(broker(), object());
   }
   return data()->AsMap()->supports_fast_array_iteration();
 }
 
 bool MapRef::supports_fast_array_resize() const {
-  if (data_->should_access_heap()) {
+  if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     return SupportsFastArrayResize(broker(), object());
   }
   return data()->AsMap()->supports_fast_array_resize();
@@ -3028,7 +3084,7 @@ bool AllocationSiteRef::IsFastLiteral() const {
   if (data_->should_access_heap()) {
     CHECK_NE(data_->kind(), ObjectDataKind::kNeverSerializedHeapObject);
     return IsInlinableFastLiteral(
-        handle(object()->boilerplate(), broker()->isolate()));
+        handle(object()->boilerplate(kAcquireLoad), broker()->isolate()));
   }
   return data()->AsAllocationSite()->IsFastLiteral();
 }
@@ -3077,7 +3133,7 @@ FieldIndex MapRef::GetFieldIndexFor(InternalIndex descriptor_index) const {
 }
 
 int MapRef::GetInObjectPropertyOffset(int i) const {
-  if (data_->should_access_heap()) {
+  if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     return object()->GetInObjectPropertyOffset(i);
   }
   return (GetInObjectPropertiesStartInWords() + i) * kTaggedSize;
@@ -3204,12 +3260,10 @@ ObjectRef FixedArrayRef::get(int i) const {
   return ObjectRef(broker(), data()->AsFixedArray()->Get(i));
 }
 
-Float64 FixedDoubleArrayRef::get(int i) const {
-  if (data_->should_access_heap()) {
-    return Float64::FromBits(object()->get_representation(i));
-  } else {
-    return data()->AsFixedDoubleArray()->Get(i);
-  }
+Float64 FixedDoubleArrayRef::GetFromImmutableFixedDoubleArray(int i) const {
+  STATIC_ASSERT(RefSerializationKindOf<FixedDoubleArray>() ==
+                RefSerializationKind::kNeverSerialized);
+  return Float64::FromBits(object()->get_representation(i));
 }
 
 Handle<ByteArray> BytecodeArrayRef::SourcePositionTable() const {
@@ -3667,7 +3721,7 @@ bool MapRef::IsInobjectSlackTrackingInProgress() const {
 }
 
 int MapRef::constructor_function_index() const {
-  IF_ACCESS_FROM_HEAP_C(GetConstructorFunctionIndex);
+  IF_ACCESS_FROM_HEAP_WITH_FLAG_C(GetConstructorFunctionIndex);
   CHECK(IsPrimitiveMap());
   return data()->AsMap()->constructor_function_index();
 }
@@ -3678,18 +3732,18 @@ bool MapRef::is_stable() const {
 }
 
 bool MapRef::CanBeDeprecated() const {
-  IF_ACCESS_FROM_HEAP_C(CanBeDeprecated);
+  IF_ACCESS_FROM_HEAP_WITH_FLAG_C(CanBeDeprecated);
   CHECK_GT(NumberOfOwnDescriptors(), 0);
   return data()->AsMap()->can_be_deprecated();
 }
 
 bool MapRef::CanTransition() const {
-  IF_ACCESS_FROM_HEAP_C(CanTransition);
+  IF_ACCESS_FROM_HEAP_WITH_FLAG_C(CanTransition);
   return data()->AsMap()->can_transition();
 }
 
 int MapRef::GetInObjectPropertiesStartInWords() const {
-  IF_ACCESS_FROM_HEAP_C(GetInObjectPropertiesStartInWords);
+  IF_ACCESS_FROM_HEAP_WITH_FLAG_C(GetInObjectPropertiesStartInWords);
   return data()->AsMap()->in_object_properties_start_in_words();
 }
 
@@ -3862,7 +3916,7 @@ base::Optional<ObjectRef> JSObjectRef::GetOwnConstantElement(
     // guarantee consistency between `object`, `elements_kind` and `elements`
     // through other means (store/load order? locks? storing elements_kind in
     // elements.map?).
-    STATIC_ASSERT(IsSerializedHeapObject<JSObject>());
+    STATIC_ASSERT(IsSerializedRef<JSObject>());
 
     base::Optional<FixedArrayBaseRef> maybe_elements_ref = elements();
     if (!maybe_elements_ref.has_value()) {
@@ -3950,7 +4004,7 @@ base::Optional<ObjectRef> JSArrayRef::GetOwnCowElement(
     // TODO(jgruber,v8:7790): Remove the elements equality DCHECK below once
     // JSObject is no longer serialized.
     static_assert(std::is_base_of<JSObject, JSArray>::value, "");
-    STATIC_ASSERT(IsSerializedHeapObject<JSObject>());
+    STATIC_ASSERT(IsSerializedRef<JSObject>());
 
     // The elements_ref is passed in by callers to make explicit that it is
     // also used outside of this function, and must match the `elements` used
@@ -4082,8 +4136,8 @@ HeapObjectType HeapObjectRef::GetHeapObjectType() const {
 }
 base::Optional<JSObjectRef> AllocationSiteRef::boilerplate() const {
   if (data_->should_access_heap()) {
-    return JSObjectRef(
-        broker(), broker()->CanonicalPersistentHandle(object()->boilerplate()));
+    return JSObjectRef(broker(), broker()->CanonicalPersistentHandle(
+                                     object()->boilerplate(kAcquireLoad)));
   }
   ObjectData* boilerplate = data()->AsAllocationSite()->boilerplate();
   if (boilerplate) {
@@ -4118,11 +4172,6 @@ int FixedArrayBaseRef::length() const {
 ObjectData* FixedArrayData::Get(int i) const {
   CHECK_LT(i, static_cast<int>(contents_.size()));
   CHECK_NOT_NULL(contents_[i]);
-  return contents_[i];
-}
-
-Float64 FixedDoubleArrayData::Get(int i) const {
-  CHECK_LT(i, static_cast<int>(contents_.size()));
   return contents_[i];
 }
 
@@ -4215,7 +4264,7 @@ void RegExpBoilerplateDescriptionRef::Serialize() {
     // Even if the regexp boilerplate object itself is no longer serialized,
     // the `data` still is and thus we need to make sure to visit it.
     // TODO(jgruber,v8:7790): Remove once it is no longer a serialized type.
-    STATIC_ASSERT(IsSerializedHeapObject<FixedArray>());
+    STATIC_ASSERT(IsSerializedRef<FixedArray>());
     FixedArrayRef data_ref{
         broker(), broker()->CanonicalPersistentHandle(object()->data())};
   } else {
@@ -4236,7 +4285,7 @@ Handle<Object> ObjectRef::object() const {
 }
 
 #ifdef DEBUG
-#define DEF_OBJECT_GETTER(T)                                                 \
+#define DEF_OBJECT_GETTER(T, ...)                                            \
   Handle<T> T##Ref::object() const {                                         \
     if (broker()->mode() == JSHeapBroker::kSerialized &&                     \
         data_->used_status == ObjectData::Usage::kUnused) {                  \
@@ -4245,16 +4294,13 @@ Handle<Object> ObjectRef::object() const {
     return Handle<T>(reinterpret_cast<Address*>(data_->object().address())); \
   }
 #else
-#define DEF_OBJECT_GETTER(T)                                                 \
+#define DEF_OBJECT_GETTER(T, ...)                                            \
   Handle<T> T##Ref::object() const {                                         \
     return Handle<T>(reinterpret_cast<Address*>(data_->object().address())); \
   }
 #endif  // DEBUG
 
-HEAP_BROKER_SERIALIZED_OBJECT_LIST(DEF_OBJECT_GETTER)
-HEAP_BROKER_POSSIBLY_BACKGROUND_SERIALIZED_OBJECT_LIST(DEF_OBJECT_GETTER)
-HEAP_BROKER_BACKGROUND_SERIALIZED_OBJECT_LIST(DEF_OBJECT_GETTER)
-HEAP_BROKER_NEVER_SERIALIZED_OBJECT_LIST(DEF_OBJECT_GETTER)
+HEAP_BROKER_OBJECT_LIST(DEF_OBJECT_GETTER)
 #undef DEF_OBJECT_GETTER
 
 JSHeapBroker* ObjectRef::broker() const { return broker_; }
@@ -4516,7 +4562,7 @@ void JSTypedArrayRef::Serialize() {
     // TODO(jgruber,v8:7790): Remove once JSObject is no longer serialized.
     static_assert(
         std::is_base_of<JSObject, decltype(object()->buffer())>::value, "");
-    STATIC_ASSERT(IsSerializedHeapObject<JSObject>());
+    STATIC_ASSERT(IsSerializedRef<JSObject>());
     JSObjectRef data_ref{
         broker(), broker()->CanonicalPersistentHandle(object()->buffer())};
   } else {

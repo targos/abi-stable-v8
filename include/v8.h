@@ -6851,7 +6851,7 @@ class V8_EXPORT FunctionTemplate : public Template {
    *
    * This is an experimental feature and may still change significantly.
    */
-  bool IsLeafTemplateForApiObject(Value* value) const;
+  bool IsLeafTemplateForApiObject(v8::Local<v8::Value> value) const;
 
   V8_INLINE static FunctionTemplate* Cast(Data* data);
 

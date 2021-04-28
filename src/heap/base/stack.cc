@@ -6,9 +6,11 @@
 
 #include <limits>
 
+#include "src/base/macros.h"
 #include "src/base/platform/platform.h"
+#include "src/base/sanitizer/asan.h"
+#include "src/base/sanitizer/msan.h"
 #include "src/heap/cppgc/globals.h"
-#include "src/heap/cppgc/sanitizers.h"
 
 namespace heap {
 namespace base {
@@ -41,7 +43,7 @@ namespace {
 
 // No ASAN support as accessing fake frames otherwise results in
 // "stack-use-after-scope" warnings.
-NO_SANITIZE_ADDRESS
+DISABLE_ASAN
 void IterateAsanFakeFrameIfNecessary(StackVisitor* visitor,
                                      void* asan_fake_stack,
                                      const void* stack_start,
@@ -101,7 +103,7 @@ void IterateSafeStackIfNecessary(StackVisitor* visitor) {
 // any data that needs to be scanned.
 V8_NOINLINE
 // No ASAN support as method accesses redzones while walking the stack.
-NO_SANITIZE_ADDRESS
+DISABLE_ASAN
 void IteratePointersImpl(const Stack* stack, StackVisitor* visitor,
                          intptr_t* stack_end) {
 #ifdef V8_USE_ADDRESS_SANITIZER
@@ -116,7 +118,7 @@ void IteratePointersImpl(const Stack* stack, StackVisitor* visitor,
     // MSAN: Instead of unpoisoning the whole stack, the slot's value is copied
     // into a local which is unpoisoned.
     void* address = *current;
-    MSAN_UNPOISON(&address, sizeof(address));
+    MSAN_MEMORY_IS_INITIALIZED(&address, sizeof(address));
     if (address == nullptr) continue;
     visitor->VisitPointer(address);
 #ifdef V8_USE_ADDRESS_SANITIZER
