@@ -1674,10 +1674,12 @@ class V8_EXPORT Module : public Data {
   /**
    * Evaluates the module and its dependencies.
    *
-   * If status is kInstantiated, run the module's code. On success, set status
-   * to kEvaluated and return the completion value; on failure, set status to
-   * kErrored and propagate the thrown exception (which is then also available
-   * via |GetException|).
+   * If status is kInstantiated, run the module's code and return a Promise
+   * object. On success, set status to kEvaluated and resolve the Promise with
+   * the completion value; on failure, set status to kErrored and reject the
+   * Promise with the error.
+   *
+   * If IsGraphAsync() is false, the returned Promise is settled.
    */
   V8_WARN_UNUSED_RESULT MaybeLocal<Value> Evaluate(Local<Context> context);
 
@@ -7388,6 +7390,11 @@ class V8_EXPORT ResourceConstraints {
   /**
    * The amount of virtual memory reserved for generated code. This is relevant
    * for 64-bit architectures that rely on code range for calls in code.
+   *
+   * When V8_COMPRESS_POINTERS_IN_SHARED_CAGE is defined, there is a shared
+   * process-wide code range that is lazily initialized. This value is used to
+   * configure that shared code range when the first Isolate is
+   * created. Subsequent Isolates ignore this value.
    */
   size_t code_range_size_in_bytes() const { return code_range_size_; }
   void set_code_range_size_in_bytes(size_t limit) { code_range_size_ = limit; }
