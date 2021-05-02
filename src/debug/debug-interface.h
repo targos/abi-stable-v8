@@ -191,9 +191,8 @@ class WasmScript : public Script {
 };
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-V8_EXPORT_PRIVATE void GetLoadedScripts(
-    Isolate* isolate,
-    PersistentValueVector<Script>& scripts);  // NOLINT(runtime/references)
+V8_EXPORT_PRIVATE void GetLoadedScripts(Isolate* isolate,
+                                        PersistentValueVector<Script>& scripts);
 
 MaybeLocal<UnboundScript> CompileInspectorScript(Isolate* isolate,
                                                  Local<String> source);
@@ -476,7 +475,6 @@ class V8_EXPORT_PRIVATE StackTraceIterator {
   virtual v8::Local<v8::Function> GetFunction() const = 0;
   virtual std::unique_ptr<ScopeIterator> GetScopeIterator() const = 0;
 
-  virtual bool Restart() = 0;
   virtual v8::MaybeLocal<v8::Value> Evaluate(v8::Local<v8::String> source,
                                              bool throw_on_side_effect) = 0;
 };

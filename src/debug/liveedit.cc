@@ -902,10 +902,10 @@ class FunctionDataMap : public ThreadVisitor {
   std::map<FuncId, FunctionData> map_;
 };
 
-bool CanPatchScript(
-    const LiteralMap& changed, Handle<Script> script, Handle<Script> new_script,
-    FunctionDataMap& function_data_map,  // NOLINT(runtime/references)
-    debug::LiveEditResult* result) {
+bool CanPatchScript(const LiteralMap& changed, Handle<Script> script,
+                    Handle<Script> new_script,
+                    FunctionDataMap& function_data_map,
+                    debug::LiveEditResult* result) {
   for (const auto& mapping : changed) {
     FunctionData* data = nullptr;
     function_data_map.Lookup(script, mapping.first, &data);
@@ -1188,42 +1188,6 @@ void LiveEdit::PatchScript(Isolate* isolate, Handle<Script> script,
   new_script->set_id(script_id);
   result->status = debug::LiveEditResult::OK;
   result->script = ToApiHandle<v8::debug::Script>(new_script);
-}
-
-void LiveEdit::InitializeThreadLocal(Debug* debug) {
-  debug->thread_local_.restart_fp_ = 0;
-}
-
-bool LiveEdit::RestartFrame(JavaScriptFrame* frame) {
-  if (!LiveEdit::kFrameDropperSupported) return false;
-  Isolate* isolate = frame->isolate();
-  StackFrameId break_frame_id = isolate->debug()->break_frame_id();
-  bool break_frame_found = break_frame_id == StackFrameId::NO_ID;
-  for (StackFrameIterator it(isolate); !it.done(); it.Advance()) {
-    StackFrame* current = it.frame();
-    break_frame_found = break_frame_found || break_frame_id == current->id();
-    if (current->fp() == frame->fp()) {
-      if (break_frame_found) {
-        isolate->debug()->ScheduleFrameRestart(current);
-        return true;
-      } else {
-        return false;
-      }
-    }
-    if (!break_frame_found) continue;
-    if (current->is_exit() || current->is_builtin_exit()) {
-      return false;
-    }
-    if (!current->is_java_script()) continue;
-    std::vector<Handle<SharedFunctionInfo>> shareds;
-    JavaScriptFrame::cast(current)->GetFunctions(&shareds);
-    for (auto& shared : shareds) {
-      if (IsResumableFunction(shared->kind())) {
-        return false;
-      }
-    }
-  }
-  return false;
 }
 
 void LiveEdit::CompareStrings(Isolate* isolate, Handle<String> s1,
