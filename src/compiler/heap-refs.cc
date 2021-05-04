@@ -152,22 +152,9 @@ class ObjectData : public ZoneObject {
 namespace {
 
 template <class T>
-constexpr RefSerializationKind RefSerializationKindOf() {
-  CONSTEXPR_DCHECK(false);  // The default impl should never be called.
-  return RefSerializationKind::kSerialized;
-}
-
-#define DEFINE_REF_SERIALIZATION_KIND(Name, Kind)                 \
-  template <>                                                     \
-  constexpr RefSerializationKind RefSerializationKindOf<Name>() { \
-    return Kind;                                                  \
-  }
-HEAP_BROKER_OBJECT_LIST(DEFINE_REF_SERIALIZATION_KIND)
-#undef DEFINE_REF_SERIALIZATION_KIND
-
-template <class T>
 constexpr bool IsSerializedRef() {
-  return RefSerializationKindOf<T>() == RefSerializationKind::kSerialized;
+  return ref_traits<T>::ref_serialization_kind ==
+         RefSerializationKind::kSerialized;
 }
 
 RefSerializationKind RefSerializationKindOf(ObjectData* const data) {
@@ -178,7 +165,7 @@ RefSerializationKind RefSerializationKindOf(ObjectData* const data) {
   }                                               \
   /* NOLINTNEXTLINE(readability/braces) */        \
   else if (o.Is##Name()) {                        \
-    return RefSerializationKindOf<Name>();
+    return ref_traits<Name>::ref_serialization_kind;
     HEAP_BROKER_OBJECT_LIST(DEFINE_REF_SERIALIZATION_KIND)
 #undef DEFINE_REF_SERIALIZATION_KIND
   }
@@ -1084,7 +1071,7 @@ class AllocationSiteData : public HeapObjectData {
 class BigIntData : public HeapObjectData {
  public:
   BigIntData(JSHeapBroker* broker, ObjectData** storage, Handle<BigInt> object,
-             ObjectDataKind kind = ObjectDataKind::kSerializedHeapObject)
+             ObjectDataKind kind)
       : HeapObjectData(broker, storage, object, kind),
         as_uint64_(object->AsUint64(nullptr)) {}
 
@@ -3225,7 +3212,7 @@ base::Optional<ObjectRef> FixedArrayRef::TryGet(int i) const {
 }
 
 Float64 FixedDoubleArrayRef::GetFromImmutableFixedDoubleArray(int i) const {
-  STATIC_ASSERT(RefSerializationKindOf<FixedDoubleArray>() ==
+  STATIC_ASSERT(ref_traits<FixedDoubleArray>::ref_serialization_kind ==
                 RefSerializationKind::kNeverSerialized);
   return Float64::FromBits(object()->get_representation(i));
 }
