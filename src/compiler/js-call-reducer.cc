@@ -43,7 +43,7 @@ namespace internal {
 namespace compiler {
 
 // Shorter lambda declarations with less visual clutter.
-#define _ [&]()  // NOLINT(whitespace/braces)
+#define _ [&]()
 
 class JSCallReducerAssembler : public JSGraphAssembler {
  protected:
@@ -2171,17 +2171,17 @@ TNode<Object> PromiseBuiltinReducerAssembler::ReducePromiseConstructor(
                    TrueConstant());
 
   // Allocate closures for the resolve and reject cases.
-  SharedFunctionInfoRef resolve_sfi(
-      broker_, broker_->isolate()
-                   ->factory()
-                   ->promise_capability_default_resolve_shared_fun());
+  SharedFunctionInfoRef resolve_sfi =
+      MakeRef(broker_, broker_->isolate()
+                           ->factory()
+                           ->promise_capability_default_resolve_shared_fun());
   TNode<JSFunction> resolve =
       CreateClosureFromBuiltinSharedFunctionInfo(resolve_sfi, promise_context);
 
-  SharedFunctionInfoRef reject_sfi(
-      broker_, broker_->isolate()
-                   ->factory()
-                   ->promise_capability_default_reject_shared_fun());
+  SharedFunctionInfoRef reject_sfi =
+      MakeRef(broker_, broker_->isolate()
+                           ->factory()
+                           ->promise_capability_default_reject_shared_fun());
   TNode<JSFunction> reject =
       CreateClosureFromBuiltinSharedFunctionInfo(reject_sfi, promise_context);
 
@@ -2592,28 +2592,20 @@ Reduction JSCallReducer::ReduceFunctionPrototypeBind(Node* node) {
   if (!inference.HaveMaps()) return NoChange();
   MapHandles const& receiver_maps = inference.GetMaps();
 
-  MapRef first_receiver_map(broker(), receiver_maps[0]);
+  MapRef first_receiver_map = MakeRef(broker(), receiver_maps[0]);
   bool const is_constructor = first_receiver_map.is_constructor();
 
-  if (first_receiver_map.ShouldHaveBeenSerialized() &&
-      !first_receiver_map.serialized_prototype()) {
-    TRACE_BROKER_MISSING(broker(),
-                         "serialized prototype on map " << first_receiver_map);
-    return inference.NoChange();
-  }
-  ObjectRef const prototype = first_receiver_map.prototype();
-  for (Handle<Map> const map : receiver_maps) {
-    MapRef receiver_map(broker(), map);
+  base::Optional<HeapObjectRef> const prototype =
+      first_receiver_map.prototype();
+  if (!prototype.has_value()) return inference.NoChange();
 
-    if (receiver_map.ShouldHaveBeenSerialized() &&
-        !receiver_map.serialized_prototype()) {
-      TRACE_BROKER_MISSING(broker(),
-                           "serialized prototype on map " << receiver_map);
-      return inference.NoChange();
-    }
+  for (Handle<Map> const map : receiver_maps) {
+    MapRef receiver_map = MakeRef(broker(), map);
+    base::Optional<HeapObjectRef> map_prototype = receiver_map.prototype();
+    if (!map_prototype.has_value()) return inference.NoChange();
 
     // Check for consistency among the {receiver_maps}.
-    if (!receiver_map.prototype().equals(prototype) ||
+    if (!map_prototype->equals(*prototype) ||
         receiver_map.is_constructor() != is_constructor ||
         !InstanceTypeChecker::IsJSFunctionOrBoundFunction(
             receiver_map.instance_type())) {
@@ -2644,8 +2636,8 @@ Reduction JSCallReducer::ReduceFunctionPrototypeBind(Node* node) {
       return inference.NoChange();
     }
     ReadOnlyRoots roots(isolate());
-    StringRef length_string(broker(), roots.length_string_handle());
-    StringRef name_string(broker(), roots.name_string_handle());
+    StringRef length_string = MakeRef(broker(), roots.length_string_handle());
+    StringRef name_string = MakeRef(broker(), roots.name_string_handle());
 
     base::Optional<ObjectRef> length_value(
         receiver_map.GetStrongValue(kLengthIndex));
@@ -2669,7 +2661,7 @@ Reduction JSCallReducer::ReduceFunctionPrototypeBind(Node* node) {
   MapRef map = is_constructor
                    ? native_context().bound_function_with_constructor_map()
                    : native_context().bound_function_without_constructor_map();
-  if (!map.prototype().equals(prototype)) return inference.NoChange();
+  if (!map.prototype().value().equals(*prototype)) return inference.NoChange();
 
   inference.RelyOnMapsPreferStability(dependencies(), jsgraph(), &effect,
                                       control, p.feedback());
@@ -2680,7 +2672,7 @@ Reduction JSCallReducer::ReduceFunctionPrototypeBind(Node* node) {
   int const arity = n.ArgumentCount();
 
   if (arity > 0) {
-    MapRef fixed_array_map(broker(), factory()->fixed_array_map());
+    MapRef fixed_array_map = MakeRef(broker(), factory()->fixed_array_map());
     AllocationBuilder ab(jsgraph(), effect, control);
     if (!ab.CanAllocateArray(arity, fixed_array_map)) {
       return NoChange();
@@ -2723,10 +2715,7 @@ Reduction JSCallReducer::ReduceFunctionPrototypeCall(Node* node) {
   HeapObjectMatcher m(target);
   if (m.HasResolvedValue() && m.Ref(broker()).IsJSFunction()) {
     JSFunctionRef function = m.Ref(broker()).AsJSFunction();
-    if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-      TRACE_BROKER_MISSING(broker(), "Serialize call on function " << function);
-      return NoChange();
-    }
+    if (!function.serialized()) return NoChange();
     context = jsgraph()->Constant(function.context());
   } else {
     context = effect = graph()->NewNode(
@@ -2795,24 +2784,17 @@ Reduction JSCallReducer::ReduceObjectGetPrototype(Node* node, Node* object) {
   if (!inference.HaveMaps()) return NoChange();
   MapHandles const& object_maps = inference.GetMaps();
 
-  MapRef candidate_map(broker(), object_maps[0]);
-  if (candidate_map.ShouldHaveBeenSerialized() &&
-      !candidate_map.serialized_prototype()) {
-    TRACE_BROKER_MISSING(broker(), "prototype for map " << candidate_map);
-    return inference.NoChange();
-  }
-  ObjectRef candidate_prototype = candidate_map.prototype();
+  MapRef candidate_map = MakeRef(broker(), object_maps[0]);
+  base::Optional<HeapObjectRef> candidate_prototype = candidate_map.prototype();
+  if (!candidate_prototype.has_value()) return inference.NoChange();
 
   // Check if we can constant-fold the {candidate_prototype}.
   for (size_t i = 0; i < object_maps.size(); ++i) {
-    MapRef object_map(broker(), object_maps[i]);
-    if (object_map.ShouldHaveBeenSerialized() &&
-        !object_map.serialized_prototype()) {
-      TRACE_BROKER_MISSING(broker(), "prototype for map " << object_map);
-      return inference.NoChange();
-    }
+    MapRef object_map = MakeRef(broker(), object_maps[i]);
+    base::Optional<HeapObjectRef> map_prototype = object_map.prototype();
+    if (!map_prototype.has_value()) return inference.NoChange();
     if (IsSpecialReceiverInstanceType(object_map.instance_type()) ||
-        !object_map.prototype().equals(candidate_prototype)) {
+        !map_prototype->equals(*candidate_prototype)) {
       // We exclude special receivers, like JSProxy or API objects that
       // might require access checks here; we also don't want to deal
       // with hidden prototypes at this point.
@@ -2825,7 +2807,7 @@ Reduction JSCallReducer::ReduceObjectGetPrototype(Node* node, Node* object) {
   if (!inference.RelyOnMapsViaStability(dependencies())) {
     return inference.NoChange();
   }
-  Node* value = jsgraph()->Constant(candidate_prototype);
+  Node* value = jsgraph()->Constant(*candidate_prototype);
   ReplaceWithValue(node, value);
   return Replace(value);
 }
@@ -3187,9 +3169,9 @@ bool CanInlineArrayIteratingBuiltin(JSHeapBroker* broker,
                                     MapHandles const& receiver_maps,
                                     ElementsKind* kind_return) {
   DCHECK_NE(0, receiver_maps.size());
-  *kind_return = MapRef(broker, receiver_maps[0]).elements_kind();
+  *kind_return = MakeRef(broker, receiver_maps[0]).elements_kind();
   for (auto receiver_map : receiver_maps) {
-    MapRef map(broker, receiver_map);
+    MapRef map = MakeRef(broker, receiver_map);
     if (!map.supports_fast_array_iteration() ||
         !UnionElementsKindUptoSize(kind_return, map.elements_kind())) {
       return false;
@@ -3204,7 +3186,7 @@ bool CanInlineArrayResizingBuiltin(JSHeapBroker* broker,
                                    bool builtin_is_push = false) {
   DCHECK_NE(0, receiver_maps.size());
   for (auto receiver_map : receiver_maps) {
-    MapRef map(broker, receiver_map);
+    MapRef map = MakeRef(broker, receiver_map);
     if (!map.supports_fast_array_resize()) return false;
     // TODO(turbofan): We should also handle fast holey double elements once
     // we got the hole NaN mess sorted out in TurboFan/V8.
@@ -3625,7 +3607,7 @@ Reduction JSCallReducer::ReduceCallApiFunction(
     MapInference inference(broker(), receiver, effect);
     if (inference.HaveMaps()) {
       MapHandles const& receiver_maps = inference.GetMaps();
-      MapRef first_receiver_map(broker(), receiver_maps[0]);
+      MapRef first_receiver_map = MakeRef(broker(), receiver_maps[0]);
 
       // See if we can constant-fold the compatible receiver checks.
       HolderLookupResult api_holder =
@@ -3658,7 +3640,7 @@ Reduction JSCallReducer::ReduceCallApiFunction(
             function_template_info.accept_any_receiver());
 
       for (size_t i = 1; i < receiver_maps.size(); ++i) {
-        MapRef receiver_map(broker(), receiver_maps[i]);
+        MapRef receiver_map = MakeRef(broker(), receiver_maps[i]);
         HolderLookupResult holder_i =
             function_template_info.LookupHolderOfExpectedType(receiver_map);
 
@@ -3906,8 +3888,8 @@ Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
     if (!frame_state.frame_state_info().shared_info().ToHandle(&shared)) {
       return NoChange();
     }
-    formal_parameter_count = SharedFunctionInfoRef(broker(), shared)
-                                 .internal_formal_parameter_count();
+    formal_parameter_count =
+        MakeRef(broker(), shared).internal_formal_parameter_count();
   }
 
   if (type == CreateArgumentsType::kMappedArguments) {
@@ -4078,11 +4060,7 @@ bool ShouldUseCallICFeedback(Node* node) {
 }  // namespace
 
 bool JSCallReducer::IsBuiltinOrApiFunction(JSFunctionRef function) const {
-  if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-    TRACE_BROKER_MISSING(broker(), "data for function " << function);
-    return false;
-  }
-
+  if (!function.serialized()) return false;
   // TODO(neis): Add a way to check if function template info isn't serialized
   // and add a warning in such cases. Currently we can't tell if function
   // template info doesn't exist or wasn't serialized.
@@ -4106,10 +4084,7 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
     ObjectRef target_ref = m.Ref(broker());
     if (target_ref.IsJSFunction()) {
       JSFunctionRef function = target_ref.AsJSFunction();
-      if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-        TRACE_BROKER_MISSING(broker(), "data for function " << function);
-        return NoChange();
-      }
+      if (!function.serialized()) return NoChange();
 
       // Don't inline cross native context.
       if (!function.native_context().equals(native_context())) {
@@ -4119,10 +4094,7 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
       return ReduceJSCall(node, function.shared());
     } else if (target_ref.IsJSBoundFunction()) {
       JSBoundFunctionRef function = target_ref.AsJSBoundFunction();
-      if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-        TRACE_BROKER_MISSING(broker(), "data for function " << function);
-        return NoChange();
-      }
+      if (!function.serialized()) return NoChange();
 
       ObjectRef bound_this = function.bound_this();
       ConvertReceiverMode const convert_mode =
@@ -4180,9 +4152,9 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
   // Same if the {target} is the result of a CheckClosure operation.
   if (target->opcode() == IrOpcode::kJSCreateClosure) {
     CreateClosureParameters const& p = JSCreateClosureNode{target}.Parameters();
-    return ReduceJSCall(node, SharedFunctionInfoRef(broker(), p.shared_info()));
+    return ReduceJSCall(node, MakeRef(broker(), p.shared_info()));
   } else if (target->opcode() == IrOpcode::kCheckClosure) {
-    FeedbackCellRef cell(broker(), FeedbackCellOf(target->op()));
+    FeedbackCellRef cell = MakeRef(broker(), FeedbackCellOf(target->op()));
     if (cell.shared_function_info().has_value()) {
       return ReduceJSCall(node, *cell.shared_function_info());
     } else {
@@ -4266,8 +4238,8 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
     // Try to further reduce the JSCall {node}.
     return Changed(node).FollowedBy(ReduceJSCall(node));
   } else if (feedback_target.has_value() && feedback_target->IsFeedbackCell()) {
-    FeedbackCellRef feedback_cell(
-        broker(), feedback_target.value().AsFeedbackCell().object());
+    FeedbackCellRef feedback_cell =
+        MakeRef(broker(), feedback_target.value().AsFeedbackCell().object());
     if (feedback_cell.value().has_value()) {
       // Check that {target} is a closure with given {feedback_cell},
       // which uniquely identifies a given function inside a native context.
@@ -4767,11 +4739,7 @@ Reduction JSCallReducer::ReduceJSConstruct(Node* node) {
 
     if (target_ref.IsJSFunction()) {
       JSFunctionRef function = target_ref.AsJSFunction();
-      if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-        TRACE_BROKER_MISSING(broker(),
-                             "function, not serialized: " << function);
-        return NoChange();
-      }
+      if (!function.serialized()) return NoChange();
 
       // Do not reduce constructors with break points.
       // If this state changes during background compilation, the compilation
@@ -4833,12 +4801,7 @@ Reduction JSCallReducer::ReduceJSConstruct(Node* node) {
       }
     } else if (target_ref.IsJSBoundFunction()) {
       JSBoundFunctionRef function = target_ref.AsJSBoundFunction();
-      if (function.ShouldHaveBeenSerialized() && !function.serialized()) {
-        TRACE_BROKER_MISSING(broker(),
-                             "function, not serialized: " << function);
-        return NoChange();
-      }
-
+      if (!function.serialized()) return NoChange();
       ObjectRef bound_target_function = function.bound_target_function();
       FixedArrayRef bound_arguments = function.bound_arguments();
       const int bound_arguments_length = bound_arguments.length();
@@ -5748,7 +5711,7 @@ Reduction JSCallReducer::ReduceArrayPrototypeSlice(Node* node) {
   // `slice.call(arguments)`, for example jQuery makes heavy use of that.
   bool can_be_holey = false;
   for (Handle<Map> map : receiver_maps) {
-    MapRef receiver_map(broker(), map);
+    MapRef receiver_map = MakeRef(broker(), map);
     if (!receiver_map.supports_fast_array_iteration()) {
       return inference.NoChange();
     }
@@ -5900,7 +5863,7 @@ Reduction JSCallReducer::ReduceArrayIteratorPrototypeNext(Node* node) {
 
   // Check that various {iterated_object_maps} have compatible elements kinds.
   ElementsKind elements_kind =
-      MapRef(broker(), iterated_object_maps[0]).elements_kind();
+      MakeRef(broker(), iterated_object_maps[0]).elements_kind();
   if (IsTypedArrayElementsKind(elements_kind)) {
     // TurboFan doesn't support loading from BigInt typed arrays yet.
     if (elements_kind == BIGUINT64_ELEMENTS ||
@@ -5908,7 +5871,7 @@ Reduction JSCallReducer::ReduceArrayIteratorPrototypeNext(Node* node) {
       return inference.NoChange();
     }
     for (Handle<Map> map : iterated_object_maps) {
-      MapRef iterated_object_map(broker(), map);
+      MapRef iterated_object_map = MakeRef(broker(), map);
       if (iterated_object_map.elements_kind() != elements_kind) {
         return inference.NoChange();
       }
@@ -6524,15 +6487,11 @@ bool JSCallReducer::DoPromiseChecks(MapInference* inference) {
   // Check whether all {receiver_maps} are JSPromise maps and
   // have the initial Promise.prototype as their [[Prototype]].
   for (Handle<Map> map : receiver_maps) {
-    MapRef receiver_map(broker(), map);
+    MapRef receiver_map = MakeRef(broker(), map);
     if (!receiver_map.IsJSPromiseMap()) return false;
-    if (receiver_map.ShouldHaveBeenSerialized() &&
-        !receiver_map.serialized_prototype()) {
-      TRACE_BROKER_MISSING(broker(), "prototype for map " << receiver_map);
-      return false;
-    }
-    if (!receiver_map.prototype().equals(
-            native_context().promise_prototype())) {
+    base::Optional<HeapObjectRef> prototype = receiver_map.prototype();
+    if (!prototype.has_value() ||
+        !prototype->equals(native_context().promise_prototype())) {
       return false;
     }
   }
@@ -6653,14 +6612,14 @@ Reduction JSCallReducer::ReducePromisePrototypeFinally(Node* node) {
         context, constructor, etrue, if_true);
 
     // Allocate the closure for the reject case.
-    SharedFunctionInfoRef promise_catch_finally(
-        broker(), factory()->promise_catch_finally_shared_fun());
+    SharedFunctionInfoRef promise_catch_finally =
+        MakeRef(broker(), factory()->promise_catch_finally_shared_fun());
     catch_true = etrue = CreateClosureFromBuiltinSharedFunctionInfo(
         promise_catch_finally, context, etrue, if_true);
 
     // Allocate the closure for the fulfill case.
-    SharedFunctionInfoRef promise_then_finally(
-        broker(), factory()->promise_then_finally_shared_fun());
+    SharedFunctionInfoRef promise_then_finally =
+        MakeRef(broker(), factory()->promise_then_finally_shared_fun());
     then_true = etrue = CreateClosureFromBuiltinSharedFunctionInfo(
         promise_then_finally, context, etrue, if_true);
   }
@@ -7134,9 +7093,10 @@ Reduction JSCallReducer::ReduceCollectionIteratorPrototypeNext(
     MapInference inference(broker(), receiver, effect);
     if (!inference.HaveMaps()) return NoChange();
     MapHandles const& receiver_maps = inference.GetMaps();
-    receiver_instance_type = MapRef(broker(), receiver_maps[0]).instance_type();
+    receiver_instance_type =
+        MakeRef(broker(), receiver_maps[0]).instance_type();
     for (size_t i = 1; i < receiver_maps.size(); ++i) {
-      if (MapRef(broker(), receiver_maps[i]).instance_type() !=
+      if (MakeRef(broker(), receiver_maps[i]).instance_type() !=
           receiver_instance_type) {
         return inference.NoChange();
       }
@@ -7739,9 +7699,9 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
   if (broker()->is_concurrent_inlining()) {
     // Obtain precomputed access infos from the broker.
     for (auto map : regexp_maps) {
-      MapRef map_ref(broker(), map);
+      MapRef map_ref = MakeRef(broker(), map);
       PropertyAccessInfo access_info = broker()->GetPropertyAccessInfo(
-          map_ref, NameRef(broker(), isolate()->factory()->exec_string()),
+          map_ref, MakeRef(broker(), isolate()->factory()->exec_string()),
           AccessMode::kLoad, dependencies());
       access_infos.push_back(access_info);
     }
@@ -7763,7 +7723,7 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
     // Do not reduce if the exec method is not on the prototype chain.
     if (!ai_exec.holder().ToHandle(&holder)) return inference.NoChange();
 
-    JSObjectRef holder_ref(broker(), holder);
+    JSObjectRef holder_ref = MakeRef(broker(), holder);
 
     // Bail out if the exec method is not the original one.
     base::Optional<ObjectRef> constant = holder_ref.GetOwnFastDataProperty(
@@ -7776,7 +7736,7 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
     // Add proper dependencies on the {regexp}s [[Prototype]]s.
     dependencies()->DependOnStablePrototypeChains(
         ai_exec.lookup_start_object_maps(), kStartAtPrototype,
-        JSObjectRef(broker(), holder));
+        MakeRef(broker(), holder));
   } else {
     // TODO(v8:11457) Support dictionary mode protoypes here.
     return inference.NoChange();

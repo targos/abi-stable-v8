@@ -4,7 +4,7 @@
 
 #include "src/compiler/pipeline.h"
 
-#include <fstream>  // NOLINT(readability/streams)
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -1340,7 +1340,7 @@ struct GraphBuilderPhase {
       flags |= BytecodeGraphBuilderFlag::kBailoutOnUninitialized;
     }
 
-    JSFunctionRef closure(data->broker(), data->info()->closure());
+    JSFunctionRef closure = MakeRef(data->broker(), data->info()->closure());
     CallFrequency frequency(1.0f);
     BuildGraphFromBytecode(
         data->broker(), temp_zone, closure.shared(),
@@ -1550,8 +1550,8 @@ struct SerializationPhase {
         data->zone_stats(), data->broker(), data->dependencies(),
         data->info()->closure(), flags, data->info()->osr_offset());
     if (data->specialization_context().IsJust()) {
-      ContextRef(data->broker(),
-                 data->specialization_context().FromJust().context);
+      MakeRef(data->broker(),
+              data->specialization_context().FromJust().context);
     }
     if (FLAG_turbo_concurrent_get_property_access_info) {
       data->broker()->ClearCachedPropertyAccessInfos();
@@ -2650,7 +2650,8 @@ bool PipelineImpl::CreateGraph() {
 
   // Determine the Typer operation flags.
   {
-    SharedFunctionInfoRef shared_info(data->broker(), info()->shared_info());
+    SharedFunctionInfoRef shared_info =
+        MakeRef(data->broker(), info()->shared_info());
     if (is_sloppy(shared_info.language_mode()) &&
         shared_info.IsUserJavaScript()) {
       // Sloppy mode functions always have an Object for this.

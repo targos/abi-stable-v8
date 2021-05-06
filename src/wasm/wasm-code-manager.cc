@@ -225,8 +225,8 @@ void WasmCode::LogCode(Isolate* isolate, const char* source_url,
 
   ModuleWireBytes wire_bytes(native_module_->wire_bytes());
   const WasmModule* module = native_module_->module();
-  WireBytesRef name_ref = module->lazily_generated_names.LookupFunctionName(
-      wire_bytes, index(), VectorOf(module->export_table));
+  WireBytesRef name_ref =
+      module->lazily_generated_names.LookupFunctionName(wire_bytes, index());
   WasmName name = wire_bytes.GetNameOrNull(name_ref);
 
   const WasmDebugSymbols& debug_symbols = module->debug_symbols;
@@ -1162,7 +1162,7 @@ WasmCode* NativeModule::PublishCodeLocked(
   // guaranteed to be valid.
   WasmCodeRefScope::AddRef(code);
 
-  if (code->IsAnonymous() || code->index() < module_->num_imported_functions) {
+  if (code->index() < static_cast<int>(module_->num_imported_functions)) {
     return code;
   }
 

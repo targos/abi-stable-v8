@@ -1638,8 +1638,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                         JSFunction::kSizeWithPrototype, 0, prototype,
                         Builtins::kFunctionConstructor);
     // Function instances are sloppy by default.
-    function_fun->set_prototype_or_initial_map(
-        *isolate_->sloppy_function_map());
+    function_fun->set_prototype_or_initial_map(*isolate_->sloppy_function_map(),
+                                               kReleaseStore);
     function_fun->shared().DontAdaptArguments();
     function_fun->shared().set_length(1);
     InstallWithIntrinsicDefaultProto(isolate_, function_fun,
@@ -4168,7 +4168,7 @@ void Genesis::InitializeIteratorFunctions() {
         JSFunction::kSizeWithPrototype, 0, generator_function_prototype,
         Builtins::kGeneratorFunctionConstructor);
     generator_function_function->set_prototype_or_initial_map(
-        native_context->generator_function_map());
+        native_context->generator_function_map(), kReleaseStore);
     generator_function_function->shared().DontAdaptArguments();
     generator_function_function->shared().set_length(1);
     InstallWithIntrinsicDefaultProto(
@@ -4197,7 +4197,7 @@ void Genesis::InitializeIteratorFunctions() {
         JSFunction::kSizeWithPrototype, 0, async_generator_function_prototype,
         Builtins::kAsyncGeneratorFunctionConstructor);
     async_generator_function_function->set_prototype_or_initial_map(
-        native_context->async_generator_function_map());
+        native_context->async_generator_function_map(), kReleaseStore);
     async_generator_function_function->shared().DontAdaptArguments();
     async_generator_function_function->shared().set_length(1);
     InstallWithIntrinsicDefaultProto(
@@ -4298,7 +4298,7 @@ void Genesis::InitializeIteratorFunctions() {
         JSFunction::kSizeWithPrototype, 0, async_function_prototype,
         Builtins::kAsyncFunctionConstructor);
     async_function_constructor->set_prototype_or_initial_map(
-        native_context->async_function_map());
+        native_context->async_function_map(), kReleaseStore);
     async_function_constructor->shared().DontAdaptArguments();
     async_function_constructor->shared().set_length(1);
     native_context->set_async_function_constructor(*async_function_constructor);
@@ -4521,6 +4521,32 @@ void Genesis::InitializeGlobal_harmony_relative_indexing_methods() {
                           Builtins::kTypedArrayPrototypeAt, 1, true);
   }
 }
+
+#ifdef V8_INTL_SUPPORT
+
+void Genesis::InitializeGlobal_harmony_intl_locale_info() {
+  if (!FLAG_harmony_intl_locale_info) return;
+  Handle<JSObject> prototype(
+      JSObject::cast(native_context()->intl_locale_function().prototype()),
+      isolate_);
+  SimpleInstallGetter(isolate(), prototype, factory()->calendars_string(),
+                      Builtins::kLocalePrototypeCalendars, true);
+  SimpleInstallGetter(isolate(), prototype, factory()->collations_string(),
+                      Builtins::kLocalePrototypeCollations, true);
+  SimpleInstallGetter(isolate(), prototype, factory()->hourCycles_string(),
+                      Builtins::kLocalePrototypeHourCycles, true);
+  SimpleInstallGetter(isolate(), prototype,
+                      factory()->numberingSystems_string(),
+                      Builtins::kLocalePrototypeNumberingSystems, true);
+  SimpleInstallGetter(isolate(), prototype, factory()->textInfo_string(),
+                      Builtins::kLocalePrototypeTextInfo, true);
+  SimpleInstallGetter(isolate(), prototype, factory()->timeZones_string(),
+                      Builtins::kLocalePrototypeTimeZones, true);
+  SimpleInstallGetter(isolate(), prototype, factory()->weekInfo_string(),
+                      Builtins::kLocalePrototypeWeekInfo, true);
+}
+
+#endif  // V8_INTL_SUPPORT
 
 Handle<JSFunction> Genesis::CreateArrayBuffer(
     Handle<String> name, ArrayBufferKind array_buffer_kind) {

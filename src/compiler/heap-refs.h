@@ -131,7 +131,7 @@ enum class RefSerializationKind {
   V(RegExpBoilerplateDescription, RefSerializationKind::kNeverSerialized) \
   V(ScopeInfo, RefSerializationKind::kNeverSerialized)                    \
   V(SharedFunctionInfo, RefSerializationKind::kNeverSerialized)           \
-  V(SourceTextModule, RefSerializationKind::kSerialized)                  \
+  V(SourceTextModule, RefSerializationKind::kNeverSerialized)             \
   V(TemplateObjectDescription, RefSerializationKind::kNeverSerialized)    \
   /* Subtypes of Object */                                                \
   V(HeapObject, RefSerializationKind::kBackgroundSerialized)
@@ -139,6 +139,8 @@ enum class RefSerializationKind {
 #define FORWARD_DECL(Name, ...) class Name##Ref;
 HEAP_BROKER_OBJECT_LIST(FORWARD_DECL)
 #undef FORWARD_DECL
+
+class ObjectRef;
 
 template <class T>
 struct ref_traits;
@@ -151,6 +153,16 @@ struct ref_traits;
   };
 HEAP_BROKER_OBJECT_LIST(REF_TRAITS)
 #undef REF_TYPE
+
+template <>
+struct ref_traits<Object> {
+  using ref_type = ObjectRef;
+  // Note: While a bit awkward, this artificial ref serialization kind value is
+  // okay: smis are never-serialized, and we never create raw non-smi
+  // ObjectRefs (they would at least be HeapObjectRefs instead).
+  static constexpr RefSerializationKind ref_serialization_kind =
+      RefSerializationKind::kNeverSerialized;
+};
 
 class V8_EXPORT_PRIVATE ObjectRef {
  public:
@@ -263,20 +275,11 @@ class HeapObjectType {
 
 // Constructors are carefully defined such that we do a type check on
 // the outermost Ref class in the inheritance chain only.
-#define DEFINE_REF_CONSTRUCTOR(name, base)                                  \
-  name##Ref(JSHeapBroker* broker, Handle<Object> object,                    \
-            BackgroundSerialization background_serialization =              \
-                BackgroundSerialization::kDisallowed,                       \
-            bool check_type = true)                                         \
-      : base(broker, object, background_serialization, false) {             \
+#define DEFINE_REF_CONSTRUCTOR(Name, Base)                                  \
+  Name##Ref(JSHeapBroker* broker, ObjectData* data, bool check_type = true) \
+      : Base(broker, data, false) {                                         \
     if (check_type) {                                                       \
-      CHECK(Is##name());                                                    \
-    }                                                                       \
-  }                                                                         \
-  name##Ref(JSHeapBroker* broker, ObjectData* data, bool check_type = true) \
-      : base(broker, data, false) {                                         \
-    if (check_type) {                                                       \
-      CHECK(Is##name());                                                    \
+      CHECK(Is##Name());                                                    \
     }                                                                       \
   }
 
@@ -686,10 +689,12 @@ class V8_EXPORT_PRIVATE MapRef : public HeapObjectRef {
   void SerializeBackPointer();
   HeapObjectRef GetBackPointer() const;
 
-  bool TrySerializePrototype();
   void SerializePrototype();
-  bool serialized_prototype() const;
-  HeapObjectRef prototype() const;
+  // TODO(neis): We should be able to remove TrySerializePrototype once
+  // concurrent-inlining is always on. Then we can also change the return type
+  // of prototype() back to HeapObjectRef.
+  bool TrySerializePrototype();
+  base::Optional<HeapObjectRef> prototype() const;
 
   void SerializeForElementLoad();
 
@@ -970,7 +975,7 @@ class SourceTextModuleRef : public HeapObjectRef {
   void Serialize();
 
   base::Optional<CellRef> GetCell(int cell_index) const;
-  ObjectRef import_meta() const;
+  base::Optional<ObjectRef> import_meta() const;
 };
 
 class TemplateObjectDescriptionRef : public HeapObjectRef {

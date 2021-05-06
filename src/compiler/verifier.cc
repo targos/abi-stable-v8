@@ -1500,6 +1500,15 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kAssertType:
       break;
 
+    case IrOpcode::kVerifyType:
+      if (NodeProperties::IsTyped(node)) {
+        Node* input = NodeProperties::GetValueInput(node, 0);
+        DCHECK(NodeProperties::IsTyped(input));
+        CHECK(NodeProperties::GetType(node).Equals(
+            NodeProperties::GetType(input)));
+      }
+      break;
+
     case IrOpcode::kCheckFloat64Hole:
       CheckValueInputIs(node, 0, Type::NumberOrHole());
       CheckTypeIs(node, Type::NumberOrUndefined());
@@ -1852,7 +1861,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // TODO(rossberg): Check.
       break;
   }
-}  // NOLINT(readability/fn_size)
+}
 
 void Verifier::Run(Graph* graph, Typing typing, CheckInputs check_inputs,
                    CodeType code_type) {
