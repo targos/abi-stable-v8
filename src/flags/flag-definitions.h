@@ -340,6 +340,13 @@ HARMONY_SHIPPING(FLAG_SHIPPING_FEATURES)
 DEFINE_BOOL(builtin_subclassing, true,
             "subclassing support in built-in methods")
 
+// If the following flag is set to `true`, the SharedArrayBuffer constructor is
+// enabled per context depending on the callback set via
+// `SetSharedArrayBufferConstructorEnabledCallback`. If no callback is set, the
+// SharedArrayBuffer constructor is disabled.
+DEFINE_BOOL(enable_sharedarraybuffer_per_context, false,
+            "enable the SharedArrayBuffer constructor per context")
+
 #ifdef V8_INTL_SUPPORT
 DEFINE_BOOL(icu_timezone_data, true, "get information about timezones from ICU")
 #endif
@@ -368,6 +375,9 @@ DEFINE_BOOL(icu_timezone_data, true, "get information about timezones from ICU")
 #define V8_SHARED_RO_HEAP_BOOL false
 #endif
 
+DEFINE_BOOL(disable_shared_ro_heap_for_testing, false,
+            "disables sharing of the read-only heap for testing")
+
 DEFINE_BOOL(lite_mode, V8_LITE_BOOL,
             "enables trade-off of performance for memory savings")
 
@@ -390,6 +400,8 @@ DEFINE_NEG_IMPLICATION(enable_third_party_heap, concurrent_inlining)
 DEFINE_NEG_IMPLICATION(enable_third_party_heap,
                        finalize_streaming_on_background)
 DEFINE_NEG_IMPLICATION(enable_third_party_heap, use_marking_progress_bar)
+DEFINE_NEG_IMPLICATION(enable_third_party_heap, move_object_start)
+DEFINE_NEG_IMPLICATION(enable_third_party_heap, concurrent_marking)
 
 DEFINE_BOOL_READONLY(enable_third_party_heap, V8_ENABLE_THIRD_PARTY_HEAP_BOOL,
                      "Use third-party heap")
@@ -856,7 +868,11 @@ DEFINE_VALUE_IMPLICATION(single_threaded, wasm_num_compilation_tasks, 0)
 DEFINE_DEBUG_BOOL(trace_wasm_native_heap, false,
                   "trace wasm native heap events")
 DEFINE_BOOL(wasm_write_protect_code_memory, false,
-            "write protect code memory on the wasm native heap")
+            "write protect code memory on the wasm native heap with mprotect")
+DEFINE_BOOL(wasm_memory_protection_keys, false,
+            "protect wasm code memory with PKU if available, no protection "
+            "without support; fallback to mprotect by adding "
+            "--wasm-write-protect-code-memory")
 DEFINE_DEBUG_BOOL(trace_wasm_serialization, false,
                   "trace serialization/deserialization")
 DEFINE_BOOL(wasm_async_compilation, true,

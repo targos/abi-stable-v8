@@ -123,7 +123,7 @@ enum class RefSerializationKind {
   V(FeedbackVector, RefSerializationKind::kNeverSerialized)               \
   V(FixedArrayBase, RefSerializationKind::kBackgroundSerialized)          \
   V(FunctionTemplateInfo, RefSerializationKind::kNeverSerialized)         \
-  V(HeapNumber, RefSerializationKind::kPossiblyBackgroundSerialized)      \
+  V(HeapNumber, RefSerializationKind::kBackgroundSerialized)              \
   V(JSReceiver, RefSerializationKind::kBackgroundSerialized)              \
   V(Map, RefSerializationKind::kBackgroundSerialized)                     \
   V(Name, RefSerializationKind::kNeverSerialized)                         \
@@ -467,6 +467,7 @@ class ContextRef : public HeapObjectRef {
 
 #define BROKER_COMPULSORY_NATIVE_CONTEXT_FIELDS(V) \
   V(JSFunction, array_function)                    \
+  V(JSFunction, function_prototype_apply)          \
   V(JSFunction, boolean_function)                  \
   V(JSFunction, bigint_function)                   \
   V(JSFunction, number_function)                   \

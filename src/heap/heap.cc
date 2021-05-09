@@ -2622,6 +2622,8 @@ bool Heap::ExternalStringTable::Contains(String string) {
 void Heap::UpdateExternalString(String string, size_t old_payload,
                                 size_t new_payload) {
   DCHECK(string.IsExternalString());
+  if (FLAG_enable_third_party_heap) return;
+
   Page* page = Page::FromHeapObject(string);
 
   if (old_payload > new_payload) {
@@ -4002,6 +4004,11 @@ void Heap::RemoveNearHeapLimitCallback(v8::NearHeapLimitCallback callback,
 void Heap::AppendArrayBufferExtension(JSArrayBuffer object,
                                       ArrayBufferExtension* extension) {
   array_buffer_sweeper_->Append(object, extension);
+}
+
+void Heap::DetachArrayBufferExtension(JSArrayBuffer object,
+                                      ArrayBufferExtension* extension) {
+  return array_buffer_sweeper_->Detach(object, extension);
 }
 
 void Heap::AutomaticallyRestoreInitialHeapLimit(double threshold_percent) {
@@ -6128,14 +6135,14 @@ class UnreachableObjectsFilter : public HeapObjectsFilter {
 
   bool SkipObject(HeapObject object) override {
     if (object.IsFreeSpaceOrFiller()) return true;
-    BasicMemoryChunk* chunk = BasicMemoryChunk::FromHeapObject(object);
+    Address chunk = object.ptr() & ~kLogicalChunkAlignmentMask;
     if (reachable_.count(chunk) == 0) return true;
     return reachable_[chunk]->count(object) == 0;
   }
 
  private:
   bool MarkAsReachable(HeapObject object) {
-    BasicMemoryChunk* chunk = BasicMemoryChunk::FromHeapObject(object);
+    Address chunk = object.ptr() & ~kLogicalChunkAlignmentMask;
     if (reachable_.count(chunk) == 0) {
       reachable_[chunk] = new std::unordered_set<HeapObject, Object::Hasher>();
     }
@@ -6143,6 +6150,12 @@ class UnreachableObjectsFilter : public HeapObjectsFilter {
     reachable_[chunk]->insert(object);
     return true;
   }
+
+  static constexpr intptr_t kLogicalChunkAlignment =
+      (static_cast<uintptr_t>(1) << kPageSizeBits);
+
+  static constexpr intptr_t kLogicalChunkAlignmentMask =
+      kLogicalChunkAlignment - 1;
 
   class MarkingVisitor : public ObjectVisitor, public RootVisitor {
    public:
@@ -6226,8 +6239,7 @@ class UnreachableObjectsFilter : public HeapObjectsFilter {
 
   Heap* heap_;
   DISALLOW_GARBAGE_COLLECTION(no_gc_)
-  std::unordered_map<BasicMemoryChunk*,
-                     std::unordered_set<HeapObject, Object::Hasher>*>
+  std::unordered_map<Address, std::unordered_set<HeapObject, Object::Hasher>*>
       reachable_;
 };
 
