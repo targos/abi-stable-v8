@@ -448,7 +448,7 @@ void PrintSloppyArgumentElements(std::ostream& os, ElementsKind kind,
      << "\n    1: arguments_store: " << Brief(arguments_store)
      << "\n    parameter to context slot map:";
   for (int i = 0; i < elements.length(); i++) {
-    Object mapped_entry = elements.mapped_entries(i);
+    Object mapped_entry = elements.mapped_entries(i, kRelaxedLoad);
     os << "\n    " << i << ": param(" << i << "): " << Brief(mapped_entry);
     if (mapped_entry.IsTheHole()) {
       os << " in the arguments_store[" << i << "]";
@@ -508,7 +508,7 @@ void JSObject::PrintElements(std::ostream& os) {
 
 #define PRINT_ELEMENTS(Type, type, TYPE, elementType)                         \
   case TYPE##_ELEMENTS: {                                                     \
-    size_t length = JSTypedArray::cast(*this).length();                       \
+    size_t length = JSTypedArray::cast(*this).GetLength();                    \
     bool is_on_heap = JSTypedArray::cast(*this).is_on_heap();                 \
     const elementType* data_ptr =                                             \
         static_cast<const elementType*>(JSTypedArray::cast(*this).DataPtr()); \
@@ -516,6 +516,7 @@ void JSObject::PrintElements(std::ostream& os) {
     break;                                                                    \
   }
       TYPED_ARRAYS(PRINT_ELEMENTS)
+      RAB_GSAB_TYPED_ARRAYS(PRINT_ELEMENTS)
 #undef PRINT_ELEMENTS
 
     case DICTIONARY_ELEMENTS:
@@ -572,7 +573,7 @@ static void JSObjectPrintBody(std::ostream& os, JSObject obj,
   os << "}\n";
 
   if (print_elements) {
-    size_t length = obj.IsJSTypedArray() ? JSTypedArray::cast(obj).length()
+    size_t length = obj.IsJSTypedArray() ? JSTypedArray::cast(obj).GetLength()
                                          : obj.elements().length();
     if (length > 0) obj.PrintElements(os);
   }
@@ -774,6 +775,34 @@ void EmbedderDataArray::EmbedderDataArrayPrint(std::ostream& os) {
 
 void FixedArray::FixedArrayPrint(std::ostream& os) {
   PrintFixedArrayWithHeader(os, *this, "FixedArray");
+}
+
+namespace {
+const char* SideEffectType2String(SideEffectType type) {
+  switch (type) {
+    case SideEffectType::kHasSideEffect:
+      return "kHasSideEffect";
+    case SideEffectType::kHasNoSideEffect:
+      return "kHasNoSideEffect";
+    case SideEffectType::kHasSideEffectToReceiver:
+      return "kHasSideEffectToReceiver";
+  }
+}
+}  // namespace
+
+void AccessorInfo::AccessorInfoPrint(std::ostream& os) {
+  TorqueGeneratedAccessorInfo<AccessorInfo, Struct>::AccessorInfoPrint(os);
+  os << " - all_can_read: " << all_can_read();
+  os << "\n - all_can_write: " << all_can_write();
+  os << "\n - is_special_data_property: " << is_special_data_property();
+  os << "\n - is_sloppy: " << is_sloppy();
+  os << "\n - replace_on_access: " << replace_on_access();
+  os << "\n - getter_side_effect_type: "
+     << SideEffectType2String(getter_side_effect_type());
+  os << "\n - setter_side_effect_type: "
+     << SideEffectType2String(setter_side_effect_type());
+  os << "\n - initial_attributes: " << initial_property_attributes();
+  os << '\n';
 }
 
 namespace {
@@ -1391,6 +1420,7 @@ void JSArrayBuffer::JSArrayBufferPrint(std::ostream& os) {
   if (is_detachable()) os << "\n - detachable";
   if (was_detached()) os << "\n - detached";
   if (is_shared()) os << "\n - shared";
+  if (is_resizable()) os << "\n - resizable";
   JSObjectPrintBody(os, *this, !was_detached());
 }
 
@@ -1399,7 +1429,7 @@ void JSTypedArray::JSTypedArrayPrint(std::ostream& os) {
   os << "\n - buffer: " << Brief(buffer());
   os << "\n - byte_offset: " << byte_offset();
   os << "\n - byte_length: " << byte_length();
-  os << "\n - length: " << length();
+  os << "\n - length: " << GetLength();
   os << "\n - data_ptr: " << DataPtr();
   Tagged_t base_ptr = static_cast<Tagged_t>(base_pointer().ptr());
   os << "\n   - base_pointer: "
@@ -1411,6 +1441,8 @@ void JSTypedArray::JSTypedArrayPrint(std::ostream& os) {
     return;
   }
   if (WasDetached()) os << "\n - detached";
+  if (is_length_tracking()) os << "\n - length-tracking";
+  if (is_backed_by_rab()) os << "\n - backed-by-rab";
   JSObjectPrintBody(os, *this, !WasDetached());
 }
 
@@ -1737,7 +1769,7 @@ void SourceTextModule::SourceTextModulePrint(std::ostream& os) {
   os << "\n - script: " << Brief(script);
   os << "\n - origin: " << Brief(script.GetNameOrSourceURL());
   os << "\n - requested_modules: " << Brief(requested_modules());
-  os << "\n - import_meta: " << Brief(import_meta());
+  os << "\n - import_meta: " << Brief(import_meta(kAcquireLoad));
   os << "\n - cycle_root: " << Brief(cycle_root());
   os << "\n - async_evaluating_ordinal: " << async_evaluating_ordinal();
   os << "\n";
@@ -2771,6 +2803,22 @@ V8_EXPORT_PRIVATE extern i::Object _v8_internal_Get_Object(void* object) {
 
 V8_EXPORT_PRIVATE extern void _v8_internal_Print_Object(void* object) {
   GetObjectFromRaw(object).Print();
+}
+
+V8_EXPORT_PRIVATE extern void _v8_internal_Print_LoadHandler(void* object) {
+#ifdef OBJECT_PRINT
+  i::StdoutStream os;
+  i::LoadHandler::PrintHandler(GetObjectFromRaw(object), os);
+  os << std::flush;
+#endif
+}
+
+V8_EXPORT_PRIVATE extern void _v8_internal_Print_StoreHandler(void* object) {
+#ifdef OBJECT_PRINT
+  i::StdoutStream os;
+  i::StoreHandler::PrintHandler(GetObjectFromRaw(object), os);
+  os << std::flush;
+#endif
 }
 
 V8_EXPORT_PRIVATE extern void _v8_internal_Print_Code(void* object) {

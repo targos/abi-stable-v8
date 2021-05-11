@@ -3481,6 +3481,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   // Debug helpers
   TNode<BoolT> IsDebugActive();
+  TNode<BoolT> IsSideEffectFreeDebuggingActive();
 
   // JSArrayBuffer helpers
   TNode<RawPtrT> LoadJSArrayBufferBackingStorePtr(
@@ -3494,6 +3495,7 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
       TNode<JSArrayBufferView> array_buffer_view);
   TNode<UintPtrT> LoadJSArrayBufferViewByteLength(
       TNode<JSArrayBufferView> array_buffer_view);
+
   TNode<UintPtrT> LoadJSArrayBufferViewByteOffset(
       TNode<JSArrayBufferView> array_buffer_view);
   void ThrowIfArrayBufferViewBufferIsDetached(
@@ -3502,6 +3504,17 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
 
   // JSTypedArray helpers
   TNode<UintPtrT> LoadJSTypedArrayLength(TNode<JSTypedArray> typed_array);
+  // Helper for length tracking JSTypedArrays and JSTypedArrays backed by
+  // ResizableArrayBuffer.
+  TNode<UintPtrT> LoadVariableLengthJSTypedArrayLength(
+      TNode<JSTypedArray> array, TNode<JSArrayBuffer> buffer, Label* miss);
+  // Helper for length tracking JSTypedArrays and JSTypedArrays backed by
+  // ResizableArrayBuffer.
+  TNode<UintPtrT> LoadVariableLengthJSTypedArrayByteLength(
+      TNode<Context> context, TNode<JSTypedArray> array,
+      TNode<JSArrayBuffer> buffer);
+  TNode<IntPtrT> RabGsabElementsKindToElementByteSize(
+      TNode<Int32T> elementsKind);
   TNode<RawPtrT> LoadJSTypedArrayDataPtr(TNode<JSTypedArray> typed_array);
   TNode<JSArrayBuffer> GetTypedArrayBuffer(TNode<Context> context,
                                            TNode<JSTypedArray> array);
@@ -3743,12 +3756,10 @@ class V8_EXPORT_PRIVATE CodeStubAssembler
                                     const ForEachKeyValueFunction& body,
                                     Label* bailout);
 
-  TNode<Object> CallGetterIfAccessor(TNode<Object> value,
-                                     TNode<HeapObject> holder,
-                                     TNode<Uint32T> details,
-                                     TNode<Context> context,
-                                     TNode<Object> receiver, Label* if_bailout,
-                                     GetOwnPropertyMode mode = kCallJSGetter);
+  TNode<Object> CallGetterIfAccessor(
+      TNode<Object> value, TNode<HeapObject> holder, TNode<Uint32T> details,
+      TNode<Context> context, TNode<Object> receiver, TNode<Object> name,
+      Label* if_bailout, GetOwnPropertyMode mode = kCallJSGetter);
 
   TNode<IntPtrT> TryToIntptr(TNode<Object> key, Label* if_not_intptr,
                              TVariable<Int32T>* var_instance_type = nullptr);

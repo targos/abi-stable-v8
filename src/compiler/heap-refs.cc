@@ -2071,7 +2071,7 @@ void SourceTextModuleData::Serialize(JSHeapBroker* broker) {
   TRACE(broker, "Copied " << exports_.size() << " exports");
 
   DCHECK_NULL(import_meta_);
-  import_meta_ = broker->GetOrCreateData(module->import_meta());
+  import_meta_ = broker->GetOrCreateData(module->import_meta(kAcquireLoad));
   TRACE(broker, "Copied import_meta");
 }
 
@@ -2669,8 +2669,8 @@ void JSHeapBroker::InitializeAndStartSerializing(
     if (!data->should_access_heap()) data->AsPropertyCell()->Serialize(this);
   }
   GetOrCreateData(f->many_closures_cell());
-  GetOrCreateData(
-      CodeFactory::CEntry(isolate(), 1, kDontSaveFPRegs, kArgvOnStack, true));
+  GetOrCreateData(CodeFactory::CEntry(isolate(), 1, SaveFPRegsMode::kIgnore,
+                                      ArgvMode::kStack, true));
 
   TRACE(this, "Finished serializing standard objects");
 }
@@ -4001,7 +4001,7 @@ base::Optional<CellRef> SourceTextModuleRef::GetCell(int cell_index) const {
 
 base::Optional<ObjectRef> SourceTextModuleRef::import_meta() const {
   if (data_->should_access_heap()) {
-    return TryMakeRef(broker(), object()->import_meta());
+    return TryMakeRef(broker(), object()->import_meta(kAcquireLoad));
   }
   return ObjectRef(broker(),
                    data()->AsSourceTextModule()->GetImportMeta(broker()));

@@ -114,7 +114,7 @@ void Generate_JSBuiltinsConstructStubHelper(MacroAssembler* masm) {
     // r6: new target
     {
       ConstantPoolUnavailableScope constant_pool_unavailable(masm);
-      __ InvokeFunctionWithNewTarget(r4, r6, r3, CALL_FUNCTION);
+      __ InvokeFunctionWithNewTarget(r4, r6, r3, InvokeType::kCall);
     }
 
     // Restore context from the frame.
@@ -246,7 +246,7 @@ void Builtins::Generate_JSConstructStubGeneric(MacroAssembler* masm) {
   // Call the function.
   {
     ConstantPoolUnavailableScope constant_pool_unavailable(masm);
-    __ InvokeFunctionWithNewTarget(r4, r6, r3, CALL_FUNCTION);
+    __ InvokeFunctionWithNewTarget(r4, r6, r3, InvokeType::kCall);
   }
 
   // ----------- S t a t e -------------
@@ -348,7 +348,7 @@ void Builtins::Generate_ResumeGeneratorTrampoline(MacroAssembler* masm) {
   __ StoreTaggedField(
       r3, FieldMemOperand(r4, JSGeneratorObject::kInputOrDebugPosOffset), r0);
   __ RecordWriteField(r4, JSGeneratorObject::kInputOrDebugPosOffset, r3, r6,
-                      kLRHasNotBeenSaved, kDontSaveFPRegs);
+                      kLRHasNotBeenSaved, SaveFPRegsMode::kIgnore);
 
   // Load suspended function and context.
   __ LoadTaggedPointerField(
@@ -798,8 +798,8 @@ static void ReplaceClosureCodeWithOptimizedCode(MacroAssembler* masm,
                       FieldMemOperand(closure, JSFunction::kCodeOffset), r0);
   __ mr(scratch1, optimized_code);  // Write barrier clobbers scratch1 below.
   __ RecordWriteField(closure, JSFunction::kCodeOffset, scratch1, scratch2,
-                      kLRHasNotBeenSaved, kDontSaveFPRegs, OMIT_REMEMBERED_SET,
-                      OMIT_SMI_CHECK);
+                      kLRHasNotBeenSaved, SaveFPRegsMode::kIgnore,
+                      RememberedSetAction::kOmit, SmiCheck::kOmit);
 }
 
 static void LeaveInterpreterFrame(MacroAssembler* masm, Register scratch1,
@@ -2124,7 +2124,7 @@ void Builtins::Generate_CallFunction(MacroAssembler* masm,
 
   __ LoadHalfWord(
       r5, FieldMemOperand(r5, SharedFunctionInfo::kFormalParameterCountOffset));
-  __ InvokeFunctionCode(r4, no_reg, r5, r3, JUMP_FUNCTION);
+  __ InvokeFunctionCode(r4, no_reg, r5, r3, InvokeType::kJump);
 
   // The function is a "classConstructor", need to raise an exception.
   __ bind(&class_constructor);
@@ -2527,12 +2527,12 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   // sp: stack pointer  (restored as callee's sp after C call)
   // cp: current context  (C callee-saved)
   //
-  // If argv_mode == kArgvInRegister:
+  // If argv_mode == ArgvMode::kRegister:
   // r5: pointer to the first argument
 
   __ mr(r15, r4);
 
-  if (argv_mode == kArgvInRegister) {
+  if (argv_mode == ArgvMode::kRegister) {
     // Move argv into the correct register.
     __ mr(r4, r5);
   } else {
@@ -2556,7 +2556,7 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   }
 
   __ EnterExitFrame(
-      save_doubles, arg_stack_space,
+      save_doubles == SaveFPRegsMode::kSave, arg_stack_space,
       builtin_exit_frame ? StackFrame::BUILTIN_EXIT : StackFrame::EXIT);
 
   // Store a copy of argc in callee-saved registers for later.
@@ -2617,12 +2617,12 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   // r3:r4: result
   // sp: stack pointer
   // fp: frame pointer
-  Register argc = argv_mode == kArgvInRegister
+  Register argc = argv_mode == ArgvMode::kRegister
                       // We don't want to pop arguments so set argc to no_reg.
                       ? no_reg
                       // r14: still holds argc (callee-saved).
                       : r14;
-  __ LeaveExitFrame(save_doubles, argc);
+  __ LeaveExitFrame(save_doubles == SaveFPRegsMode::kSave, argc);
   __ blr();
 
   // Handling of exception.

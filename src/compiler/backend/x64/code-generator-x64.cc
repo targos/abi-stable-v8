@@ -276,9 +276,6 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
   }
 
   void Generate() final {
-    if (mode_ > RecordWriteMode::kValueIsPointer) {
-      __ JumpIfSmi(value_, exit());
-    }
     if (COMPRESS_POINTERS_BOOL) {
       __ DecompressTaggedPointer(value_, value_);
     }
@@ -288,10 +285,11 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
     __ leaq(scratch1_, operand_);
 
     RememberedSetAction const remembered_set_action =
-        mode_ > RecordWriteMode::kValueIsMap ? EMIT_REMEMBERED_SET
-                                             : OMIT_REMEMBERED_SET;
-    SaveFPRegsMode const save_fp_mode =
-        frame()->DidAllocateDoubleRegisters() ? kSaveFPRegs : kDontSaveFPRegs;
+        mode_ > RecordWriteMode::kValueIsMap ? RememberedSetAction::kEmit
+                                             : RememberedSetAction::kOmit;
+    SaveFPRegsMode const save_fp_mode = frame()->DidAllocateDoubleRegisters()
+                                            ? SaveFPRegsMode::kSave
+                                            : SaveFPRegsMode::kIgnore;
 
     if (mode_ == RecordWriteMode::kValueIsEphemeronKey) {
       __ CallEphemeronKeyBarrier(object_, scratch1_, save_fp_mode);
@@ -1016,7 +1014,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kArchSaveCallerRegisters: {
       fp_mode_ =
           static_cast<SaveFPRegsMode>(MiscField::decode(instr->opcode()));
-      DCHECK(fp_mode_ == kDontSaveFPRegs || fp_mode_ == kSaveFPRegs);
+      DCHECK(fp_mode_ == SaveFPRegsMode::kIgnore ||
+             fp_mode_ == SaveFPRegsMode::kSave);
       // kReturnRegister0 should have been saved before entering the stub.
       int bytes = __ PushCallerSaved(fp_mode_, kReturnRegister0);
       DCHECK(IsAligned(bytes, kSystemPointerSize));
@@ -1029,7 +1028,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kArchRestoreCallerRegisters: {
       DCHECK(fp_mode_ ==
              static_cast<SaveFPRegsMode>(MiscField::decode(instr->opcode())));
-      DCHECK(fp_mode_ == kDontSaveFPRegs || fp_mode_ == kSaveFPRegs);
+      DCHECK(fp_mode_ == SaveFPRegsMode::kIgnore ||
+             fp_mode_ == SaveFPRegsMode::kSave);
       // Don't overwrite the returned value.
       int bytes = __ PopCallerSaved(fp_mode_, kReturnRegister0);
       frame_access_state()->IncreaseSPDelta(-(bytes / kSystemPointerSize));
@@ -1190,6 +1190,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
                                                    scratch0, scratch1, mode,
                                                    DetermineStubCallMode());
       __ StoreTaggedField(operand, value);
+      if (mode > RecordWriteMode::kValueIsPointer) {
+        __ JumpIfSmi(value, ool->exit());
+      }
       __ CheckPageFlag(object, scratch0,
                        MemoryChunk::kPointersFromHereAreInterestingMask,
                        not_zero, ool->entry());
@@ -2415,42 +2418,17 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kX64F64x2Min: {
-      XMMRegister src1 = i.InputSimd128Register(1),
-                  dst = i.OutputSimd128Register();
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
-      // The minpd instruction doesn't propagate NaNs and +0's in its first
-      // operand. Perform minpd in both orders, merge the resuls, and adjust.
-      __ Movapd(kScratchDoubleReg, src1);
-      __ Minpd(kScratchDoubleReg, dst);
-      __ Minpd(dst, src1);
-      // propagate -0's and NaNs, which may be non-canonical.
-      __ Orpd(kScratchDoubleReg, dst);
-      // Canonicalize NaNs by quieting and clearing the payload.
-      __ Cmpunordpd(dst, kScratchDoubleReg);
-      __ Orpd(kScratchDoubleReg, dst);
-      __ Psrlq(dst, byte{13});
-      __ Andnpd(dst, kScratchDoubleReg);
+      // Avoids a move in no-AVX case if dst = src0.
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ F64x2Min(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                  i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64F64x2Max: {
-      XMMRegister src1 = i.InputSimd128Register(1),
-                  dst = i.OutputSimd128Register();
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
-      // The maxpd instruction doesn't propagate NaNs and +0's in its first
-      // operand. Perform maxpd in both orders, merge the resuls, and adjust.
-      __ Movapd(kScratchDoubleReg, src1);
-      __ Maxpd(kScratchDoubleReg, dst);
-      __ Maxpd(dst, src1);
-      // Find discrepancies.
-      __ Xorpd(dst, kScratchDoubleReg);
-      // Propagate NaNs, which may be non-canonical.
-      __ Orpd(kScratchDoubleReg, dst);
-      // Propagate sign discrepancy and (subtle) quiet NaNs.
-      __ Subpd(kScratchDoubleReg, dst);
-      // Canonicalize NaNs by clearing the payload. Sign is non-deterministic.
-      __ Cmpunordpd(dst, kScratchDoubleReg);
-      __ Psrlq(dst, byte{13});
-      __ Andnpd(dst, kScratchDoubleReg);
+      // Avoids a move in no-AVX case if dst = src0.
+      DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      __ F64x2Max(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                  i.InputSimd128Register(1), kScratchDoubleReg);
       break;
     }
     case kX64F64x2Eq: {

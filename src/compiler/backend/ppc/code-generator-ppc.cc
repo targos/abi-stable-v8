@@ -171,9 +171,6 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
 
   void Generate() final {
     ConstantPoolUnavailableScope constant_pool_unavailable(tasm());
-    if (mode_ > RecordWriteMode::kValueIsPointer) {
-      __ JumpIfSmi(value_, exit());
-    }
     if (COMPRESS_POINTERS_BOOL) {
       __ DecompressTaggedPointer(value_, value_);
     }
@@ -187,10 +184,11 @@ class OutOfLineRecordWrite final : public OutOfLineCode {
       __ add(scratch1_, object_, offset_);
     }
     RememberedSetAction const remembered_set_action =
-        mode_ > RecordWriteMode::kValueIsMap ? EMIT_REMEMBERED_SET
-                                             : OMIT_REMEMBERED_SET;
-    SaveFPRegsMode const save_fp_mode =
-        frame()->DidAllocateDoubleRegisters() ? kSaveFPRegs : kDontSaveFPRegs;
+        mode_ > RecordWriteMode::kValueIsMap ? RememberedSetAction::kEmit
+                                             : RememberedSetAction::kOmit;
+    SaveFPRegsMode const save_fp_mode = frame()->DidAllocateDoubleRegisters()
+                                            ? SaveFPRegsMode::kSave
+                                            : SaveFPRegsMode::kIgnore;
     if (must_save_lr_) {
       // We need to save and restore lr if the frame was elided.
       __ mflr(scratch0_);
@@ -981,7 +979,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kArchSaveCallerRegisters: {
       fp_mode_ =
           static_cast<SaveFPRegsMode>(MiscField::decode(instr->opcode()));
-      DCHECK(fp_mode_ == kDontSaveFPRegs || fp_mode_ == kSaveFPRegs);
+      DCHECK(fp_mode_ == SaveFPRegsMode::kIgnore ||
+             fp_mode_ == SaveFPRegsMode::kSave);
       // kReturnRegister0 should have been saved before entering the stub.
       int bytes = __ PushCallerSaved(fp_mode_, kReturnRegister0);
       DCHECK(IsAligned(bytes, kSystemPointerSize));
@@ -994,7 +993,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kArchRestoreCallerRegisters: {
       DCHECK(fp_mode_ ==
              static_cast<SaveFPRegsMode>(MiscField::decode(instr->opcode())));
-      DCHECK(fp_mode_ == kDontSaveFPRegs || fp_mode_ == kSaveFPRegs);
+      DCHECK(fp_mode_ == SaveFPRegsMode::kIgnore ||
+             fp_mode_ == SaveFPRegsMode::kSave);
       // Don't overwrite the returned value.
       int bytes = __ PopCallerSaved(fp_mode_, kReturnRegister0);
       frame_access_state()->IncreaseSPDelta(-(bytes / kSystemPointerSize));
@@ -1191,6 +1191,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
             this, object, offset, value, scratch0, scratch1, mode,
             DetermineStubCallMode(), &unwinding_info_writer_);
         __ StoreTaggedFieldX(value, MemOperand(object, offset), r0);
+      }
+      if (mode > RecordWriteMode::kValueIsPointer) {
+        __ JumpIfSmi(value, ool->exit());
       }
       __ CheckPageFlag(object, scratch0,
                        MemoryChunk::kPointersFromHereAreInterestingMask, ne,
@@ -4293,7 +4296,15 @@ void CodeGenerator::FinishCode() {}
 
 void CodeGenerator::PrepareForDeoptimizationExits(
     ZoneDeque<DeoptimizationExit*>* exits) {
-  // __ EmitConstantPool();
+  int total_size = 0;
+  for (DeoptimizationExit* exit : deoptimization_exits_) {
+    total_size += (exit->kind() == DeoptimizeKind::kLazy)
+                      ? Deoptimizer::kLazyDeoptExitSize
+                      : Deoptimizer::kNonLazyDeoptExitSize;
+  }
+
+  __ CheckTrampolinePoolQuick(total_size);
+  DCHECK(Deoptimizer::kSupportsFixedDeoptExitSizes);
 }
 
 void CodeGenerator::AssembleMove(InstructionOperand* source,

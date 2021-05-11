@@ -130,11 +130,7 @@ constexpr Builtins::Name WasmRuntimeStubIdToBuiltinName(
 #undef DEF_CASE
 #undef DEF_TRAP_CASE
     default:
-#if V8_HAS_CXX14_CONSTEXPR
       UNREACHABLE();
-#else
-      return Builtins::kAbort;
-#endif
   }
 }
 
@@ -3134,8 +3130,8 @@ Node* WasmGraphBuilder::BuildLoadCallTargetFromExportedFunctionData(
                                 Internals::kExternalPointerTableBufferOffset);
   Node* offset = gasm_->Int32Mul(index, gasm_->Int32Constant(8));
   Node* decoded_ptr = gasm_->Load(MachineType::Pointer(), table, offset);
-  Node* tag = gasm_->IntPtrConstant(kForeignForeignAddressTag);
-  return gasm_->WordXor(decoded_ptr, tag);
+  Node* tag = gasm_->IntPtrConstant(~kForeignForeignAddressTag);
+  return gasm_->WordAnd(decoded_ptr, tag);
 #else
   return gasm_->LoadFromObject(
       MachineType::Pointer(), function_data,
@@ -5289,12 +5285,7 @@ Node* WasmGraphBuilder::AtomicOp(wasm::WasmOpcode opcode, Node* const* inputs,
         case wasm::kExprI64AtomicWait:
           return {kSpecial, MachineType::Int64(), OperatorByType{nullptr}};
         default:
-#if V8_HAS_CXX14_CONSTEXPR
           UNREACHABLE();
-#else
-          // Return something for older GCC.
-          return {kSpecial, MachineType::Int64(), OperatorByType{nullptr}};
-#endif
       }
     }
   };

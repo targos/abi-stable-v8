@@ -332,7 +332,7 @@ void MacroAssembler::RecordWriteField(Register object, int offset,
   Label done;
 
   // Skip barrier if writing a smi.
-  if (smi_check == INLINE_SMI_CHECK) {
+  if (smi_check == SmiCheck::kInline) {
     JumpIfSmi(value, &done);
   }
 
@@ -350,7 +350,7 @@ void MacroAssembler::RecordWriteField(Register object, int offset,
   }
 
   RecordWrite(object, dst, value, save_fp, remembered_set_action,
-              OMIT_SMI_CHECK);
+              SmiCheck::kOmit);
 
   bind(&done);
 
@@ -390,8 +390,8 @@ void TurboAssembler::LoadExternalPointerField(
   movl(destination, field_operand);
   movq(destination, Operand(scratch, destination, times_8, 0));
   if (tag != 0) {
-    movq(scratch, Immediate64(tag));
-    xorq(destination, scratch);
+    movq(scratch, Immediate64(~tag));
+    andq(destination, scratch);
   }
 #else
   movq(destination, field_operand);
@@ -502,7 +502,7 @@ void MacroAssembler::RecordWrite(Register object, Register address,
   DCHECK(value != address);
   AssertNotSmi(object);
 
-  if ((remembered_set_action == OMIT_REMEMBERED_SET &&
+  if ((remembered_set_action == RememberedSetAction::kOmit &&
        !FLAG_incremental_marking) ||
       FLAG_disable_write_barriers) {
     return;
@@ -520,7 +520,7 @@ void MacroAssembler::RecordWrite(Register object, Register address,
   // catch stores of smis and stores into the young generation.
   Label done;
 
-  if (smi_check == INLINE_SMI_CHECK) {
+  if (smi_check == SmiCheck::kInline) {
     // Skip barrier if writing a smi.
     JumpIfSmi(value, &done);
   }
@@ -655,8 +655,8 @@ void MacroAssembler::JumpToExternalReference(const ExternalReference& ext,
                                              bool builtin_exit_frame) {
   // Set the entry point and jump to the C entry runtime stub.
   LoadAddress(rbx, ext);
-  Handle<Code> code = CodeFactory::CEntry(isolate(), 1, kDontSaveFPRegs,
-                                          kArgvOnStack, builtin_exit_frame);
+  Handle<Code> code = CodeFactory::CEntry(isolate(), 1, SaveFPRegsMode::kIgnore,
+                                          ArgvMode::kStack, builtin_exit_frame);
   Jump(code, RelocInfo::CODE_TARGET);
 }
 
@@ -678,7 +678,7 @@ int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
   }
 
   // R12 to r15 are callee save on all platforms.
-  if (fp_mode == kSaveFPRegs) {
+  if (fp_mode == SaveFPRegsMode::kSave) {
     bytes += kDoubleSize * XMMRegister::kNumRegisters;
   }
 
@@ -700,7 +700,7 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
   }
 
   // R12 to r15 are callee save on all platforms.
-  if (fp_mode == kSaveFPRegs) {
+  if (fp_mode == SaveFPRegsMode::kSave) {
     int delta = kDoubleSize * XMMRegister::kNumRegisters;
     AllocateStackSpace(delta);
     for (int i = 0; i < XMMRegister::kNumRegisters; i++) {
@@ -716,7 +716,7 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
 int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
                                    Register exclusion2, Register exclusion3) {
   int bytes = 0;
-  if (fp_mode == kSaveFPRegs) {
+  if (fp_mode == SaveFPRegsMode::kSave) {
     for (int i = 0; i < XMMRegister::kNumRegisters; i++) {
       XMMRegister reg = XMMRegister::from_code(i);
       Movsd(reg, Operand(rsp, i * kDoubleSize));
@@ -2763,32 +2763,32 @@ void TurboAssembler::PrepareForTailCall(Register callee_args_count,
 
 void MacroAssembler::InvokeFunction(Register function, Register new_target,
                                     Register actual_parameter_count,
-                                    InvokeFlag flag) {
+                                    InvokeType type) {
   LoadTaggedPointerField(
       rbx, FieldOperand(function, JSFunction::kSharedFunctionInfoOffset));
   movzxwq(rbx,
           FieldOperand(rbx, SharedFunctionInfo::kFormalParameterCountOffset));
 
-  InvokeFunction(function, new_target, rbx, actual_parameter_count, flag);
+  InvokeFunction(function, new_target, rbx, actual_parameter_count, type);
 }
 
 void MacroAssembler::InvokeFunction(Register function, Register new_target,
                                     Register expected_parameter_count,
                                     Register actual_parameter_count,
-                                    InvokeFlag flag) {
-  DCHECK(function == rdi);
+                                    InvokeType type) {
+  DCHECK_EQ(function, rdi);
   LoadTaggedPointerField(rsi,
                          FieldOperand(function, JSFunction::kContextOffset));
   InvokeFunctionCode(rdi, new_target, expected_parameter_count,
-                     actual_parameter_count, flag);
+                     actual_parameter_count, type);
 }
 
 void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
                                         Register expected_parameter_count,
                                         Register actual_parameter_count,
-                                        InvokeFlag flag) {
+                                        InvokeType type) {
   // You can't call a function without a valid frame.
-  DCHECK_IMPLIES(flag == CALL_FUNCTION, has_frame());
+  DCHECK_IMPLIES(type == InvokeType::kCall, has_frame());
   DCHECK_EQ(function, rdi);
   DCHECK_IMPLIES(new_target.is_valid(), new_target == rdx);
 
@@ -2810,17 +2810,19 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
   }
 
   Label done;
-  InvokePrologue(expected_parameter_count, actual_parameter_count, &done, flag);
+  InvokePrologue(expected_parameter_count, actual_parameter_count, &done, type);
   // We call indirectly through the code field in the function to
   // allow recompilation to take effect without changing any of the
   // call sites.
   static_assert(kJavaScriptCallCodeStartRegister == rcx, "ABI mismatch");
   LoadTaggedPointerField(rcx, FieldOperand(function, JSFunction::kCodeOffset));
-  if (flag == CALL_FUNCTION) {
-    CallCodeObject(rcx);
-  } else {
-    DCHECK(flag == JUMP_FUNCTION);
-    JumpCodeObject(rcx);
+  switch (type) {
+    case InvokeType::kCall:
+      CallCodeObject(rcx);
+      break;
+    case InvokeType::kJump:
+      JumpCodeObject(rcx);
+      break;
   }
   jmp(&done, Label::kNear);
 
@@ -2873,7 +2875,7 @@ void MacroAssembler::StackOverflowCheck(
 
 void MacroAssembler::InvokePrologue(Register expected_parameter_count,
                                     Register actual_parameter_count,
-                                    Label* done, InvokeFlag flag) {
+                                    Label* done, InvokeType type) {
   if (expected_parameter_count != actual_parameter_count) {
     Label regular_invoke;
     // If the expected parameter count is equal to the adaptor sentinel, no need
@@ -2899,7 +2901,7 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
            Operand(expected_parameter_count, times_system_pointer_size, 0));
       AllocateStackSpace(kScratchRegister);
       // Extra words are the receiver and the return address (if a jump).
-      int extra_words = flag == CALL_FUNCTION ? 1 : 2;
+      int extra_words = type == InvokeType::kCall ? 1 : 2;
       leaq(num, Operand(rax, extra_words));  // Number of words to copy.
       Set(current, 0);
       // Fall-through to the loop body because there are non-zero words to copy.

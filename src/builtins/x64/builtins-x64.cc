@@ -119,7 +119,7 @@ void Generate_JSBuiltinsConstructStubHelper(MacroAssembler* masm) {
     // rax: number of arguments (untagged)
     // rdi: constructor function
     // rdx: new target
-    __ InvokeFunction(rdi, rdx, rax, CALL_FUNCTION);
+    __ InvokeFunction(rdi, rdx, rax, InvokeType::kCall);
 
     // Restore smi-tagged arguments count from the frame.
     __ movq(rbx, Operand(rbp, ConstructFrameConstants::kLengthOffset));
@@ -243,7 +243,7 @@ void Builtins::Generate_JSConstructStubGeneric(MacroAssembler* masm) {
   __ Push(r8);
 
   // Call the function.
-  __ InvokeFunction(rdi, rdx, rax, CALL_FUNCTION);
+  __ InvokeFunction(rdi, rdx, rax, InvokeType::kCall);
 
   // ----------- S t a t e -------------
   //  -- rax                 constructor result
@@ -384,6 +384,7 @@ void Generate_JSEntryVariant(MacroAssembler* masm, StackFrame::Type type,
 
 #ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
     // Initialize the pointer cage base register.
+    // TODO(syg): Actually make a cage.
     __ LoadRootRelative(kPtrComprCageBaseRegister,
                         IsolateData::cage_base_offset());
 #endif
@@ -688,7 +689,7 @@ void Builtins::Generate_ResumeGeneratorTrampoline(MacroAssembler* masm) {
   __ StoreTaggedField(
       FieldOperand(rdx, JSGeneratorObject::kInputOrDebugPosOffset), rax);
   __ RecordWriteField(rdx, JSGeneratorObject::kInputOrDebugPosOffset, rax, rcx,
-                      kDontSaveFPRegs);
+                      SaveFPRegsMode::kIgnore);
 
   Register decompr_scratch1 = COMPRESS_POINTERS_BOOL ? r11 : no_reg;
 
@@ -837,7 +838,8 @@ static void ReplaceClosureCodeWithOptimizedCode(MacroAssembler* masm,
                       optimized_code);
   __ movq(scratch1, optimized_code);  // Write barrier clobbers scratch1 below.
   __ RecordWriteField(closure, JSFunction::kCodeOffset, scratch1, scratch2,
-                      kDontSaveFPRegs, OMIT_REMEMBERED_SET, OMIT_SMI_CHECK);
+                      SaveFPRegsMode::kIgnore, RememberedSetAction::kOmit,
+                      SmiCheck::kOmit);
 }
 
 static void LeaveInterpreterFrame(MacroAssembler* masm, Register scratch1,
@@ -1232,11 +1234,10 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   __ Move(
       kInterpreterDispatchTableRegister,
       ExternalReference::interpreter_dispatch_table_address(masm->isolate()));
-  __ movzxbq(kScratchRegister,
-             Operand(kInterpreterBytecodeArrayRegister,
-                     kInterpreterBytecodeOffsetRegister, times_1, 0));
+  __ movzxbq(r11, Operand(kInterpreterBytecodeArrayRegister,
+                          kInterpreterBytecodeOffsetRegister, times_1, 0));
   __ movq(kJavaScriptCallCodeStartRegister,
-          Operand(kInterpreterDispatchTableRegister, kScratchRegister,
+          Operand(kInterpreterDispatchTableRegister, r11,
                   times_system_pointer_size, 0));
   __ call(kJavaScriptCallCodeStartRegister);
   masm->isolate()->heap()->SetInterpreterEntryReturnPCOffset(masm->pc_offset());
@@ -1256,7 +1257,7 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
                           kInterpreterBytecodeOffsetRegister, times_1, 0));
   AdvanceBytecodeOffsetOrReturn(masm, kInterpreterBytecodeArrayRegister,
                                 kInterpreterBytecodeOffsetRegister, rbx, rcx,
-                                r8, &do_return);
+                                r11, &do_return);
   __ jmp(&do_dispatch);
 
   __ bind(&do_return);
@@ -1555,11 +1556,10 @@ static void Generate_InterpreterEnterBytecode(MacroAssembler* masm) {
   }
 
   // Dispatch to the target bytecode.
-  __ movzxbq(kScratchRegister,
-             Operand(kInterpreterBytecodeArrayRegister,
-                     kInterpreterBytecodeOffsetRegister, times_1, 0));
+  __ movzxbq(r11, Operand(kInterpreterBytecodeArrayRegister,
+                          kInterpreterBytecodeOffsetRegister, times_1, 0));
   __ movq(kJavaScriptCallCodeStartRegister,
-          Operand(kInterpreterDispatchTableRegister, kScratchRegister,
+          Operand(kInterpreterDispatchTableRegister, r11,
                   times_system_pointer_size, 0));
   __ jmp(kJavaScriptCallCodeStartRegister);
 }
@@ -1585,7 +1585,7 @@ void Builtins::Generate_InterpreterEnterAtNextBytecode(MacroAssembler* masm) {
   Label if_return;
   AdvanceBytecodeOffsetOrReturn(masm, kInterpreterBytecodeArrayRegister,
                                 kInterpreterBytecodeOffsetRegister, rbx, rcx,
-                                r8, &if_return);
+                                r11, &if_return);
 
   __ bind(&enter_bytecode);
   // Convert new bytecode offset to a Smi and save in the stackframe.
@@ -1615,23 +1615,12 @@ void Builtins::Generate_InterpreterEnterAtBytecode(MacroAssembler* masm) {
 
 // static
 void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
-  Register feedback_vector = r8;
-  Register optimization_state = rcx;
-  Register return_address = r15;
-
-#ifdef DEBUG
-  for (auto reg : BaselineOutOfLinePrologueDescriptor::registers()) {
-    DCHECK(
-        !AreAliased(feedback_vector, optimization_state, return_address, reg));
-  }
-#endif
-
   auto descriptor = Builtins::CallInterfaceDescriptorFor(
       Builtins::kBaselineOutOfLinePrologue);
   Register closure = descriptor.GetRegisterParameter(
       BaselineOutOfLinePrologueDescriptor::kClosure);
-
   // Load the feedback vector from the closure.
+  Register feedback_vector = r11;
   __ LoadTaggedPointerField(
       feedback_vector, FieldOperand(closure, JSFunction::kFeedbackCellOffset));
   __ LoadTaggedPointerField(feedback_vector,
@@ -1642,6 +1631,7 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   }
 
   // Check for an optimization marker.
+  Register optimization_state = rcx;
   Label has_optimized_code_or_marker;
   LoadOptimizationStateAndJumpIfNeedsProcessing(
       masm, optimization_state, feedback_vector, &has_optimized_code_or_marker);
@@ -1649,6 +1639,8 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   // Increment invocation count for the function.
   __ incl(
       FieldOperand(feedback_vector, FeedbackVector::kInvocationCountOffset));
+
+  Register return_address = r15;
 
   __ RecordComment("[ Frame Setup");
   // Save the return address, so that we can push it to the end of the newly
@@ -1729,8 +1721,8 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
     // return since we may do a runtime call along the way that requires the
     // stack to only contain valid frames.
     __ Drop(1);
-    MaybeOptimizeCodeOrTailCallOptimizedCodeSlot(
-        masm, optimization_state, feedback_vector, JumpMode::kPushAndReturn);
+    MaybeOptimizeCodeOrTailCallOptimizedCodeSlot(masm, rcx, feedback_vector,
+                                                 JumpMode::kPushAndReturn);
     __ Trap();
     __ RecordComment("]");
   }
@@ -2366,7 +2358,7 @@ void Builtins::Generate_CallFunction(MacroAssembler* masm,
   __ movzxwq(
       rbx, FieldOperand(rdx, SharedFunctionInfo::kFormalParameterCountOffset));
 
-  __ InvokeFunctionCode(rdi, no_reg, rbx, rax, JUMP_FUNCTION);
+  __ InvokeFunctionCode(rdi, no_reg, rbx, rax, InvokeType::kJump);
 
   // The function is a "classConstructor", need to raise an exception.
   __ bind(&class_constructor);
@@ -3546,7 +3538,7 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   // rsp: stack pointer  (restored after C call)
   // rsi: current context (restored)
   //
-  // If argv_mode == kArgvInRegister:
+  // If argv_mode == ArgvMode::kRegister:
   // r15: pointer to the first argument
 
 #ifdef V8_TARGET_OS_WIN
@@ -3577,15 +3569,15 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   int arg_stack_space =
       kArgExtraStackSpace +
       (result_size <= kMaxRegisterResultSize ? 0 : result_size);
-  if (argv_mode == kArgvInRegister) {
-    DCHECK(save_doubles == kDontSaveFPRegs);
+  if (argv_mode == ArgvMode::kRegister) {
+    DCHECK(save_doubles == SaveFPRegsMode::kIgnore);
     DCHECK(!builtin_exit_frame);
     __ EnterApiExitFrame(arg_stack_space);
     // Move argc into r12 (argv is already in r15).
     __ movq(r12, rax);
   } else {
     __ EnterExitFrame(
-        arg_stack_space, save_doubles == kSaveFPRegs,
+        arg_stack_space, save_doubles == SaveFPRegsMode::kSave,
         builtin_exit_frame ? StackFrame::BUILTIN_EXIT : StackFrame::EXIT);
   }
 
@@ -3649,7 +3641,8 @@ void Builtins::Generate_CEntry(MacroAssembler* masm, int result_size,
   }
 
   // Exit the JavaScript to C++ exit frame.
-  __ LeaveExitFrame(save_doubles == kSaveFPRegs, argv_mode == kArgvOnStack);
+  __ LeaveExitFrame(save_doubles == SaveFPRegsMode::kSave,
+                    argv_mode == ArgvMode::kStack);
   __ ret(0);
 
   // Handling of exception.
@@ -4434,18 +4427,6 @@ void Generate_BaselineEntry(MacroAssembler* masm, bool next_bytecode,
   // Get bytecode array from the stack frame.
   __ movq(kInterpreterBytecodeArrayRegister,
           MemOperand(rbp, InterpreterFrameConstants::kBytecodeArrayFromFp));
-
-  if (is_osr) {
-    // Reset the OSR loop nesting depth to disarm back edges. Do this before the
-    // call to the get_baseline_pc C function below, as the interpreter
-    // registers may be caller-save.
-    // TODO(pthier): Separate baseline Sparkplug from TF arming and don't disarm
-    // Sparkplug here.
-    __ movw(FieldOperand(kInterpreterBytecodeArrayRegister,
-                         BytecodeArray::kOsrNestingLevelOffset),
-            Immediate(0));
-  }
-
   {
     FrameScope scope(masm, StackFrame::INTERNAL);
     __ PrepareCallCFunction(3);
@@ -4459,6 +4440,12 @@ void Generate_BaselineEntry(MacroAssembler* masm, bool next_bytecode,
   __ popq(kInterpreterAccumulatorRegister);
 
   if (is_osr) {
+    // Reset the OSR loop nesting depth to disarm back edges.
+    // TODO(pthier): Separate baseline Sparkplug from TF arming and don't disarm
+    // Sparkplug here.
+    __ movw(FieldOperand(kInterpreterBytecodeArrayRegister,
+                         BytecodeArray::kOsrNestingLevelOffset),
+            Immediate(0));
     Generate_OSREntry(masm, code_obj);
   } else {
     __ jmp(code_obj);

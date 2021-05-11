@@ -5,6 +5,7 @@
 #include "src/heap/cppgc-js/cpp-heap.h"
 
 #include <cstdint>
+#include <memory>
 #include <numeric>
 
 #include "include/cppgc/heap-consistency.h"
@@ -30,6 +31,7 @@
 #include "src/heap/cppgc/marking-visitor.h"
 #include "src/heap/cppgc/object-allocator.h"
 #include "src/heap/cppgc/prefinalizer-handler.h"
+#include "src/heap/cppgc/raw-heap.h"
 #include "src/heap/cppgc/stats-collector.h"
 #include "src/heap/cppgc/sweeper.h"
 #include "src/heap/embedder-tracing.h"
@@ -69,20 +71,8 @@ cppgc::HeapStatistics CppHeap::CollectStatistics(
 void CppHeap::CollectCustomSpaceStatisticsAtLastGC(
     std::vector<cppgc::CustomSpaceIndex> custom_spaces,
     std::unique_ptr<CustomSpaceStatisticsReceiver> receiver) {
-  cppgc::internal::HeapBase& heap_base =
-      internal::CppHeap::From(this)->AsBase();
-  // TODO(1181269): Use tasks to help the sweeper incrementally instead of
-  // finalizing atomically.
-  heap_base.sweeper().FinishIfRunning();
-  for (auto custom_space_index : custom_spaces) {
-    const cppgc::internal::BaseSpace* space =
-        heap_base.raw_heap().CustomSpace(custom_space_index);
-    size_t allocated_bytes = std::accumulate(
-        space->begin(), space->end(), 0, [](size_t sum, auto* page) {
-          return sum + page->AllocatedBytesAtLastGC();
-        });
-    receiver->AllocatedBytes(custom_space_index, allocated_bytes);
-  }
+  return internal::CppHeap::From(this)->CollectCustomSpaceStatisticsAtLastGC(
+      std::move(custom_spaces), std::move(receiver));
 }
 
 void CppHeap::EnableDetachedGarbageCollectionsForTesting() {
@@ -362,8 +352,6 @@ bool CppHeap::IsTracingDone() { return marking_done_; }
 
 void CppHeap::EnterFinalPause(EmbedderStackState stack_state) {
   CHECK(!in_disallow_gc_scope());
-  cppgc::internal::StatsCollector::EnabledScope stats_scope(
-      stats_collector(), cppgc::internal::StatsCollector::kAtomicMark);
   in_atomic_pause_ = true;
   if (override_stack_state_) {
     stack_state = *override_stack_state_;
@@ -379,8 +367,6 @@ void CppHeap::TraceEpilogue(TraceSummary* trace_summary) {
   CHECK(in_atomic_pause_);
   CHECK(marking_done_);
   {
-    cppgc::internal::StatsCollector::EnabledScope stats_scope(
-        stats_collector(), cppgc::internal::StatsCollector::kAtomicMark);
     cppgc::subtle::DisallowGarbageCollectionScope disallow_gc_scope(*this);
     marker_->LeaveAtomicPause();
   }
@@ -501,6 +487,79 @@ void CppHeap::FinalizeIncrementalGarbageCollectionForTesting(
     CollectGarbageForTesting(stack_state);
   }
   sweeper_.FinishIfRunning();
+}
+
+namespace {
+
+void ReportCustomSpaceStatistics(
+    cppgc::internal::RawHeap& raw_heap,
+    std::vector<cppgc::CustomSpaceIndex> custom_spaces,
+    std::unique_ptr<CustomSpaceStatisticsReceiver> receiver) {
+  for (auto custom_space_index : custom_spaces) {
+    const cppgc::internal::BaseSpace* space =
+        raw_heap.CustomSpace(custom_space_index);
+    size_t allocated_bytes = std::accumulate(
+        space->begin(), space->end(), 0, [](size_t sum, auto* page) {
+          return sum + page->AllocatedBytesAtLastGC();
+        });
+    receiver->AllocatedBytes(custom_space_index, allocated_bytes);
+  }
+}
+
+class CollectCustomSpaceStatisticsAtLastGCTask final : public v8::Task {
+ public:
+  static constexpr v8::base::TimeDelta kTaskDelayMs =
+      v8::base::TimeDelta::FromMilliseconds(10);
+
+  CollectCustomSpaceStatisticsAtLastGCTask(
+      cppgc::internal::HeapBase& heap,
+      std::vector<cppgc::CustomSpaceIndex> custom_spaces,
+      std::unique_ptr<CustomSpaceStatisticsReceiver> receiver)
+      : heap_(heap),
+        custom_spaces_(std::move(custom_spaces)),
+        receiver_(std::move(receiver)) {}
+
+  void Run() final {
+    cppgc::internal::Sweeper& sweeper = heap_.sweeper();
+    if (sweeper.PerformSweepOnMutatorThread(kStepSizeMs.InSecondsF())) {
+      heap_.platform()->GetForegroundTaskRunner()->PostDelayedTask(
+          std::make_unique<CollectCustomSpaceStatisticsAtLastGCTask>(
+              heap_, std::move(custom_spaces_), std::move(receiver_)),
+          kTaskDelayMs.InSecondsF());
+    } else {
+      ReportCustomSpaceStatistics(heap_.raw_heap(), std::move(custom_spaces_),
+                                  std::move(receiver_));
+    }
+  }
+
+ private:
+  static constexpr v8::base::TimeDelta kStepSizeMs =
+      v8::base::TimeDelta::FromMilliseconds(5);
+
+  cppgc::internal::HeapBase& heap_;
+  std::vector<cppgc::CustomSpaceIndex> custom_spaces_;
+  std::unique_ptr<CustomSpaceStatisticsReceiver> receiver_;
+};
+
+constexpr v8::base::TimeDelta
+    CollectCustomSpaceStatisticsAtLastGCTask::kTaskDelayMs;
+constexpr v8::base::TimeDelta
+    CollectCustomSpaceStatisticsAtLastGCTask::kStepSizeMs;
+
+}  // namespace
+
+void CppHeap::CollectCustomSpaceStatisticsAtLastGC(
+    std::vector<cppgc::CustomSpaceIndex> custom_spaces,
+    std::unique_ptr<CustomSpaceStatisticsReceiver> receiver) {
+  if (sweeper().IsSweepingInProgress()) {
+    platform()->GetForegroundTaskRunner()->PostDelayedTask(
+        std::make_unique<CollectCustomSpaceStatisticsAtLastGCTask>(
+            AsBase(), std::move(custom_spaces), std::move(receiver)),
+        CollectCustomSpaceStatisticsAtLastGCTask::kTaskDelayMs.InSecondsF());
+    return;
+  }
+  ReportCustomSpaceStatistics(raw_heap(), std::move(custom_spaces),
+                              std::move(receiver));
 }
 
 }  // namespace internal

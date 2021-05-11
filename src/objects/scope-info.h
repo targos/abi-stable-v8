@@ -213,8 +213,8 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   // closest outer class when resolving private names.
   bool PrivateNameLookupSkipsOuterClass() const;
 
-  // REPL mode scopes allow re-declaraction of let variables. They come from
-  // debug evaluate but are different to IsDebugEvaluateScope().
+  // REPL mode scopes allow re-declaraction of let and const variables. They
+  // come from debug evaluate but are different to IsDebugEvaluateScope().
   bool IsReplModeScope() const;
 
 #ifdef DEBUG
@@ -313,7 +313,7 @@ class ScopeInfo : public TorqueGeneratedScopeInfo<ScopeInfo, HeapObject> {
   }
   static constexpr int ConvertOffsetToIndex(int offset) {
     int index = (offset - HeapObject::kHeaderSize) / kTaggedSize;
-    CONSTEXPR_DCHECK(OffsetOfElementAt(index) == offset);
+    DCHECK_EQ(OffsetOfElementAt(index), offset);
     return index;
   }
 
