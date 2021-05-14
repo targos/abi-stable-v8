@@ -210,7 +210,7 @@ UnifiedHeapMarker::UnifiedHeapMarker(Key key, Heap* v8_heap,
 
 void UnifiedHeapMarker::AddObject(void* object) {
   mutator_marking_state_.MarkAndPush(
-      cppgc::internal::HeapObjectHeader::FromPayload(object));
+      cppgc::internal::HeapObjectHeader::FromObject(object));
 }
 
 }  // namespace
@@ -428,12 +428,17 @@ void CppHeap::ReportBufferedAllocationSizeIfPossible() {
     return;
   }
 
-  if (buffered_allocated_bytes_ < 0) {
-    DecreaseAllocatedSize(static_cast<size_t>(-buffered_allocated_bytes_));
-  } else {
-    IncreaseAllocatedSize(static_cast<size_t>(buffered_allocated_bytes_));
-  }
+  // The calls below may trigger full GCs that are synchronous and also execute
+  // epilogue callbacks. Since such callbacks may allocate, the counter must
+  // already be zeroed by that time.
+  const int64_t bytes_to_report = buffered_allocated_bytes_;
   buffered_allocated_bytes_ = 0;
+
+  if (bytes_to_report < 0) {
+    DecreaseAllocatedSize(static_cast<size_t>(-bytes_to_report));
+  } else {
+    IncreaseAllocatedSize(static_cast<size_t>(bytes_to_report));
+  }
 }
 
 void CppHeap::CollectGarbageForTesting(

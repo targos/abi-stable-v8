@@ -14,6 +14,7 @@
 #include "src/objects/js-generator-inl.h"
 #include "src/objects/stack-frame-info-inl.h"
 #include "src/regexp/regexp-stack.h"
+#include "src/strings/string-builder-inl.h"
 
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/debug/debug-wasm-objects-inl.h"
@@ -56,6 +57,40 @@ Local<String> GetFunctionDebugName(Local<StackFrame> frame) {
   }
 #endif  // V8_ENABLE_WEBASSEMBLY
   return frame->GetFunctionName();
+}
+
+Local<String> GetFunctionDescription(Local<Function> function) {
+  auto receiver = Utils::OpenHandle(*function);
+  if (receiver->IsJSBoundFunction()) {
+    return Utils::ToLocal(i::JSBoundFunction::ToString(
+        i::Handle<i::JSBoundFunction>::cast(receiver)));
+  }
+  if (receiver->IsJSFunction()) {
+    auto function = i::Handle<i::JSFunction>::cast(receiver);
+#if V8_ENABLE_WEBASSEMBLY
+    if (function->shared().HasWasmExportedFunctionData()) {
+      auto isolate = function->GetIsolate();
+      auto func_index =
+          function->shared().wasm_exported_function_data().function_index();
+      auto instance = i::handle(
+          function->shared().wasm_exported_function_data().instance(), isolate);
+      if (instance->module()->origin == i::wasm::kWasmOrigin) {
+        // For asm.js functions, we can still print the source
+        // code (hopefully), so don't bother with them here.
+        auto debug_name =
+            i::GetWasmFunctionDebugName(isolate, instance, func_index);
+        i::IncrementalStringBuilder builder(isolate);
+        builder.AppendCString("function ");
+        builder.AppendString(debug_name);
+        builder.AppendCString("() { [native code] }");
+        return Utils::ToLocal(builder.Finish().ToHandleChecked());
+      }
+    }
+#endif  // V8_ENABLE_WEBASSEMBLY
+    return Utils::ToLocal(i::JSFunction::ToString(function));
+  }
+  return Utils::ToLocal(
+      receiver->GetIsolate()->factory()->function_native_code_string());
 }
 
 void SetBreakOnNextFunctionCall(Isolate* isolate) {

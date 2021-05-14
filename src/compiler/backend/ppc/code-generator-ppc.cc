@@ -1130,7 +1130,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     case kArchParentFramePointer:
       if (frame_access_state()->has_frame()) {
-        __ LoadP(i.OutputRegister(), MemOperand(fp, 0));
+        __ LoadU64(i.OutputRegister(), MemOperand(fp, 0));
       } else {
         __ mr(i.OutputRegister(), fp);
       }
@@ -1228,7 +1228,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
           __ LoadSimd128(i.OutputSimd128Register(), MemOperand(fp, ip));
         }
       } else {
-        __ LoadP(i.OutputRegister(), MemOperand(fp, offset), r0);
+        __ LoadU64(i.OutputRegister(), MemOperand(fp, offset), r0);
       }
       break;
     }
@@ -2795,15 +2795,11 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kPPC_S128Const: {
-      Simd128Register dst = i.OutputSimd128Register();
-      constexpr int lane_width_in_bytes = 8;
       uint64_t low = make_uint64(i.InputUint32(1), i.InputUint32(0));
       uint64_t high = make_uint64(i.InputUint32(3), i.InputUint32(2));
       __ mov(r0, Operand(low));
       __ mov(ip, Operand(high));
-      __ mtvsrd(dst, ip);
-      __ mtvsrd(kScratchSimd128Reg, r0);
-      __ vinsertd(dst, kScratchSimd128Reg, Operand(1 * lane_width_in_bytes));
+      __ mtvsrdd(i.OutputSimd128Register(), ip, r0);
       break;
     }
     case kPPC_S128Zero: {
@@ -2863,24 +2859,11 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kPPC_I64x2Neg: {
-      constexpr int lane_width_in_bytes = 8;
-      Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
-      __ li(kScratchReg, Operand(1));
-      __ mtvsrd(kScratchSimd128Reg, kScratchReg);
-      __ vinsertd(kScratchSimd128Reg, kScratchSimd128Reg,
-                  Operand(1 * lane_width_in_bytes));
-      // Perform negation.
-      __ vnor(tempFPReg1, i.InputSimd128Register(0), i.InputSimd128Register(0));
-      __ vaddudm(i.OutputSimd128Register(), tempFPReg1, kScratchSimd128Reg);
+      __ vnegd(i.OutputSimd128Register(), i.InputSimd128Register(0));
       break;
     }
     case kPPC_I32x4Neg: {
-      Simd128Register tempFPReg1 = i.ToSimd128Register(instr->TempAt(0));
-      __ li(ip, Operand(1));
-      __ mtvsrd(kScratchSimd128Reg, ip);
-      __ vspltw(kScratchSimd128Reg, kScratchSimd128Reg, Operand(1));
-      __ vnor(tempFPReg1, i.InputSimd128Register(0), i.InputSimd128Register(0));
-      __ vadduwm(i.OutputSimd128Register(), kScratchSimd128Reg, tempFPReg1);
+      __ vnegw(i.OutputSimd128Register(), i.InputSimd128Register(0));
       break;
     }
     case kPPC_I64x2Abs: {
@@ -4146,11 +4129,11 @@ void CodeGenerator::AssembleConstructFrame() {
       // check in the condition code.
       if ((required_slots * kSystemPointerSize) < (FLAG_stack_size * 1024)) {
         Register scratch = ip;
-        __ LoadP(
+        __ LoadU64(
             scratch,
             FieldMemOperand(kWasmInstanceRegister,
                             WasmInstanceObject::kRealStackLimitAddressOffset));
-        __ LoadP(scratch, MemOperand(scratch), r0);
+        __ LoadU64(scratch, MemOperand(scratch), r0);
         __ Add(scratch, scratch, required_slots * kSystemPointerSize, r0);
         __ cmpl(sp, scratch);
         __ bge(&done);
@@ -4261,7 +4244,7 @@ void CodeGenerator::AssembleReturn(InstructionOperand* additional_pop_count) {
     }
     if (drop_jsargs) {
       // Get the actual argument count.
-      __ LoadP(argc_reg, MemOperand(fp, StandardFrameConstants::kArgCOffset));
+      __ LoadU64(argc_reg, MemOperand(fp, StandardFrameConstants::kArgCOffset));
     }
     AssembleDeconstructFrame();
   }
@@ -4324,10 +4307,10 @@ void CodeGenerator::AssembleMove(InstructionOperand* source,
     DCHECK(destination->IsRegister() || destination->IsStackSlot());
     MemOperand src = g.ToMemOperand(source);
     if (destination->IsRegister()) {
-      __ LoadP(g.ToRegister(destination), src, r0);
+      __ LoadU64(g.ToRegister(destination), src, r0);
     } else {
       Register temp = kScratchReg;
-      __ LoadP(temp, src, r0);
+      __ LoadU64(temp, src, r0);
       __ StoreP(temp, g.ToMemOperand(destination), r0);
     }
   } else if (source->IsConstant()) {

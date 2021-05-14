@@ -1400,7 +1400,8 @@ static void InstallWithIntrinsicDefaultProto(Isolate* isolate,
   JSObject::AddProperty(isolate, function,
                         isolate->factory()->native_context_index_symbol(),
                         index, NONE);
-  isolate->native_context()->set(context_index, *function);
+  isolate->native_context()->set(context_index, *function, UPDATE_WRITE_BARRIER,
+                                 kReleaseStore);
 }
 
 static void InstallError(
@@ -1480,7 +1481,6 @@ static void InstallError(
 void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                                Handle<JSFunction> empty_function) {
   // --- N a t i v e   C o n t e x t ---
-  native_context()->set_previous(Context());
   // Set extension and global object.
   native_context()->set_extension(*global_object);
   // Security setup: Set the security token of the native context to the global
@@ -4122,7 +4122,8 @@ Handle<JSFunction> Genesis::InstallTypedArray(const char* name,
   Handle<Map> rab_gsab_initial_map = factory()->NewMap(
       JS_TYPED_ARRAY_TYPE, JSTypedArray::kSizeWithEmbedderFields,
       GetCorrespondingRabGsabElementsKind(elements_kind), 0);
-  native_context()->set(rab_gsab_initial_map_index, *rab_gsab_initial_map);
+  native_context()->set(rab_gsab_initial_map_index, *rab_gsab_initial_map,
+                        UPDATE_WRITE_BARRIER, kReleaseStore);
   Map::SetPrototype(isolate(), rab_gsab_initial_map, prototype);
 
   return result;

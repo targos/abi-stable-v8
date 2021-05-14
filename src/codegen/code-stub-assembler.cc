@@ -4787,7 +4787,11 @@ void CodeStubAssembler::MoveElements(ElementsKind kind,
                                      TNode<IntPtrT> length) {
   Label finished(this);
   Label needs_barrier(this);
+#ifdef V8_DISABLE_WRITE_BARRIERS
+  const bool needs_barrier_check = false;
+#else
   const bool needs_barrier_check = !IsDoubleElementsKind(kind);
+#endif  // V8_DISABLE_WRITE_BARRIERS
 
   DCHECK(IsFastElementsKind(kind));
   CSA_ASSERT(this, IsFixedArrayWithKind(elements, kind));
@@ -4872,7 +4876,11 @@ void CodeStubAssembler::CopyElements(ElementsKind kind,
                                      WriteBarrierMode write_barrier) {
   Label finished(this);
   Label needs_barrier(this);
+#ifdef V8_DISABLE_WRITE_BARRIERS
+  const bool needs_barrier_check = false;
+#else
   const bool needs_barrier_check = !IsDoubleElementsKind(kind);
+#endif  // V8_DISABLE_WRITE_BARRIERS
 
   DCHECK(IsFastElementsKind(kind));
   CSA_ASSERT(this, IsFixedArrayWithKind(dst_elements, kind));
@@ -8930,9 +8938,9 @@ void CodeStubAssembler::ForEachEnumerableOwnProperty(
           {
             Label slow_load(this, Label::kDeferred);
 
-            var_value = CallGetterIfAccessor(
-                var_value.value(), object, var_details.value(), context, object,
-                next_key, &slow_load, kCallJSGetter);
+            var_value = CallGetterIfAccessor(var_value.value(), object,
+                                             var_details.value(), context,
+                                             object, &slow_load, kCallJSGetter);
             Goto(&callback);
 
             BIND(&slow_load);
@@ -9384,8 +9392,8 @@ template void CodeStubAssembler::LoadPropertyFromDictionary(
 // result of the getter call.
 TNode<Object> CodeStubAssembler::CallGetterIfAccessor(
     TNode<Object> value, TNode<HeapObject> holder, TNode<Uint32T> details,
-    TNode<Context> context, TNode<Object> receiver, TNode<Object> name,
-    Label* if_bailout, GetOwnPropertyMode mode) {
+    TNode<Context> context, TNode<Object> receiver, Label* if_bailout,
+    GetOwnPropertyMode mode) {
   TVARIABLE(Object, var_value, value);
   Label done(this), if_accessor_info(this, Label::kDeferred);
 
@@ -9413,16 +9421,13 @@ TNode<Object> CodeStubAssembler::CallGetterIfAccessor(
 
       BIND(&if_callable);
       {
-        // Call the accessor. No need to check side-effect mode here, since it
-        // will be checked later in DebugOnFunctionCall.
+        // Call the accessor.
         var_value = Call(context, getter, receiver);
         Goto(&done);
       }
 
       BIND(&if_function_template_info);
       {
-        Label runtime(this, Label::kDeferred);
-        GotoIf(IsSideEffectFreeDebuggingActive(), &runtime);
         TNode<HeapObject> cached_property_name = LoadObjectField<HeapObject>(
             getter, FunctionTemplateInfo::kCachedPropertyNameOffset);
         GotoIfNot(IsTheHole(cached_property_name), if_bailout);
@@ -9433,13 +9438,6 @@ TNode<Object> CodeStubAssembler::CallGetterIfAccessor(
             Builtins::kCallFunctionTemplate_CheckAccessAndCompatibleReceiver,
             creation_context, getter, IntPtrConstant(0), receiver);
         Goto(&done);
-
-        BIND(&runtime);
-        {
-          var_value = CallRuntime(Runtime::kGetProperty, context, holder, name,
-                                  receiver);
-          Goto(&done);
-        }
       }
     } else {
       Goto(&done);
@@ -9574,7 +9572,7 @@ void CodeStubAssembler::TryGetOwnProperty(
     }
     TNode<Object> value =
         CallGetterIfAccessor(var_value->value(), object, var_details->value(),
-                             context, receiver, unique_name, if_bailout, mode);
+                             context, receiver, if_bailout, mode);
     *var_value = value;
     Goto(if_found_value);
   }
@@ -11133,6 +11131,8 @@ void CodeStubAssembler::TrapAllocationMemento(TNode<JSObject> object,
 
   // Bail out if the object is not in new space.
   TNode<IntPtrT> object_word = BitcastTaggedToWord(object);
+  // TODO(v8:11641): Skip TrapAllocationMemento when allocation-site
+  // tracking is disabled.
   TNode<IntPtrT> object_page = PageFromAddress(object_word);
   {
     TNode<IntPtrT> page_flags =
@@ -11190,6 +11190,7 @@ void CodeStubAssembler::TrapAllocationMemento(TNode<JSObject> object,
 }
 
 TNode<IntPtrT> CodeStubAssembler::PageFromAddress(TNode<IntPtrT> address) {
+  if (FLAG_enable_third_party_heap) Unreachable();
   return WordAnd(address, IntPtrConstant(~kPageAlignmentMask));
 }
 
@@ -14024,20 +14025,6 @@ TNode<BoolT> CodeStubAssembler::IsDebugActive() {
   TNode<Uint8T> is_debug_active = Load<Uint8T>(
       ExternalConstant(ExternalReference::debug_is_active_address(isolate())));
   return Word32NotEqual(is_debug_active, Int32Constant(0));
-}
-
-TNode<BoolT> CodeStubAssembler::IsSideEffectFreeDebuggingActive() {
-  TNode<Uint8T> debug_execution_mode = Load<Uint8T>(ExternalConstant(
-      ExternalReference::debug_execution_mode_address(isolate())));
-
-  TNode<BoolT> is_active =
-      Word32Equal(debug_execution_mode,
-                  Int32Constant(DebugInfo::ExecutionMode::kSideEffects));
-#ifdef DEBUG
-  CSA_ASSERT(this, Word32Or(IsDebugActive(), Word32BinaryNot(is_active)));
-#endif
-
-  return is_active;
 }
 
 TNode<BoolT> CodeStubAssembler::HasAsyncEventDelegate() {
