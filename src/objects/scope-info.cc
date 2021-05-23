@@ -626,8 +626,8 @@ Handle<ScopeInfo> ScopeInfo::RecreateWithBlockList(
   DCHECK(!original.is_null());
   if (original->HasLocalsBlockList()) return original;
 
-  Handle<ScopeInfo> scope_info =
-      isolate->factory()->NewScopeInfo(original->length() + 1);
+  int length = original->length() + 1;
+  Handle<ScopeInfo> scope_info = isolate->factory()->NewScopeInfo(length);
 
   // Copy the static part first and update the flags to include the
   // blocklist field, so {LocalsBlockListIndex} returns the correct value.
@@ -645,11 +645,10 @@ Handle<ScopeInfo> ScopeInfo::RecreateWithBlockList(
       scope_info->LocalsBlockListIndex() - kVariablePartIndex,
       WriteBarrierMode::UPDATE_WRITE_BARRIER);
   scope_info->set_locals_block_list(*blocklist);
-  scope_info->CopyElements(
-      isolate, scope_info->LocalsBlockListIndex() + 1, *original,
-      scope_info->LocalsBlockListIndex(),
-      scope_info->length() - scope_info->LocalsBlockListIndex() - 1,
-      WriteBarrierMode::UPDATE_WRITE_BARRIER);
+  scope_info->CopyElements(isolate, scope_info->LocalsBlockListIndex() + 1,
+                           *original, scope_info->LocalsBlockListIndex(),
+                           length - scope_info->LocalsBlockListIndex() - 1,
+                           WriteBarrierMode::UPDATE_WRITE_BARRIER);
   return scope_info;
 }
 
@@ -930,15 +929,10 @@ int ScopeInfo::ModuleIndex(String name, VariableMode* mode,
 
 // static
 int ScopeInfo::ContextSlotIndex(ScopeInfo scope_info, String name,
-                                VariableMode* mode,
-                                InitializationFlag* init_flag,
-                                MaybeAssignedFlag* maybe_assigned_flag,
-                                IsStaticFlag* is_static_flag) {
+                                VariableLookupResult* lookup_result) {
   DisallowGarbageCollection no_gc;
   DCHECK(name.IsInternalizedString());
-  DCHECK_NOT_NULL(mode);
-  DCHECK_NOT_NULL(init_flag);
-  DCHECK_NOT_NULL(maybe_assigned_flag);
+  DCHECK_NOT_NULL(lookup_result);
 
   if (scope_info.IsEmpty()) return -1;
 
@@ -947,10 +941,12 @@ int ScopeInfo::ContextSlotIndex(ScopeInfo scope_info, String name,
     if (name != scope_info.context_local_names(var)) {
       continue;
     }
-    *mode = scope_info.ContextLocalMode(var);
-    *is_static_flag = scope_info.ContextLocalIsStaticFlag(var);
-    *init_flag = scope_info.ContextLocalInitFlag(var);
-    *maybe_assigned_flag = scope_info.ContextLocalMaybeAssignedFlag(var);
+    lookup_result->mode = scope_info.ContextLocalMode(var);
+    lookup_result->is_static_flag = scope_info.ContextLocalIsStaticFlag(var);
+    lookup_result->init_flag = scope_info.ContextLocalInitFlag(var);
+    lookup_result->maybe_assigned_flag =
+        scope_info.ContextLocalMaybeAssignedFlag(var);
+    lookup_result->is_repl_mode = scope_info.IsReplModeScope();
     int result = scope_info.ContextHeaderLength() + var;
 
     DCHECK_LT(result, scope_info.ContextLength());

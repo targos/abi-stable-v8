@@ -540,11 +540,6 @@ DEFINE_BOOL(feedback_normalization, false,
 DEFINE_BOOL_READONLY(internalize_on_the_fly, true,
                      "internalize string keys for generic keyed ICs on the fly")
 
-// Flag for one shot optimiztions.
-DEFINE_BOOL(enable_one_shot_optimization, false,
-            "Enable size optimizations for the code that will "
-            "only be executed once")
-
 // Flag for sealed, frozen elements kind instead of dictionary elements kind
 DEFINE_BOOL_READONLY(enable_sealed_frozen_elements_kind, true,
                      "Enable sealed, frozen elements kind")
@@ -1594,7 +1589,7 @@ DEFINE_BOOL(
     "includes arguments for each function call in the error stack frames array")
 DEFINE_BOOL(adjust_os_scheduling_parameters, true,
             "adjust OS specific scheduling params for the isolate")
-DEFINE_BOOL(experimental_flush_embedded_blob_icache, false,
+DEFINE_BOOL(experimental_flush_embedded_blob_icache, true,
             "Used in an experiment to evaluate icache flushing on certain CPUs")
 
 // Flags for short builtin calls feature

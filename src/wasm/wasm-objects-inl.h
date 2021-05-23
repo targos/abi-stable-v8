@@ -36,9 +36,11 @@ namespace internal {
 
 OBJECT_CONSTRUCTORS_IMPL(WasmExceptionObject, JSObject)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmExceptionTag)
+OBJECT_CONSTRUCTORS_IMPL(WasmCapiFunctionData, WasmFunctionData)
 OBJECT_CONSTRUCTORS_IMPL(WasmExportedFunctionData, WasmFunctionData)
 OBJECT_CONSTRUCTORS_IMPL(WasmGlobalObject, JSObject)
 OBJECT_CONSTRUCTORS_IMPL(WasmInstanceObject, JSObject)
+OBJECT_CONSTRUCTORS_IMPL(WasmObject, HeapObject)
 OBJECT_CONSTRUCTORS_IMPL(WasmMemoryObject, JSObject)
 OBJECT_CONSTRUCTORS_IMPL(WasmModuleObject, JSObject)
 OBJECT_CONSTRUCTORS_IMPL(WasmTableObject, JSObject)
@@ -48,10 +50,12 @@ TQ_OBJECT_CONSTRUCTORS_IMPL(WasmTypeInfo)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmStruct)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmArray)
 
+CAST_ACCESSOR(WasmCapiFunctionData)
 CAST_ACCESSOR(WasmExceptionObject)
 CAST_ACCESSOR(WasmExportedFunctionData)
 CAST_ACCESSOR(WasmGlobalObject)
 CAST_ACCESSOR(WasmInstanceObject)
+CAST_ACCESSOR(WasmObject)
 CAST_ACCESSOR(WasmMemoryObject)
 CAST_ACCESSOR(WasmModuleObject)
 CAST_ACCESSOR(WasmTableObject)
@@ -316,6 +320,11 @@ ImportedFunctionEntry::ImportedFunctionEntry(
   DCHECK_LT(index, instance->module()->num_imported_functions);
 }
 
+// WasmCapiFunctionData
+ACCESSORS(WasmCapiFunctionData, embedder_data, Foreign, kEmbedderDataOffset)
+ACCESSORS(WasmCapiFunctionData, serialized_signature, PodArray<wasm::ValueType>,
+          kSerializedSignatureOffset)
+
 // WasmExceptionObject
 ACCESSORS(WasmExceptionObject, serialized_signature, PodArray<wasm::ValueType>,
           kSerializedSignatureOffset)
@@ -333,9 +342,9 @@ CAST_ACCESSOR(WasmExportedFunction)
 
 // WasmFunctionData
 ACCESSORS(WasmFunctionData, ref, Object, kRefOffset)
+ACCESSORS(WasmFunctionData, wrapper_code, Code, kWrapperCodeOffset)
 
 // WasmExportedFunctionData
-ACCESSORS(WasmExportedFunctionData, wrapper_code, Code, kWrapperCodeOffset)
 ACCESSORS(WasmExportedFunctionData, instance, WasmInstanceObject,
           kInstanceOffset)
 SMI_ACCESSORS(WasmExportedFunctionData, function_index, kFunctionIndexOffset)
@@ -363,7 +372,6 @@ SMI_ACCESSORS(WasmJSFunctionData, serialized_parameter_count,
               kSerializedParameterCountOffset)
 ACCESSORS(WasmJSFunctionData, serialized_signature, PodArray<wasm::ValueType>,
           kSerializedSignatureOffset)
-ACCESSORS(WasmJSFunctionData, wrapper_code, Code, kWrapperCodeOffset)
 ACCESSORS(WasmJSFunctionData, wasm_to_js_wrapper_code, Code,
           kWasmToJsWrapperCodeOffset)
 

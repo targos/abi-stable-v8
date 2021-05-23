@@ -402,7 +402,7 @@ void TurboAssembler::MultiPush(RegList regs, Register location) {
   for (int16_t i = Register::kNumRegisters - 1; i >= 0; i--) {
     if ((regs & (1 << i)) != 0) {
       stack_offset -= kSystemPointerSize;
-      StoreP(ToRegister(i), MemOperand(location, stack_offset));
+      StoreU64(ToRegister(i), MemOperand(location, stack_offset));
     }
   }
 }
@@ -525,7 +525,7 @@ void TurboAssembler::StoreTaggedFieldX(const Register& value,
     stwx(value, dst_field_operand);
     RecordComment("]");
   } else {
-    StorePX(value, dst_field_operand);
+    StoreU64(value, dst_field_operand);
   }
 }
 
@@ -537,7 +537,7 @@ void TurboAssembler::StoreTaggedField(const Register& value,
     StoreWord(value, dst_field_operand, scratch);
     RecordComment("]");
   } else {
-    StoreP(value, dst_field_operand, scratch);
+    StoreU64(value, dst_field_operand, scratch);
   }
 }
 
@@ -653,17 +653,15 @@ void TurboAssembler::RestoreRegisters(RegList registers) {
 
 void TurboAssembler::CallEphemeronKeyBarrier(Register object, Register address,
                                              SaveFPRegsMode fp_mode) {
-  EphemeronKeyBarrierDescriptor descriptor;
+  WriteBarrierDescriptor descriptor;
   RegList registers = descriptor.allocatable_registers();
 
   SaveRegisters(registers);
 
   Register object_parameter(
-      descriptor.GetRegisterParameter(EphemeronKeyBarrierDescriptor::kObject));
-  Register slot_parameter(descriptor.GetRegisterParameter(
-      EphemeronKeyBarrierDescriptor::kSlotAddress));
-  Register fp_mode_parameter(
-      descriptor.GetRegisterParameter(EphemeronKeyBarrierDescriptor::kFPMode));
+      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kObject));
+  Register slot_parameter(
+      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kSlotAddress));
 
   push(object);
   push(address);
@@ -671,51 +669,24 @@ void TurboAssembler::CallEphemeronKeyBarrier(Register object, Register address,
   pop(slot_parameter);
   pop(object_parameter);
 
-  Move(fp_mode_parameter, Smi::FromEnum(fp_mode));
-  Call(isolate()->builtins()->builtin_handle(Builtins::kEphemeronKeyBarrier),
+  Call(isolate()->builtins()->builtin_handle(
+           Builtins::GetEphemeronKeyBarrierStub(fp_mode)),
        RelocInfo::CODE_TARGET);
   RestoreRegisters(registers);
 }
 
 void TurboAssembler::CallRecordWriteStub(
     Register object, Register address,
-    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode) {
-  CallRecordWriteStub(object, address, remembered_set_action, fp_mode,
-                      Builtins::kRecordWrite, kNullAddress);
-}
-
-void TurboAssembler::CallRecordWriteStub(
-    Register object, Register address,
     RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
-    Address wasm_target) {
-  CallRecordWriteStub(object, address, remembered_set_action, fp_mode,
-                      Builtins::kNoBuiltinId, wasm_target);
-}
-
-void TurboAssembler::CallRecordWriteStub(
-    Register object, Register address,
-    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
-    int builtin_index, Address wasm_target) {
-  DCHECK_NE(builtin_index == Builtins::kNoBuiltinId,
-            wasm_target == kNullAddress);
-  // TODO(albertnetymk): For now we ignore remembered_set_action and fp_mode,
-  // i.e. always emit remember set and save FP registers in RecordWriteStub. If
-  // large performance regression is observed, we should use these values to
-  // avoid unnecessary work.
-
-  RecordWriteDescriptor descriptor;
+    StubCallMode mode) {
+  WriteBarrierDescriptor descriptor;
   RegList registers = descriptor.allocatable_registers();
-
   SaveRegisters(registers);
 
   Register object_parameter(
-      descriptor.GetRegisterParameter(RecordWriteDescriptor::kObject));
+      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kObject));
   Register slot_parameter(
-      descriptor.GetRegisterParameter(RecordWriteDescriptor::kSlot));
-  Register remembered_set_parameter(
-      descriptor.GetRegisterParameter(RecordWriteDescriptor::kRememberedSet));
-  Register fp_mode_parameter(
-      descriptor.GetRegisterParameter(RecordWriteDescriptor::kFPMode));
+      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kSlotAddress));
 
   push(object);
   push(address);
@@ -723,22 +694,31 @@ void TurboAssembler::CallRecordWriteStub(
   pop(slot_parameter);
   pop(object_parameter);
 
-  Move(remembered_set_parameter, Smi::FromEnum(remembered_set_action));
-  Move(fp_mode_parameter, Smi::FromEnum(fp_mode));
-  if (builtin_index == Builtins::kNoBuiltinId) {
+#if V8_ENABLE_WEBASSEMBLY
+  if (mode == StubCallMode::kCallWasmRuntimeStub) {
+    // Use {near_call} for direct Wasm call within a module.
+    auto wasm_target =
+        wasm::WasmCode::GetRecordWriteStub(remembered_set_action, fp_mode);
     Call(wasm_target, RelocInfo::WASM_STUB_CALL);
-  } else if (options().inline_offheap_trampolines) {
-    RecordCommentForOffHeapTrampoline(builtin_index);
-    EmbeddedData d = EmbeddedData::FromBlob();
-    Address entry = d.InstructionStartOfBuiltin(builtin_index);
-    // Use ip directly instead of using UseScratchRegisterScope, as we do
-    // not preserve scratch registers across calls.
-    mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
-    Call(ip);
+#else
+  if (false) {
+#endif
   } else {
-    Handle<Code> code_target =
-        isolate()->builtins()->builtin_handle(Builtins::kRecordWrite);
-    Call(code_target, RelocInfo::CODE_TARGET);
+    auto builtin_index =
+        Builtins::GetRecordWriteStub(remembered_set_action, fp_mode);
+    if (options().inline_offheap_trampolines) {
+      RecordCommentForOffHeapTrampoline(builtin_index);
+      EmbeddedData d = EmbeddedData::FromBlob();
+      Address entry = d.InstructionStartOfBuiltin(builtin_index);
+      // Use ip directly instead of using UseScratchRegisterScope, as we do
+      // not preserve scratch registers across calls.
+      mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      Call(ip);
+    } else {
+      Handle<Code> code_target =
+          isolate()->builtins()->builtin_handle(builtin_index);
+      Call(code_target, RelocInfo::CODE_TARGET);
+    }
   }
 
   RestoreRegisters(registers);
@@ -1224,20 +1204,20 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
 
   if (FLAG_debug_code) {
     li(r8, Operand::Zero());
-    StoreP(r8, MemOperand(fp, ExitFrameConstants::kSPOffset));
+    StoreU64(r8, MemOperand(fp, ExitFrameConstants::kSPOffset));
   }
   if (FLAG_enable_embedded_constant_pool) {
-    StoreP(kConstantPoolRegister,
-           MemOperand(fp, ExitFrameConstants::kConstantPoolOffset));
+    StoreU64(kConstantPoolRegister,
+             MemOperand(fp, ExitFrameConstants::kConstantPoolOffset));
   }
 
   // Save the frame pointer and the context in top.
   Move(r8, ExternalReference::Create(IsolateAddressId::kCEntryFPAddress,
                                      isolate()));
-  StoreP(fp, MemOperand(r8));
+  StoreU64(fp, MemOperand(r8));
   Move(r8,
        ExternalReference::Create(IsolateAddressId::kContextAddress, isolate()));
-  StoreP(cp, MemOperand(r8));
+  StoreU64(cp, MemOperand(r8));
 
   // Optionally save all volatile double registers.
   if (save_doubles) {
@@ -1265,7 +1245,7 @@ void MacroAssembler::EnterExitFrame(bool save_doubles, int stack_space,
   // Set the exit frame sp value to point just before the return address
   // location.
   addi(r8, sp, Operand((kStackFrameExtraParamSlot + 1) * kSystemPointerSize));
-  StoreP(r8, MemOperand(fp, ExitFrameConstants::kSPOffset));
+  StoreU64(r8, MemOperand(fp, ExitFrameConstants::kSPOffset));
 }
 
 int TurboAssembler::ActivationFrameAlignment() {
@@ -1301,7 +1281,7 @@ void MacroAssembler::LeaveExitFrame(bool save_doubles, Register argument_count,
   li(r6, Operand::Zero());
   Move(ip, ExternalReference::Create(IsolateAddressId::kCEntryFPAddress,
                                      isolate()));
-  StoreP(r6, MemOperand(ip));
+  StoreU64(r6, MemOperand(ip));
 
   // Restore current context from top and clear it in debug mode.
   Move(ip,
@@ -1312,7 +1292,7 @@ void MacroAssembler::LeaveExitFrame(bool save_doubles, Register argument_count,
   mov(r6, Operand(Context::kInvalidContext));
   Move(ip,
        ExternalReference::Create(IsolateAddressId::kContextAddress, isolate()));
-  StoreP(r6, MemOperand(ip));
+  StoreU64(r6, MemOperand(ip));
 #endif
 
   // Tear down the exit frame, pop the arguments, and return.
@@ -1490,7 +1470,7 @@ void MacroAssembler::CheckDebugHook(Register fun, Register new_target,
   ExternalReference debug_hook_active =
       ExternalReference::debug_hook_on_function_call_address(isolate());
   Move(r7, debug_hook_active);
-  LoadByte(r7, MemOperand(r7), r0);
+  LoadU8(r7, MemOperand(r7), r0);
   extsb(r7, r7);
   CmpSmiLiteral(r7, Smi::zero(), r0);
   beq(&skip_hook);
@@ -1581,9 +1561,9 @@ void MacroAssembler::InvokeFunctionWithNewTarget(
   LoadTaggedPointerField(
       temp_reg, FieldMemOperand(r4, JSFunction::kSharedFunctionInfoOffset));
   LoadTaggedPointerField(cp, FieldMemOperand(r4, JSFunction::kContextOffset));
-  LoadHalfWord(expected_reg,
-               FieldMemOperand(
-                   temp_reg, SharedFunctionInfo::kFormalParameterCountOffset));
+  LoadU16(expected_reg,
+          FieldMemOperand(temp_reg,
+                          SharedFunctionInfo::kFormalParameterCountOffset));
 
   InvokeFunctionCode(fun, new_target, expected_reg, actual_parameter_count,
                      type);
@@ -1621,7 +1601,7 @@ void MacroAssembler::PushStackHandler() {
   push(r0);
 
   // Set this new handler as the current one.
-  StoreP(sp, MemOperand(r3));
+  StoreU64(sp, MemOperand(r3));
 }
 
 void MacroAssembler::PopStackHandler() {
@@ -1631,7 +1611,7 @@ void MacroAssembler::PopStackHandler() {
   pop(r4);
   Move(ip,
        ExternalReference::Create(IsolateAddressId::kHandlerAddress, isolate()));
-  StoreP(r4, MemOperand(ip));
+  StoreU64(r4, MemOperand(ip));
 
   Drop(1);  // Drop padding.
 }
@@ -1658,7 +1638,7 @@ void MacroAssembler::CompareInstanceTypeRange(Register map, Register type_reg,
   DCHECK_LT(lower_limit, higher_limit);
   UseScratchRegisterScope temps(this);
   Register scratch = temps.Acquire();
-  LoadHalfWord(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
+  LoadU16(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
   mov(scratch, Operand(lower_limit));
   sub(scratch, type_reg, scratch);
   cmpli(scratch, Operand(higher_limit - lower_limit));
@@ -2106,8 +2086,8 @@ void TurboAssembler::PrepareCallCFunction(int num_reg_arguments,
     DCHECK(base::bits::IsPowerOfTwo(frame_alignment));
     ClearRightImm(sp, sp,
                   Operand(base::bits::WhichPowerOfTwo(frame_alignment)));
-    StoreP(scratch,
-           MemOperand(sp, stack_passed_arguments * kSystemPointerSize));
+    StoreU64(scratch,
+             MemOperand(sp, stack_passed_arguments * kSystemPointerSize));
   } else {
     // Make room for stack arguments
     stack_space += stack_passed_arguments;
@@ -2182,10 +2162,10 @@ void TurboAssembler::CallCFunctionHelper(Register function,
   // See x64 code for reasoning about how to address the isolate data fields.
   if (root_array_available()) {
     LoadPC(r0);
-    StoreP(r0, MemOperand(kRootRegister,
-                          IsolateData::fast_c_call_caller_pc_offset()));
-    StoreP(fp, MemOperand(kRootRegister,
-                          IsolateData::fast_c_call_caller_fp_offset()));
+    StoreU64(r0, MemOperand(kRootRegister,
+                            IsolateData::fast_c_call_caller_pc_offset()));
+    StoreU64(fp, MemOperand(kRootRegister,
+                            IsolateData::fast_c_call_caller_fp_offset()));
   } else {
     DCHECK_NOT_NULL(isolate());
     Push(addr_scratch);
@@ -2193,10 +2173,10 @@ void TurboAssembler::CallCFunctionHelper(Register function,
     Move(addr_scratch,
          ExternalReference::fast_c_call_caller_pc_address(isolate()));
     LoadPC(r0);
-    StoreP(r0, MemOperand(addr_scratch));
+    StoreU64(r0, MemOperand(addr_scratch));
     Move(addr_scratch,
          ExternalReference::fast_c_call_caller_fp_address(isolate()));
-    StoreP(fp, MemOperand(addr_scratch));
+    StoreU64(fp, MemOperand(addr_scratch));
     Pop(addr_scratch);
   }
   mtlr(scratch);
@@ -2226,7 +2206,7 @@ void TurboAssembler::CallCFunctionHelper(Register function,
   mov(zero_scratch, Operand::Zero());
 
   if (root_array_available()) {
-    StoreP(
+    StoreU64(
         zero_scratch,
         MemOperand(kRootRegister, IsolateData::fast_c_call_caller_fp_offset()));
   } else {
@@ -2234,7 +2214,7 @@ void TurboAssembler::CallCFunctionHelper(Register function,
     Push(addr_scratch);
     Move(addr_scratch,
          ExternalReference::fast_c_call_caller_fp_address(isolate()));
-    StoreP(zero_scratch, MemOperand(addr_scratch));
+    StoreU64(zero_scratch, MemOperand(addr_scratch));
     Pop(addr_scratch);
   }
 
@@ -2697,25 +2677,40 @@ void MacroAssembler::AndSmiLiteral(Register dst, Register src, Smi smi,
 // Load a "pointer" sized value from the memory location
 void TurboAssembler::LoadU64(Register dst, const MemOperand& mem,
                              Register scratch) {
-  DCHECK_EQ(mem.rb(), no_reg);
   int offset = mem.offset();
-  int misaligned = (offset & 3);
-  int adj = (offset & 3) - 4;
-  int alignedOffset = (offset & ~3) + 4;
+  if (mem.rb() == no_reg) {
+    int misaligned = (offset & 3);
+    int adj = (offset & 3) - 4;
+    int alignedOffset = (offset & ~3) + 4;
 
-  if (!is_int16(offset) || (misaligned && !is_int16(alignedOffset))) {
-    /* cannot use d-form */
-    mov(scratch, Operand(offset));
-    LoadPX(dst, MemOperand(mem.ra(), scratch));
-  } else {
-    if (misaligned) {
-      // adjust base to conform to offset alignment requirements
-      // Todo: enhance to use scratch if dst is unsuitable
-      DCHECK_NE(dst, r0);
-      addi(dst, mem.ra(), Operand(adj));
-      ld(dst, MemOperand(dst, alignedOffset));
+    if (!is_int16(offset) || (misaligned && !is_int16(alignedOffset))) {
+      /* cannot use d-form */
+      CHECK_NE(scratch, no_reg);
+      mov(scratch, Operand(offset));
+      ldx(dst, MemOperand(mem.ra(), scratch));
     } else {
-      ld(dst, mem);
+      if (misaligned) {
+        // adjust base to conform to offset alignment requirements
+        // Todo: enhance to use scratch if dst is unsuitable
+        DCHECK_NE(dst, r0);
+        addi(dst, mem.ra(), Operand(adj));
+        ld(dst, MemOperand(dst, alignedOffset));
+      } else {
+        ld(dst, mem);
+      }
+    }
+  } else {
+    if (offset == 0) {
+      ldx(dst, mem);
+    } else if (is_int16(offset)) {
+      CHECK_NE(scratch, no_reg);
+      addi(scratch, mem.rb(), Operand(offset));
+      ldx(dst, mem);
+    } else {
+      CHECK_NE(scratch, no_reg);
+      mov(scratch, Operand(offset));
+      add(scratch, scratch, mem.rb());
+      ldx(dst, MemOperand(mem.ra(), scratch));
     }
   }
 }
@@ -2739,35 +2734,33 @@ void TurboAssembler::LoadPU(Register dst, const MemOperand& mem,
 }
 
 // Store a "pointer" sized value to the memory location
-void TurboAssembler::StoreP(Register src, const MemOperand& mem,
-                            Register scratch) {
+void TurboAssembler::StoreU64(Register src, const MemOperand& mem,
+                              Register scratch) {
   int offset = mem.offset();
+  int misaligned = (offset & 3);
 
-  if (!is_int16(offset)) {
-    /* cannot use d-form */
-    DCHECK(scratch != no_reg);
-    mov(scratch, Operand(offset));
-    StorePX(src, MemOperand(mem.ra(), scratch));
-  } else {
-#if V8_TARGET_ARCH_PPC64
-    int misaligned = (offset & 3);
-    if (misaligned) {
-      // adjust base to conform to offset alignment requirements
-      // a suitable scratch is required here
-      DCHECK(scratch != no_reg);
-      if (scratch == r0) {
-        LoadIntLiteral(scratch, offset);
-        stdx(src, MemOperand(mem.ra(), scratch));
-      } else {
-        addi(scratch, mem.ra(), Operand((offset & 3) - 4));
-        std(src, MemOperand(scratch, (offset & ~3) + 4));
-      }
+  if (mem.rb() == no_reg) {
+    if (!is_int16(offset) || misaligned) {
+      /* cannot use d-form */
+      CHECK_NE(scratch, no_reg);
+      mov(scratch, Operand(offset));
+      stdx(src, MemOperand(mem.ra(), scratch));
     } else {
       std(src, mem);
     }
-#else
-    stw(src, mem);
-#endif
+  } else {
+    if (offset == 0) {
+      stdx(src, mem);
+    } else if (is_int16(offset)) {
+      CHECK_NE(scratch, no_reg);
+      addi(scratch, mem.rb(), Operand(offset));
+      stdx(src, MemOperand(mem.ra(), scratch));
+    } else {
+      CHECK_NE(scratch, no_reg);
+      mov(scratch, Operand(offset));
+      add(scratch, scratch, mem.rb());
+      stdx(src, MemOperand(mem.ra(), scratch));
+    }
   }
 }
 
@@ -2843,8 +2836,8 @@ void TurboAssembler::StoreWord(Register src, const MemOperand& mem,
   }
 }
 
-void MacroAssembler::LoadHalfWordArith(Register dst, const MemOperand& mem,
-                                       Register scratch) {
+void TurboAssembler::LoadS16(Register dst, const MemOperand& mem,
+                             Register scratch) {
   int offset = mem.offset();
 
   if (!is_int16(offset)) {
@@ -2858,14 +2851,14 @@ void MacroAssembler::LoadHalfWordArith(Register dst, const MemOperand& mem,
 
 // Variable length depending on whether offset fits into immediate field
 // MemOperand currently only supports d-form
-void MacroAssembler::LoadHalfWord(Register dst, const MemOperand& mem,
-                                  Register scratch) {
+void TurboAssembler::LoadU16(Register dst, const MemOperand& mem,
+                             Register scratch) {
   Register base = mem.ra();
   int offset = mem.offset();
 
   if (!is_int16(offset)) {
     DCHECK_NE(scratch, no_reg);
-    LoadIntLiteral(scratch, offset);
+    mov(scratch, Operand(offset));
     lhzx(dst, MemOperand(base, scratch));
   } else {
     lhz(dst, mem);
@@ -2889,13 +2882,13 @@ void MacroAssembler::StoreHalfWord(Register src, const MemOperand& mem,
 
 // Variable length depending on whether offset fits into immediate field
 // MemOperand currently only supports d-form
-void MacroAssembler::LoadByte(Register dst, const MemOperand& mem,
-                              Register scratch) {
+void TurboAssembler::LoadU8(Register dst, const MemOperand& mem,
+                            Register scratch) {
   Register base = mem.ra();
   int offset = mem.offset();
 
   if (!is_int16(offset)) {
-    LoadIntLiteral(scratch, offset);
+    mov(scratch, Operand(offset));
     lbzx(dst, MemOperand(base, scratch));
   } else {
     lbz(dst, mem);
@@ -3079,7 +3072,7 @@ void TurboAssembler::SwapP(Register src, MemOperand dst, Register scratch) {
   DCHECK(!AreAliased(src, scratch));
   mr(scratch, src);
   LoadU64(src, dst, r0);
-  StoreP(scratch, dst, r0);
+  StoreU64(scratch, dst, r0);
 }
 
 void TurboAssembler::SwapP(MemOperand src, MemOperand dst, Register scratch_0,
@@ -3102,15 +3095,15 @@ void TurboAssembler::SwapP(MemOperand src, MemOperand dst, Register scratch_0,
     }
     LoadU64(scratch_1, dst, scratch_0);
     LoadU64(scratch_0, src);
-    StoreP(scratch_1, src);
-    StoreP(scratch_0, dst, scratch_1);
+    StoreU64(scratch_1, src);
+    StoreU64(scratch_0, dst, scratch_1);
   } else {
     LoadU64(scratch_1, dst, scratch_0);
     push(scratch_1);
     LoadU64(scratch_0, src, scratch_1);
-    StoreP(scratch_0, dst, scratch_1);
+    StoreU64(scratch_0, dst, scratch_1);
     pop(scratch_1);
-    StoreP(scratch_1, src, scratch_0);
+    StoreU64(scratch_1, src, scratch_0);
   }
 }
 
@@ -3245,7 +3238,7 @@ void TurboAssembler::LoadEntryFromBuiltinIndex(Register builtin_index) {
   }
   addi(builtin_index, builtin_index,
        Operand(IsolateData::builtin_entry_table_offset()));
-  LoadPX(builtin_index, MemOperand(kRootRegister, builtin_index));
+  LoadU64(builtin_index, MemOperand(kRootRegister, builtin_index));
 }
 
 void TurboAssembler::CallBuiltinByIndex(Register builtin_index) {
@@ -3340,7 +3333,7 @@ void TurboAssembler::StoreReturnAddressAndCall(Register target) {
   LoadPC(r7);
   bind(&start_call);
   addi(r7, r7, Operand(after_call_offset));
-  StoreP(r7, MemOperand(sp, kStackFrameExtraParamSlot * kSystemPointerSize));
+  StoreU64(r7, MemOperand(sp, kStackFrameExtraParamSlot * kSystemPointerSize));
   Call(dest);
 
   DCHECK_EQ(after_call_offset - kInstrSize,

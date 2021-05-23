@@ -1291,7 +1291,6 @@ void Heap::GarbageCollectionEpilogueInSafepoint(GarbageCollector collector) {
 
   if (FLAG_print_global_handles) isolate_->global_handles()->Print();
   if (FLAG_print_handles) PrintHandles();
-  if (FLAG_gc_verbose) Print();
   if (FLAG_code_stats) ReportCodeStatistics("After GC");
   if (FLAG_check_handle_count) CheckHandleCount();
 #endif
@@ -4448,8 +4447,8 @@ void Heap::VerifyRememberedSetFor(HeapObject object) {
                                          &this->ephemeron_remembered_set_);
     object.IterateBody(&visitor);
   }
-  // TODO(ulan): Add old to old slot set verification once all weak objects
-  // have their own instance types and slots are recorded for all weal fields.
+  // TODO(v8:11797): Add old to old slot set verification once all weak objects
+  // have their own instance types and slots are recorded for all weak fields.
 }
 #endif
 
