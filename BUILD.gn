@@ -279,6 +279,10 @@ declare_args() {
   # Enable heap reservation of size 4GB. Only possible for 64bit archs.
   cppgc_enable_caged_heap = v8_current_cpu == "x64" || v8_current_cpu == "arm64"
 
+  # Enable verification of live bytes in the marking verifier.
+  # TODO(v8:11785): Enable by default when running with the verifier.
+  cppgc_enable_verify_live_bytes = false
+
   # Enable young generation in cppgc.
   cppgc_enable_young_generation = false
 
@@ -702,6 +706,10 @@ config("features") {
     ":v8_header_features",
     ":cppgc_header_features",
   ]
+
+  if (cppgc_enable_verify_live_bytes) {
+    defines += [ "CPPGC_VERIFY_LIVE_BYTES" ]
+  }
 
   if (v8_embedder_string != "") {
     defines += [ "V8_EMBEDDER_STRING=\"$v8_embedder_string\"" ]
@@ -3045,6 +3053,7 @@ v8_header_set("v8_internal_headers") {
     "src/tasks/task-utils.h",
     "src/third_party/siphash/halfsiphash.h",
     "src/third_party/utf8-decoder/utf8-decoder.h",
+    "src/torque/runtime-macro-shims.h",
     "src/tracing/trace-event.h",
     "src/tracing/traced-value.h",
     "src/tracing/tracing-category-observer.h",
@@ -4456,7 +4465,6 @@ v8_source_set("torque_base") {
     "src/torque/instructions.cc",
     "src/torque/instructions.h",
     "src/torque/parameter-difference.h",
-    "src/torque/runtime-macro-shims.h",
     "src/torque/server-data.cc",
     "src/torque/server-data.h",
     "src/torque/source-positions.cc",
@@ -5030,6 +5038,7 @@ v8_source_set("cppgc_base") {
     "src/heap/cppgc/object-poisoner.h",
     "src/heap/cppgc/object-size-trait.cc",
     "src/heap/cppgc/object-start-bitmap.h",
+    "src/heap/cppgc/object-view.h",
     "src/heap/cppgc/page-memory.cc",
     "src/heap/cppgc/page-memory.h",
     "src/heap/cppgc/persistent-node.cc",

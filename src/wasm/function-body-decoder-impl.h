@@ -575,18 +575,6 @@ struct BranchDepthImmediate {
 };
 
 template <Decoder::ValidateFlag validate>
-struct BranchOnExceptionImmediate {
-  BranchDepthImmediate<validate> depth;
-  ExceptionIndexImmediate<validate> index;
-  uint32_t length = 0;
-  inline BranchOnExceptionImmediate(Decoder* decoder, const byte* pc)
-      : depth(BranchDepthImmediate<validate>(decoder, pc)),
-        index(ExceptionIndexImmediate<validate>(decoder, pc + depth.length)) {
-    length = depth.length + index.length;
-  }
-};
-
-template <Decoder::ValidateFlag validate>
 struct FunctionIndexImmediate {
   uint32_t index = 0;
   uint32_t length = 1;
@@ -1093,6 +1081,7 @@ struct ControlBase : public PcForErrors<validate> {
   F(ReturnCallIndirect, const Value& index,                                    \
     const CallIndirectImmediate<validate>& imm, const Value args[])            \
   F(BrOnNull, const Value& ref_object, uint32_t depth)                         \
+  F(BrOnNonNull, const Value& ref_object, uint32_t depth)                      \
   F(SimdOp, WasmOpcode opcode, Vector<Value> args, Value* result)              \
   F(SimdLaneOp, WasmOpcode opcode, const SimdLaneImmediate<validate>& imm,     \
     const Vector<Value> inputs, Value* result)                                 \
@@ -1494,13 +1483,6 @@ class WasmDecoder : public Decoder {
     return checkAvailable(imm.table_count);
   }
 
-  inline bool Validate(const byte* pc,
-                       BranchOnExceptionImmediate<validate>& imm,
-                       size_t control_size) {
-    return Validate(pc, imm.depth, control_size) &&
-           Validate(pc + imm.depth.length, imm.index);
-  }
-
   inline bool Validate(const byte* pc, WasmOpcode opcode,
                        SimdLaneImmediate<validate>& imm) {
     uint8_t num_lanes = 0;
@@ -1697,6 +1679,7 @@ class WasmDecoder : public Decoder {
       case kExprBr:
       case kExprBrIf:
       case kExprBrOnNull:
+      case kExprBrOnNonNull:
       case kExprDelegate: {
         BranchDepthImmediate<validate> imm(decoder, pc + 1);
         return 1 + imm.length;
@@ -2031,6 +2014,7 @@ class WasmDecoder : public Decoder {
       case kExprBrIf:
       case kExprBrTable:
       case kExprIf:
+      case kExprBrOnNonNull:
         return {1, 0};
       case kExprLocalGet:
       case kExprGlobalGet:
@@ -2328,7 +2312,12 @@ class WasmFullDecoder : public WasmDecoder<validate> {
     }
   }
 
+  inline uint32_t pc_relative_offset() const {
+    return this->pc_offset() - first_instruction_offset;
+  }
+
  private:
+  uint32_t first_instruction_offset = 0;
   Interface interface_;
 
   // The value stack, stored as individual pointers for maximum performance.
@@ -2687,6 +2676,48 @@ class WasmFullDecoder : public WasmDecoder<validate> {
         PopTypeError(0, ref_object, "object reference");
         return 0;
     }
+    return 1 + imm.length;
+  }
+
+  DECODE(BrOnNonNull) {
+    CHECK_PROTOTYPE_OPCODE(gc);
+    BranchDepthImmediate<validate> imm(this, this->pc_ + 1);
+    if (!this->Validate(this->pc_ + 1, imm, control_.size())) return 0;
+    Value ref_object = Peek(0, 0, kWasmAnyRef);
+    Drop(ref_object);
+    // Typechecking the branch and creating the branch merges requires the
+    // non-null value on the stack, so we push it temporarily.
+    Value result = CreateValue(ref_object.type.AsNonNull());
+    Push(result);
+    Control* c = control_at(imm.depth);
+    if (!VALIDATE(TypeCheckBranch<true>(c, 0))) return 0;
+    switch (ref_object.type.kind()) {
+      case kBottom:
+        // We are in unreachable code. Do nothing.
+        DCHECK(!current_code_reachable_and_ok_);
+        break;
+      case kRef:
+        // For a non-nullable value, we always take the branch.
+        if (V8_LIKELY(current_code_reachable_and_ok_)) {
+          CALL_INTERFACE(Forward, ref_object, stack_value(1));
+          CALL_INTERFACE(BrOrRet, imm.depth, 0);
+          c->br_merge()->reached = true;
+        }
+        break;
+      case kOptRef: {
+        if (V8_LIKELY(current_code_reachable_and_ok_)) {
+          CALL_INTERFACE(Forward, ref_object, stack_value(1));
+          CALL_INTERFACE(BrOnNonNull, ref_object, imm.depth);
+          c->br_merge()->reached = true;
+        }
+        break;
+      }
+      default:
+        PopTypeError(0, ref_object, "object reference");
+        return 0;
+    }
+    // If we stay in the branch, {ref_object} is null. Drop it from the stack.
+    Drop(result);
     return 1 + imm.length;
   }
 
@@ -3398,6 +3429,7 @@ class WasmFullDecoder : public WasmDecoder<validate> {
     DECODE_IMPL(CatchAll);
     DECODE_IMPL(Unwind);
     DECODE_IMPL(BrOnNull);
+    DECODE_IMPL(BrOnNonNull);
     DECODE_IMPL(Let);
     DECODE_IMPL(Loop);
     DECODE_IMPL(If);
@@ -3479,6 +3511,7 @@ class WasmFullDecoder : public WasmDecoder<validate> {
       CALL_INTERFACE_IF_OK_AND_REACHABLE(StartFunctionBody, c);
     }
 
+    first_instruction_offset = this->pc_offset();
     // Decode the function body.
     while (this->pc_ < this->end_) {
       // Most operations only grow the stack by at least one element (unary and

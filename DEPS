@@ -47,7 +47,7 @@ vars = {
   'gn_version': 'git_revision:39a87c0b36310bdf06b692c098f199a0d97fc810',
 
   # luci-go CIPD package version.
-  'luci_go': 'git_revision:d7393d163ecb11c44626b3b221f86efdd2861565',
+  'luci_go': 'git_revision:bbac8f199026d706b08e53ca46d1a9560ae580d2',
 
   # Three lines of non-changing comments so that
   # the commit queue can handle CLs rolling android_sdk_build-tools_version
@@ -85,15 +85,15 @@ vars = {
 
 deps = {
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + '00d82806379a0b64f29a103a3bbeaf0e6c4ceea1',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + '30196c56522f436ec35bb5f596546392ae945209',
   'third_party/depot_tools':
-    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '5974ca02629f3b391ff58ad465157a6c637b68d6',
+    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '1fc595b55c8bc055594d7044f5605740d36f4f5d',
   'third_party/icu':
     Var('chromium_url') + '/chromium/deps/icu.git' + '@' + 'f022e298b4f4a782486bb6d5ce6589c998b51fe2',
   'third_party/instrumented_libraries':
-    Var('chromium_url') + '/chromium/src/third_party/instrumented_libraries.git' + '@' + '084aee04777db574038af9e9d33ca5caed577462',
+    Var('chromium_url') + '/chromium/src/third_party/instrumented_libraries.git' + '@' + '4ae2535e8e894c3cd81d46aacdaf151b5df30709',
   'buildtools':
-    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + 'b0912f95729164d4881525e9355f5019d31ea01b',
+    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + '20b1d0fc13ebaa263a1248f08814f523a86e6bed',
   'buildtools/clang_format/script':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/clang/tools/clang-format.git' + '@' + '99803d74e35962f63a775f29477882afd4d57d94',
   'buildtools/linux64': {
@@ -181,7 +181,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'third_party/catapult': {
-    'url': Var('chromium_url') + '/catapult.git' + '@' + 'affd272f9ee374467307e6b5af1f0c3f1b0c16e8',
+    'url': Var('chromium_url') + '/catapult.git' + '@' + 'a68a0035fc2d9f5fe360db514956c861f01b2803',
     'condition': 'checkout_android',
   },
   'third_party/colorama/src': {
@@ -208,7 +208,7 @@ deps = {
   'test/mozilla/data':
     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
   'test/test262/data':
-    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '70bc32edab22b44db9d671ce505db8842ae200b6',
+    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '6d353a4436747e2de8820efac27ae5ef7e601b60',
   'test/test262/harness':
     Var('chromium_url') + '/external/github.com/test262-utils/test262-harness-py.git' + '@' + '278bcfaed0dcaa13936831fb1769d15e7c1e3b2b',
   'third_party/qemu-linux-x64': {
@@ -235,7 +235,7 @@ deps = {
       'packages': [
           {
               'package': 'fuchsia/third_party/aemu/linux-amd64',
-              'version': 'JANUSSL6vlpZwl7eeXT1Jv3TTKfhHXjW18WlDQyun4kC'
+              'version': '-Sz2gSN_5yVSHDlitjxUlmZpHuz-F2kFDW6TnmggCZoC'
           },
       ],
       'condition': 'host_os == "linux" and checkout_fuchsia',
@@ -252,7 +252,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'tools/clang':
-    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'f6e0cbe7b7efe0ba94157937d701077aeaab2d5b',
+    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + '701e2be3d5f5e6284ece6fb7cda191ae50edde0d',
   'tools/luci-go': {
       'packages': [
         {
@@ -286,7 +286,7 @@ deps = {
   'third_party/protobuf':
     Var('chromium_url') + '/external/github.com/google/protobuf'+ '@' + '6a59a2ad1f61d9696092f79b6d74368b4d7970a3',
   'third_party/zlib':
-    Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + '3e6d3450728da422e14750860a479756948b7e3a',
+    Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + '298d9e6072378fe3fc9d4c5de41ef36a01c7a19d',
   'third_party/jsoncpp/source':
     Var('chromium_url') + '/external/github.com/open-source-parsers/jsoncpp.git'+ '@' + '9059f5cad030ba11d37818847443a53918c327b1',
   'third_party/ittapi': {
