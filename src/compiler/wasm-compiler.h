@@ -216,6 +216,16 @@ class WasmGraphBuilder {
     kWithNullCheck = true,
     kWithoutNullCheck = false
   };
+  enum BoundsCheckResult {
+    // Statically OOB.
+    kOutOfBounds,
+    // Dynamically checked (using 1-2 conditional branches).
+    kDynamicallyChecked,
+    // OOB handled via the trap handler.
+    kTrapHandler,
+    // Statically known to be in bounds.
+    kInBounds
+  };
 
   V8_EXPORT_PRIVATE WasmGraphBuilder(
       wasm::CompilationEnv* env, Zone* zone, MachineGraph* mcgraph,
@@ -454,7 +464,6 @@ class WasmGraphBuilder {
   Node* ArrayNewWithRtt(uint32_t array_index, const wasm::ArrayType* type,
                         Node* length, Node* initial_value, Node* rtt,
                         wasm::WasmCodePosition position);
-  void BoundsCheck(Node* array, Node* index, wasm::WasmCodePosition position);
   Node* ArrayGet(Node* array_object, const wasm::ArrayType* type, Node* index,
                  CheckForNull null_check, bool is_signed,
                  wasm::WasmCodePosition position);
@@ -462,6 +471,9 @@ class WasmGraphBuilder {
                 Node* value, CheckForNull null_check,
                 wasm::WasmCodePosition position);
   Node* ArrayLen(Node* array_object, CheckForNull null_check,
+                 wasm::WasmCodePosition position);
+  void ArrayCopy(Node* dst_array, Node* dst_index, Node* src_array,
+                 Node* src_index, Node* length,
                  wasm::WasmCodePosition position);
   Node* I31New(Node* input);
   Node* I31GetS(Node* input);
@@ -523,9 +535,14 @@ class WasmGraphBuilder {
   // offset fits in a platform-dependent uintptr_t.
   Node* MemBuffer(uintptr_t offset);
 
-  // BoundsCheckMem receives a uint32 {index} node and returns a ptrsize index.
-  Node* BoundsCheckMem(uint8_t access_size, Node* index, uint64_t offset,
-                       wasm::WasmCodePosition, EnforceBoundsCheck);
+  // BoundsCheckMem receives a 32/64-bit index (depending on
+  // WasmModule::is_memory64) and returns a ptrsize index and information about
+  // the kind of bounds check performed (or why none was needed).
+  std::pair<Node*, BoundsCheckResult> BoundsCheckMem(uint8_t access_size,
+                                                     Node* index,
+                                                     uint64_t offset,
+                                                     wasm::WasmCodePosition,
+                                                     EnforceBoundsCheck);
 
   Node* CheckBoundsAndAlignment(int8_t access_size, Node* index,
                                 uint64_t offset, wasm::WasmCodePosition);
@@ -669,6 +686,10 @@ class WasmGraphBuilder {
   void BrOnCastAbs(Node** match_control, Node** match_effect,
                    Node** no_match_control, Node** no_match_effect,
                    std::function<void(Callbacks)> type_checker);
+  void BoundsCheckArray(Node* array, Node* index,
+                        wasm::WasmCodePosition position);
+  void BoundsCheckArrayCopy(Node* array, Node* index, Node* length,
+                            wasm::WasmCodePosition position);
 
   // Asm.js specific functionality.
   Node* BuildI32AsmjsSConvertF32(Node* input);

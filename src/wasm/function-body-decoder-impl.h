@@ -49,14 +49,14 @@ struct WasmException;
     return true;                           \
   }())
 
-#define CHECK_PROTOTYPE_OPCODE(feat)                                       \
-  DCHECK(this->module_->origin == kWasmOrigin);                            \
-  if (!VALIDATE(this->enabled_.has_##feat())) {                            \
-    this->DecodeError(                                                     \
-        "Invalid opcode 0x%x (enable with --experimental-wasm-" #feat ")", \
-        opcode);                                                           \
-    return 0;                                                              \
-  }                                                                        \
+#define CHECK_PROTOTYPE_OPCODE(feat)                                         \
+  DCHECK(this->module_->origin == kWasmOrigin);                              \
+  if (!VALIDATE(this->enabled_.has_##feat())) {                              \
+    this->DecodeError(                                                       \
+        "Invalid opcode 0x%02x (enable with --experimental-wasm-" #feat ")", \
+        opcode);                                                             \
+    return 0;                                                                \
+  }                                                                          \
   this->detected_->Add(kFeature_##feat);
 
 #define ATOMIC_OP_LIST(V)                \
@@ -1134,6 +1134,8 @@ struct ControlBase : public PcForErrors<validate> {
     const ArrayIndexImmediate<validate>& imm, const Value& index,              \
     const Value& value)                                                        \
   F(ArrayLen, const Value& array_obj, Value* result)                           \
+  F(ArrayCopy, const Value& src, const Value& src_index, const Value& dst,     \
+    const Value& dst_index, const Value& length)                               \
   F(I31New, const Value& input, Value* result)                                 \
   F(I31GetS, const Value& input, Value* result)                                \
   F(I31GetU, const Value& input, Value* result)                                \
@@ -1935,6 +1937,11 @@ class WasmDecoder : public Decoder {
             ArrayIndexImmediate<validate> imm(decoder, pc + length);
             return length + imm.length;
           }
+          case kExprArrayCopy: {
+            ArrayIndexImmediate<validate> src_imm(decoder, pc + length);
+            ArrayIndexImmediate<validate> dst_imm(decoder, pc + length);
+            return length + src_imm.length + dst_imm.length;
+          }
           case kExprBrOnCast:
           case kExprBrOnCastFail:
           case kExprBrOnData:
@@ -2122,6 +2129,8 @@ class WasmDecoder : public Decoder {
             return {2, 1};
           case kExprArraySet:
             return {3, 0};
+          case kExprArrayCopy:
+            return {5, 0};
           case kExprRttCanon:
             return {0, 1};
           case kExprArrayNewWithRtt:
@@ -3583,13 +3592,27 @@ class WasmFullDecoder : public WasmDecoder<validate> {
     InitMerge(&c->end_merge, imm.out_arity(), [pc, &imm](uint32_t i) {
       return Value{pc, imm.out_type(i)};
     });
-    InitMerge(&c->start_merge, imm.in_arity(), [pc, &imm, args](uint32_t i) {
-      // The merge needs to be instantiated with Values of the correct type even
-      // in the presence of bottom values (i.e. in unreachable code). Since
-      // bottom Values will never be used for code generation, we can safely
-      // instantiate new ones in that case.
-      return args[i].type != kWasmBottom ? args[i] : Value{pc, imm.in_type(i)};
-    });
+    InitMerge(&c->start_merge, imm.in_arity(),
+#ifdef DEBUG
+              [this, pc, &imm, args](uint32_t i) {
+#else
+              [pc, &imm, args](uint32_t i) {
+#endif
+                // The merge needs to be instantiated with Values of the correct
+                // type even in the presence of bottom values (i.e. in
+                // unreachable code). Since bottom Values will never be used for
+                // code generation, we can safely instantiate new ones in that
+                // case.
+                DCHECK_IMPLIES(current_code_reachable_and_ok_,
+                               args[i].type != kWasmBottom);
+                // Warning: Do not use a ternary operator here, as gcc bugs out
+                // (as of version 10.2.1).
+                if (args[i].type != kWasmBottom) {
+                  return args[i];
+                } else {
+                  return Value{pc, imm.in_type(i)};
+                }
+              });
   }
 
   V8_INLINE void EnsureStackArguments(int count) {
@@ -4217,6 +4240,35 @@ class WasmFullDecoder : public WasmDecoder<validate> {
         Drop(array_obj);
         Push(value);
         return opcode_length + imm.length;
+      }
+      case kExprArrayCopy: {
+        CHECK_PROTOTYPE_OPCODE(gc_experiments);
+        ArrayIndexImmediate<validate> dst_imm(this, this->pc_ + opcode_length);
+        if (!this->Validate(this->pc_ + opcode_length, dst_imm)) return 0;
+        ArrayIndexImmediate<validate> src_imm(
+            this, this->pc_ + opcode_length + dst_imm.length);
+        if (!this->Validate(this->pc_ + opcode_length + dst_imm.length,
+                            src_imm)) {
+          return 0;
+        }
+        if (!IsSubtypeOf(src_imm.array_type->element_type(),
+                         dst_imm.array_type->element_type(), this->module_)) {
+          this->DecodeError(
+              "array.copy: source array's #%d element type is not a subtype of "
+              "destination array's #%d element type",
+              src_imm.index, dst_imm.index);
+          return 0;
+        }
+        // [dst, dst_index, src, src_index, length]
+        Value dst = Peek(4, 0, ValueType::Ref(dst_imm.index, kNullable));
+        Value dst_index = Peek(3, 1, kWasmI32);
+        Value src = Peek(2, 2, ValueType::Ref(src_imm.index, kNullable));
+        Value src_index = Peek(1, 3, kWasmI32);
+        Value length = Peek(0, 4, kWasmI32);
+        CALL_INTERFACE_IF_OK_AND_REACHABLE(ArrayCopy, dst, dst_index, src,
+                                           src_index, length);
+        Drop(5);
+        return opcode_length + dst_imm.length + src_imm.length;
       }
       case kExprI31New: {
         Value input = Peek(0, 0, kWasmI32);

@@ -730,7 +730,8 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
 
     __ mtctr(r7);
     __ bind(&loop);
-    __ LoadPU(r9, MemOperand(r8, -kSystemPointerSize));  // read next parameter
+    __ LoadU64WithUpdate(
+        r9, MemOperand(r8, -kSystemPointerSize));        // read next parameter
     __ LoadU64(r0, MemOperand(r9));                      // dereference handle
     __ push(r0);                                         // push parameter
     __ bdnz(&loop);
@@ -1099,7 +1100,7 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
       FieldMemOperand(feedback_vector, FeedbackVector::kInvocationCountOffset),
       r0);
   __ addi(r8, r8, Operand(1));
-  __ StoreWord(
+  __ StoreU32(
       r8,
       FieldMemOperand(feedback_vector, FeedbackVector::kInvocationCountOffset),
       r0);
@@ -1120,10 +1121,10 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
                 BytecodeArray::kOsrNestingLevelOffset + kCharSize);
   STATIC_ASSERT(BytecodeArray::kNoAgeBytecodeAge == 0);
   __ li(r8, Operand(0));
-  __ StoreHalfWord(r8,
-                   FieldMemOperand(kInterpreterBytecodeArrayRegister,
-                                   BytecodeArray::kOsrNestingLevelOffset),
-                   r0);
+  __ StoreU16(r8,
+              FieldMemOperand(kInterpreterBytecodeArrayRegister,
+                              BytecodeArray::kOsrNestingLevelOffset),
+              r0);
 
   // Load initial bytecode offset.
   __ mov(kInterpreterBytecodeOffsetRegister,
@@ -1895,8 +1896,8 @@ void Builtins::Generate_CallOrConstructVarargs(MacroAssembler* masm,
     __ mtctr(r0);
 
     __ bind(&copy);
-    __ LoadPU(r0, MemOperand(src, kSystemPointerSize));
-    __ StorePU(r0, MemOperand(dest, kSystemPointerSize));
+    __ LoadU64WithUpdate(r0, MemOperand(src, kSystemPointerSize));
+    __ StoreU64WithUpdate(r0, MemOperand(dest, kSystemPointerSize));
     __ bdnz(&copy);
   }
 
@@ -1915,7 +1916,7 @@ void Builtins::Generate_CallOrConstructVarargs(MacroAssembler* masm,
     __ bne(&skip);
     __ LoadRoot(scratch, RootIndex::kUndefinedValue);
     __ bind(&skip);
-    __ StorePU(scratch, MemOperand(r8, kSystemPointerSize));
+    __ StoreU64WithUpdate(scratch, MemOperand(r8, kSystemPointerSize));
     __ bdnz(&loop);
     __ bind(&no_args);
     __ add(r3, r3, r7);
@@ -1999,8 +2000,8 @@ void Builtins::Generate_CallOrConstructForwardVarargs(MacroAssembler* masm,
       __ mtctr(r0);
 
       __ bind(&copy);
-      __ LoadPU(r0, MemOperand(src, kSystemPointerSize));
-      __ StorePU(r0, MemOperand(dest, kSystemPointerSize));
+      __ LoadU64WithUpdate(r0, MemOperand(src, kSystemPointerSize));
+      __ StoreU64WithUpdate(r0, MemOperand(dest, kSystemPointerSize));
       __ bdnz(&copy);
     }
     // Copy arguments from the caller frame.

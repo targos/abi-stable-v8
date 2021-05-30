@@ -6242,7 +6242,7 @@ v8::Local<v8::Object> Context::Global() {
   i::Handle<i::Context> context = Utils::OpenHandle(this);
   i::Isolate* isolate = context->GetIsolate();
   i::Handle<i::Object> global(context->global_proxy(), isolate);
-  // TODO(dcarney): This should always return the global proxy
+  // TODO(chromium:324812): This should always return the global proxy
   // but can't presently as calls to GetProtoype will return the wrong result.
   if (i::Handle<i::JSGlobalProxy>::cast(global)->IsDetachedFrom(
           context->global_object())) {
@@ -8644,21 +8644,17 @@ void Isolate::Initialize(Isolate* isolate,
   }
   // TODO(jochen): Once we got rid of Isolate::Current(), we can remove this.
   Isolate::Scope isolate_scope(isolate);
+  if (i_isolate->snapshot_blob() == nullptr) {
+    FATAL(
+        "V8 snapshot blob was not set during initialization. This can mean "
+        "that the snapshot blob file is corrupted or missing.");
+  }
   if (!i::Snapshot::Initialize(i_isolate)) {
     // If snapshot data was provided and we failed to deserialize it must
     // have been corrupted.
-    if (i_isolate->snapshot_blob() != nullptr) {
-      FATAL(
-          "Failed to deserialize the V8 snapshot blob. This can mean that the "
-          "snapshot blob file is corrupted or missing.");
-    }
-    base::ElapsedTimer timer;
-    if (i::FLAG_profile_deserialization) timer.Start();
-    i_isolate->InitWithoutSnapshot();
-    if (i::FLAG_profile_deserialization) {
-      double ms = timer.Elapsed().InMillisecondsF();
-      i::PrintF("[Initializing isolate from scratch took %0.3f ms]\n", ms);
-    }
+    FATAL(
+        "Failed to deserialize the V8 snapshot blob. This can mean that the "
+        "snapshot blob file is corrupted or missing.");
   }
   i_isolate->set_only_terminate_in_safe_scope(
       params.only_terminate_in_safe_scope);
@@ -8873,7 +8869,12 @@ void Isolate::GetHeapStatistics(HeapStatistics* heap_statistics) {
   heap_statistics->malloced_memory_ =
       isolate->allocator()->GetCurrentMemoryUsage() +
       isolate->string_table()->GetCurrentMemoryUsage();
-  heap_statistics->external_memory_ = isolate->heap()->backing_store_bytes();
+  // On 32-bit systems backing_store_bytes() might overflow size_t temporarily
+  // due to concurrent array buffer sweeping.
+  heap_statistics->external_memory_ =
+      isolate->heap()->backing_store_bytes() < SIZE_MAX
+          ? static_cast<size_t>(isolate->heap()->backing_store_bytes())
+          : SIZE_MAX;
   heap_statistics->peak_malloced_memory_ =
       isolate->allocator()->GetMaxMemoryUsage();
   heap_statistics->number_of_native_contexts_ = heap->NumberOfNativeContexts();
@@ -9163,7 +9164,7 @@ void Isolate::SetAddHistogramSampleFunction(
 void Isolate::SetMetricsRecorder(
     const std::shared_ptr<metrics::Recorder>& metrics_recorder) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
-  isolate->metrics_recorder()->SetRecorder(isolate, metrics_recorder);
+  isolate->metrics_recorder()->SetEmbedderRecorder(isolate, metrics_recorder);
 }
 
 void Isolate::SetAddCrashKeyCallback(AddCrashKeyCallback callback) {

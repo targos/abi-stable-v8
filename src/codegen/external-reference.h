@@ -175,6 +175,7 @@ class StatsCounter;
   V(libc_memcpy_function, "libc_memcpy")                                       \
   V(libc_memmove_function, "libc_memmove")                                     \
   V(libc_memset_function, "libc_memset")                                       \
+  V(relaxed_memcpy_function, "relaxed_memcpy")                                 \
   V(mod_two_doubles_operation, "mod_two_doubles")                              \
   V(mutable_big_int_absolute_add_and_canonicalize_function,                    \
     "MutableBigInt_AbsoluteAddAndCanonicalize")                                \
@@ -265,6 +266,7 @@ class StatsCounter;
   V(atomic_pair_exchange_function, "atomic_pair_exchange_function")            \
   V(atomic_pair_compare_exchange_function,                                     \
     "atomic_pair_compare_exchange_function")                                   \
+  IF_TSAN(V, tsan_relaxed_store_function, "tsan_relaxed_store_function")       \
   V(js_finalization_registry_remove_cell_from_unregister_token_map,            \
     "JSFinalizationRegistry::RemoveCellFromUnregisterTokenMap")                \
   V(re_match_for_call_from_js, "IrregexpInterpreter::MatchForCallFromJs")      \

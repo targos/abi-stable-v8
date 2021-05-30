@@ -17,6 +17,7 @@
 #include "src/debug/debug.h"
 #include "src/heap/heap.h"
 #include "src/objects/js-function.h"
+#include "src/objects/js-objects.h"
 #include "src/objects/objects.h"
 #include "src/wasm/struct-types.h"
 #include "src/wasm/value-type.h"
@@ -935,12 +936,20 @@ class WasmTypeInfo : public TorqueGeneratedWasmTypeInfo<WasmTypeInfo, Foreign> {
   TQ_OBJECT_CONSTRUCTORS(WasmTypeInfo)
 };
 
-class WasmObject : public HeapObject {
+class WasmObject : public JSReceiver {
  public:
   DECL_CAST(WasmObject)
   DECL_VERIFIER(WasmObject)
 
-  OBJECT_CONSTRUCTORS(WasmObject, HeapObject);
+ protected:
+  // Returns boxed value of the object's field/element with given type and
+  // offset.
+  static inline Handle<Object> ReadValueAt(Isolate* isolate,
+                                           Handle<HeapObject> obj,
+                                           wasm::ValueType type,
+                                           uint32_t offset);
+
+  OBJECT_CONSTRUCTORS(WasmObject, JSReceiver);
 };
 
 class WasmStruct : public TorqueGeneratedWasmStruct<WasmStruct, WasmObject> {
@@ -951,9 +960,18 @@ class WasmStruct : public TorqueGeneratedWasmStruct<WasmStruct, WasmObject> {
   static inline int Size(const wasm::StructType* type);
   static inline int GcSafeSize(Map map);
 
+  // Returns the address of the field at given offset.
+  inline Address RawFieldAddress(int raw_offset);
+
+  // Returns the ObjectSlot for tagged value at given offset.
   inline ObjectSlot RawField(int raw_offset);
 
   wasm::WasmValue GetFieldValue(uint32_t field_index);
+
+  // Returns boxed value of the object's field.
+  static inline Handle<Object> GetField(Isolate* isolate,
+                                        Handle<WasmStruct> obj,
+                                        uint32_t field_index);
 
   DECL_CAST(WasmStruct)
   DECL_PRINTER(WasmStruct)
@@ -969,10 +987,18 @@ class WasmArray : public TorqueGeneratedWasmArray<WasmArray, WasmObject> {
   inline wasm::ArrayType* type() const;
   static inline wasm::ArrayType* GcSafeType(Map map);
 
+  // Get the {ObjectSlot} corresponding to the element at {index}. Requires that
+  // this is a reference array.
+  ObjectSlot ElementSlot(uint32_t index);
   wasm::WasmValue GetElement(uint32_t index);
 
   static inline int SizeFor(Map map, int length);
   static inline int GcSafeSizeFor(Map map, int length);
+
+  // Returns boxed value of the array's element.
+  static inline Handle<Object> GetElement(Isolate* isolate,
+                                          Handle<WasmArray> array,
+                                          uint32_t index);
 
   DECL_CAST(WasmArray)
   DECL_PRINTER(WasmArray)

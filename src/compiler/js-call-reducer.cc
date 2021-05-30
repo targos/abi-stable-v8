@@ -886,12 +886,13 @@ class FastApiCallReducerAssembler : public JSCallReducerAssembler {
  public:
   FastApiCallReducerAssembler(
       JSCallReducer* reducer, Node* node,
-      const FunctionTemplateInfoRef function_template_info, Node* receiver,
-      Node* holder, const SharedFunctionInfoRef shared, Node* target,
-      const int arity, Node* effect)
+      const FunctionTemplateInfoRef function_template_info,
+      const ZoneVector<std::pair<Address, const CFunctionInfo*>>
+          c_candidate_functions,
+      Node* receiver, Node* holder, const SharedFunctionInfoRef shared,
+      Node* target, const int arity, Node* effect)
       : JSCallReducerAssembler(reducer, node),
-        c_functions_(function_template_info.c_functions()),
-        c_signatures_(function_template_info.c_signatures()),
+        c_candidate_functions_(c_candidate_functions),
         function_template_info_(function_template_info),
         receiver_(receiver),
         holder_(holder),
@@ -899,17 +900,21 @@ class FastApiCallReducerAssembler : public JSCallReducerAssembler {
         target_(target),
         arity_(arity) {
     DCHECK_EQ(IrOpcode::kJSCall, node->opcode());
-    CHECK_GT(c_functions_.size(), 0);
-    CHECK_GT(c_signatures_.size(), 0);
+    CHECK_GT(c_candidate_functions.size(), 0);
     InitializeEffectControl(effect, NodeProperties::GetControlInput(node));
   }
 
   TNode<Object> ReduceFastApiCall() {
     JSCallNode n(node_ptr());
+
+    // Multiple function overloads not supported yet, always call the first
+    // overload with the same arity.
+    const size_t c_overloads_index = 0;
+
     // C arguments include the receiver at index 0. Thus C index 1 corresponds
     // to the JS argument 0, etc.
-    const int c_argument_count =
-        static_cast<int>(c_signatures_[0]->ArgumentCount());
+    const int c_argument_count = static_cast<int>(
+        c_candidate_functions_[c_overloads_index].second->ArgumentCount());
     CHECK_GE(c_argument_count, kReceiver);
 
     int cursor = 0;
@@ -917,8 +922,8 @@ class FastApiCallReducerAssembler : public JSCallReducerAssembler {
                                                  kExtraInputsCount);
     // Multiple function overloads not supported yet, always call the first
     // overload.
-    inputs[cursor++] =
-        ExternalConstant(ExternalReference::Create(c_functions_[0]));
+    inputs[cursor++] = ExternalConstant(ExternalReference::Create(
+        c_candidate_functions_[c_overloads_index].first));
 
     inputs[cursor++] = n.receiver();
 
@@ -973,7 +978,8 @@ class FastApiCallReducerAssembler : public JSCallReducerAssembler {
 
     DCHECK_EQ(cursor, c_argument_count + arity_ + kExtraInputsCount);
 
-    return FastApiCall(call_descriptor, inputs.begin(), inputs.size());
+    return FastApiCall(call_descriptor, inputs.begin(), inputs.size(),
+                       c_overloads_index);
   }
 
  private:
@@ -988,14 +994,16 @@ class FastApiCallReducerAssembler : public JSCallReducerAssembler {
   static constexpr int kInlineSize = 12;
 
   TNode<Object> FastApiCall(CallDescriptor* descriptor, Node** inputs,
-                            size_t inputs_size) {
-    return AddNode<Object>(graph()->NewNode(
-        simplified()->FastApiCall(c_signatures_[0], feedback(), descriptor),
-        static_cast<int>(inputs_size), inputs));
+                            size_t inputs_size, size_t c_overloads_index) {
+    return AddNode<Object>(
+        graph()->NewNode(simplified()->FastApiCall(
+                             c_candidate_functions_[c_overloads_index].second,
+                             feedback(), descriptor),
+                         static_cast<int>(inputs_size), inputs));
   }
 
-  const ZoneVector<Address> c_functions_;
-  const ZoneVector<const CFunctionInfo*> c_signatures_;
+  const ZoneVector<std::pair<Address, const CFunctionInfo*>>
+      c_candidate_functions_;
   const FunctionTemplateInfoRef function_template_info_;
   Node* const receiver_;
   Node* const holder_;
@@ -3540,26 +3548,66 @@ bool Has64BitIntegerParamsInSignature(const CFunctionInfo* c_signature) {
 }  // namespace
 #endif
 
-bool CanOptimizeFastCall(
-    const FunctionTemplateInfoRef& function_template_info) {
-  if (function_template_info.c_functions().empty()) return false;
+// Given a FunctionTemplateInfo, checks whether the fast API call can be
+// optimized, applying the initial step of the overload resolution algorithm:
+// Given an overload set function_template_info.c_signatures, and a list of
+// arguments of size argc:
+// 1. Let max_arg be the length of the longest type list of the entries in
+//    function_template_info.c_signatures.
+// 2. Let argc be the size of the arguments list.
+// 3. Initialize arg_count = min(max_arg, argc).
+// 4. Remove from the set all entries whose type list is not of length
+//    arg_count.
+// Returns an array with the indexes of the remaining entries in S, which
+// represents the set of "optimizable" function overloads.
 
-  // Multiple function overloads not supported yet, always call the first
-  // overload.
-  const CFunctionInfo* c_signature = function_template_info.c_signatures()[0];
+ZoneVector<std::pair<Address, const CFunctionInfo*>> CanOptimizeFastCall(
+    Zone* zone, const FunctionTemplateInfoRef& function_template_info,
+    size_t argc) {
+  ZoneVector<std::pair<Address, const CFunctionInfo*>> result(zone);
+  if (!FLAG_turbo_fast_api_calls) return result;
 
-  bool optimize_to_fast_call = FLAG_turbo_fast_api_calls;
+  static constexpr int kReceiver = 1;
+
+  ZoneVector<Address> functions = function_template_info.c_functions();
+  ZoneVector<const CFunctionInfo*> signatures =
+      function_template_info.c_signatures();
+  const size_t overloads_count = signatures.size();
+
+  // Calculates the length of the longest type list of the entries in
+  // function_template_info.
+  size_t max_arg = 0;
+  for (size_t i = 0; i < overloads_count; i++) {
+    const CFunctionInfo* c_signature = signatures[i];
+    // C arguments should include the receiver at index 0.
+    DCHECK_GE(c_signature->ArgumentCount(), kReceiver);
+    const size_t len = c_signature->ArgumentCount() - kReceiver;
+    if (len > max_arg) max_arg = len;
+  }
+  const size_t arg_count = std::min(max_arg, argc);
+
+  // Only considers entries whose type list length matches arg_count.
+  for (size_t i = 0; i < overloads_count; i++) {
+    const CFunctionInfo* c_signature = signatures[i];
+    const size_t len = c_signature->ArgumentCount() - kReceiver;
+    bool optimize_to_fast_call = (len == arg_count);
+
 #ifndef V8_ENABLE_FP_PARAMS_IN_C_LINKAGE
-  optimize_to_fast_call =
-      optimize_to_fast_call && !HasFPParamsInSignature(c_signature);
+    optimize_to_fast_call =
+        optimize_to_fast_call && !HasFPParamsInSignature(c_signature);
 #else
-  USE(c_signature);
+    USE(c_signature);
 #endif
 #ifndef V8_TARGET_ARCH_64_BIT
-  optimize_to_fast_call =
-      optimize_to_fast_call && !Has64BitIntegerParamsInSignature(c_signature);
+    optimize_to_fast_call =
+        optimize_to_fast_call && !Has64BitIntegerParamsInSignature(c_signature);
 #endif
-  return optimize_to_fast_call;
+    if (optimize_to_fast_call) {
+      result.push_back({functions[i], c_signature});
+    }
+  }
+
+  return result;
 }
 
 Reduction JSCallReducer::ReduceCallApiFunction(
@@ -3731,9 +3779,12 @@ Reduction JSCallReducer::ReduceCallApiFunction(
     return NoChange();
   }
 
-  if (CanOptimizeFastCall(function_template_info)) {
-    FastApiCallReducerAssembler a(this, node, function_template_info, receiver,
-                                  holder, shared, target, argc, effect);
+  ZoneVector<std::pair<Address, const CFunctionInfo*>> c_candidate_functions =
+      CanOptimizeFastCall(graph()->zone(), function_template_info, argc);
+  if (!c_candidate_functions.empty()) {
+    FastApiCallReducerAssembler a(this, node, function_template_info,
+                                  c_candidate_functions, receiver, holder,
+                                  shared, target, argc, effect);
     Node* fast_call_subgraph = a.ReduceFastApiCall();
     ReplaceWithSubgraph(&a, fast_call_subgraph);
 
@@ -3804,20 +3855,102 @@ bool IsCallWithArrayLikeOrSpread(Node* node) {
 
 }  // namespace
 
-Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
-    Node* node, int arraylike_or_spread_index, CallFrequency const& frequency,
-    FeedbackSource const& feedback, SpeculationMode speculation_mode,
-    CallFeedbackRelation feedback_relation) {
-  DCHECK(IsCallOrConstructWithArrayLike(node) ||
-         IsCallOrConstructWithSpread(node));
-  DCHECK_IMPLIES(speculation_mode == SpeculationMode::kAllowSpeculation,
-                 feedback.IsValid());
+void JSCallReducer::CheckIfConstructor(Node* construct) {
+  JSConstructNode n(construct);
+  Node* new_target = n.new_target();
+  Control control = n.control();
 
-  Node* arguments_list =
-      NodeProperties::GetValueInput(node, arraylike_or_spread_index);
-  if (arguments_list->opcode() != IrOpcode::kJSCreateArguments) {
-    return NoChange();
+  Node* check =
+      graph()->NewNode(simplified()->ObjectIsConstructor(), new_target);
+  Node* check_branch =
+      graph()->NewNode(common()->Branch(BranchHint::kTrue), check, control);
+  Node* check_fail = graph()->NewNode(common()->IfFalse(), check_branch);
+  Node* check_throw = check_fail = graph()->NewNode(
+      javascript()->CallRuntime(Runtime::kThrowTypeError, 2),
+      jsgraph()->Constant(static_cast<int>(MessageTemplate::kNotConstructor)),
+      new_target, n.context(), n.frame_state(), n.effect(), check_fail);
+  control = graph()->NewNode(common()->IfTrue(), check_branch);
+  NodeProperties::ReplaceControlInput(construct, control);
+
+  // Rewire potential exception edges.
+  Node* on_exception = nullptr;
+  if (NodeProperties::IsExceptionalCall(construct, &on_exception)) {
+    // Create appropriate {IfException}  and {IfSuccess} nodes.
+    Node* if_exception =
+        graph()->NewNode(common()->IfException(), check_throw, check_fail);
+    check_fail = graph()->NewNode(common()->IfSuccess(), check_fail);
+
+    // Join the exception edges.
+    Node* merge =
+        graph()->NewNode(common()->Merge(2), if_exception, on_exception);
+    Node* ephi = graph()->NewNode(common()->EffectPhi(2), if_exception,
+                                  on_exception, merge);
+    Node* phi =
+        graph()->NewNode(common()->Phi(MachineRepresentation::kTagged, 2),
+                         if_exception, on_exception, merge);
+    ReplaceWithValue(on_exception, phi, ephi, merge);
+    merge->ReplaceInput(1, on_exception);
+    ephi->ReplaceInput(1, on_exception);
+    phi->ReplaceInput(1, on_exception);
   }
+
+  // The above %ThrowTypeError runtime call is an unconditional throw,
+  // making it impossible to return a successful completion in this case. We
+  // simply connect the successful completion to the graph end.
+  Node* throw_node =
+      graph()->NewNode(common()->Throw(), check_throw, check_fail);
+  NodeProperties::MergeControlToEnd(graph(), common(), throw_node);
+}
+
+namespace {
+
+bool ShouldUseCallICFeedback(Node* node) {
+  HeapObjectMatcher m(node);
+  if (m.HasResolvedValue() || m.IsCheckClosure() || m.IsJSCreateClosure()) {
+    // Don't use CallIC feedback when we know the function
+    // being called, i.e. either know the closure itself or
+    // at least the SharedFunctionInfo.
+    return false;
+  } else if (m.IsPhi()) {
+    // Protect against endless loops here.
+    Node* control = NodeProperties::GetControlInput(node);
+    if (control->opcode() == IrOpcode::kLoop ||
+        control->opcode() == IrOpcode::kDead)
+      return false;
+    // Check if {node} is a Phi of nodes which shouldn't
+    // use CallIC feedback (not looking through loops).
+    int const value_input_count = m.node()->op()->ValueInputCount();
+    for (int n = 0; n < value_input_count; ++n) {
+      if (ShouldUseCallICFeedback(node->InputAt(n))) return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+Node* JSCallReducer::CheckArrayLength(Node* array, ElementsKind elements_kind,
+                                      uint32_t array_length,
+                                      const FeedbackSource& feedback_source,
+                                      Effect effect, Control control) {
+  Node* length = effect = graph()->NewNode(
+      simplified()->LoadField(AccessBuilder::ForJSArrayLength(elements_kind)),
+      array, effect, control);
+  Node* check = graph()->NewNode(simplified()->NumberEqual(), length,
+                                 jsgraph()->Constant(array_length));
+  return graph()->NewNode(
+      simplified()->CheckIf(DeoptimizeReason::kArrayLengthChanged,
+                            feedback_source),
+      check, effect, control);
+}
+
+Reduction
+JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpreadOfCreateArguments(
+    Node* node, Node* arguments_list, int arraylike_or_spread_index,
+    CallFrequency const& frequency, FeedbackSource const& feedback,
+    SpeculationMode speculation_mode, CallFeedbackRelation feedback_relation) {
+  DCHECK_EQ(arguments_list->opcode(), IrOpcode::kJSCreateArguments);
 
   // Check if {node} is the only value user of {arguments_list} (except for
   // value uses in frame states). If not, we give up for now.
@@ -3984,88 +4117,155 @@ Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
         node, javascript()->Construct(JSConstructNode::ArityForArgc(argc),
                                       frequency, feedback));
 
-    JSConstructNode n(node);
-    Node* new_target = n.new_target();
-    FrameState frame_state = n.frame_state();
-    Node* context = n.context();
-    Effect effect = n.effect();
-    Control control = n.control();
-
     // Check whether the given new target value is a constructor function. The
     // replacement {JSConstruct} operator only checks the passed target value
     // but relies on the new target value to be implicitly valid.
-    Node* check =
-        graph()->NewNode(simplified()->ObjectIsConstructor(), new_target);
-    Node* check_branch =
-        graph()->NewNode(common()->Branch(BranchHint::kTrue), check, control);
-    Node* check_fail = graph()->NewNode(common()->IfFalse(), check_branch);
-    Node* check_throw = check_fail = graph()->NewNode(
-        javascript()->CallRuntime(Runtime::kThrowTypeError, 2),
-        jsgraph()->Constant(static_cast<int>(MessageTemplate::kNotConstructor)),
-        new_target, context, frame_state, effect, check_fail);
-    control = graph()->NewNode(common()->IfTrue(), check_branch);
-    NodeProperties::ReplaceControlInput(node, control);
-
-    // Rewire potential exception edges.
-    Node* on_exception = nullptr;
-    if (NodeProperties::IsExceptionalCall(node, &on_exception)) {
-      // Create appropriate {IfException}  and {IfSuccess} nodes.
-      Node* if_exception =
-          graph()->NewNode(common()->IfException(), check_throw, check_fail);
-      check_fail = graph()->NewNode(common()->IfSuccess(), check_fail);
-
-      // Join the exception edges.
-      Node* merge =
-          graph()->NewNode(common()->Merge(2), if_exception, on_exception);
-      Node* ephi = graph()->NewNode(common()->EffectPhi(2), if_exception,
-                                    on_exception, merge);
-      Node* phi =
-          graph()->NewNode(common()->Phi(MachineRepresentation::kTagged, 2),
-                           if_exception, on_exception, merge);
-      ReplaceWithValue(on_exception, phi, ephi, merge);
-      merge->ReplaceInput(1, on_exception);
-      ephi->ReplaceInput(1, on_exception);
-      phi->ReplaceInput(1, on_exception);
-    }
-
-    // The above %ThrowTypeError runtime call is an unconditional throw,
-    // making it impossible to return a successful completion in this case. We
-    // simply connect the successful completion to the graph end.
-    Node* throw_node =
-        graph()->NewNode(common()->Throw(), check_throw, check_fail);
-    NodeProperties::MergeControlToEnd(graph(), common(), throw_node);
-
+    CheckIfConstructor(node);
     return Changed(node).FollowedBy(ReduceJSConstruct(node));
   }
 }
 
-namespace {
+Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
+    Node* node, int argument_count, int arraylike_or_spread_index,
+    CallFrequency const& frequency, FeedbackSource const& feedback_source,
+    SpeculationMode speculation_mode, CallFeedbackRelation feedback_relation,
+    Node* target, Effect effect, Control control) {
+  DCHECK(IsCallOrConstructWithArrayLike(node) ||
+         IsCallOrConstructWithSpread(node));
+  DCHECK_IMPLIES(speculation_mode == SpeculationMode::kAllowSpeculation,
+                 feedback_source.IsValid());
 
-bool ShouldUseCallICFeedback(Node* node) {
-  HeapObjectMatcher m(node);
-  if (m.HasResolvedValue() || m.IsCheckClosure() || m.IsJSCreateClosure()) {
-    // Don't use CallIC feedback when we know the function
-    // being called, i.e. either know the closure itself or
-    // at least the SharedFunctionInfo.
-    return false;
-  } else if (m.IsPhi()) {
-    // Protect against endless loops here.
-    Node* control = NodeProperties::GetControlInput(node);
-    if (control->opcode() == IrOpcode::kLoop ||
-        control->opcode() == IrOpcode::kDead)
-      return false;
-    // Check if {node} is a Phi of nodes which shouldn't
-    // use CallIC feedback (not looking through loops).
-    int const value_input_count = m.node()->op()->ValueInputCount();
-    for (int n = 0; n < value_input_count; ++n) {
-      if (ShouldUseCallICFeedback(node->InputAt(n))) return true;
-    }
-    return false;
+  Node* arguments_list =
+      NodeProperties::GetValueInput(node, arraylike_or_spread_index);
+
+  if (arguments_list->opcode() == IrOpcode::kJSCreateArguments) {
+    return ReduceCallOrConstructWithArrayLikeOrSpreadOfCreateArguments(
+        node, arguments_list, arraylike_or_spread_index, frequency,
+        feedback_source, speculation_mode, feedback_relation);
   }
-  return true;
-}
 
-}  // namespace
+  if (!FLAG_turbo_optimize_apply) return NoChange();
+
+  // Optimization of construct nodes not supported yet.
+  if (!IsCallWithArrayLikeOrSpread(node)) return NoChange();
+
+  // Avoid deoptimization loops.
+  if (speculation_mode != SpeculationMode::kAllowSpeculation) return NoChange();
+
+  // Only optimize with array literals.
+  if (arguments_list->opcode() != IrOpcode::kJSCreateLiteralArray &&
+      arguments_list->opcode() != IrOpcode::kJSCreateEmptyLiteralArray) {
+    return NoChange();
+  }
+
+  int new_argument_count;
+  if (arguments_list->opcode() == IrOpcode::kJSCreateLiteralArray) {
+    // Find array length and elements' kind from the feedback's allocation
+    // site's boilerplate JSArray..
+    JSCreateLiteralOpNode args_node(arguments_list);
+    CreateLiteralParameters const& args_params = args_node.Parameters();
+    const FeedbackSource& array_feedback = args_params.feedback();
+    const ProcessedFeedback& feedback =
+        broker()->GetFeedbackForArrayOrObjectLiteral(array_feedback);
+    if (feedback.IsInsufficient()) return NoChange();
+
+    AllocationSiteRef site = feedback.AsLiteral().value();
+    if (!site.IsFastLiteral()) return NoChange();
+
+    base::Optional<JSArrayRef> boilerplate_array =
+        site.boilerplate()->AsJSArray();
+    int const array_length = boilerplate_array->GetBoilerplateLength().AsSmi();
+
+    // We'll replace the arguments_list input with {array_length} element loads.
+    new_argument_count = argument_count - 1 + array_length;
+
+    // Do not optimize calls with a large number of arguments.
+    // Arbitrarily sets the limit to 32 arguments.
+    const int kMaxArityForOptimizedFunctionApply = 32;
+    if (new_argument_count > kMaxArityForOptimizedFunctionApply) {
+      return NoChange();
+    }
+
+    // Determine the array's map.
+    MapRef array_map = boilerplate_array->map();
+    if (!array_map.supports_fast_array_iteration()) {
+      return NoChange();
+    }
+
+    // Check and depend on NoElementsProtector.
+    if (!dependencies()->DependOnNoElementsProtector()) {
+      return NoChange();
+    }
+
+    // Remove the {arguments_list} node which will be replaced by a sequence of
+    // LoadElement nodes.
+    node->RemoveInput(arraylike_or_spread_index);
+
+    // Speculate on that array's map is still equal to the dynamic map of
+    // arguments_list; generate a map check.
+    effect = graph()->NewNode(
+        simplified()->CheckMaps(CheckMapsFlag::kNone,
+                                ZoneHandleSet<Map>(array_map.object()),
+                                feedback_source),
+        arguments_list, effect, control);
+
+    // Speculate on that array's length being equal to the dynamic length of
+    // arguments_list; generate a deopt check.
+    ElementsKind elements_kind = boilerplate_array->GetElementsKind();
+    effect = CheckArrayLength(arguments_list, elements_kind, array_length,
+                              feedback_source, effect, control);
+
+    // Generate N element loads to replace the {arguments_list} node with a set
+    // of arguments loaded from it.
+    Node* elements = effect = graph()->NewNode(
+        simplified()->LoadField(AccessBuilder::ForJSObjectElements()),
+        arguments_list, effect, control);
+    for (int i = 0; i < array_length; i++) {
+      // Load the i-th element from the array.
+      Node* index = jsgraph()->Constant(i);
+      Node* load = effect = graph()->NewNode(
+          simplified()->LoadElement(
+              AccessBuilder::ForFixedArrayElement(elements_kind)),
+          elements, index, effect, control);
+
+      // In "holey" arrays some arguments might be missing and we pass
+      // 'undefined' instead.
+      if (IsHoleyElementsKind(elements_kind)) {
+        if (elements_kind == HOLEY_DOUBLE_ELEMENTS) {
+          // May deopt for holey double elements.
+          load = effect = graph()->NewNode(
+              simplified()->CheckFloat64Hole(
+                  CheckFloat64HoleMode::kAllowReturnHole, feedback_source),
+              load, effect, control);
+        } else {
+          load = graph()->NewNode(simplified()->ConvertTaggedHoleToUndefined(),
+                                  load);
+        }
+      }
+
+      node->InsertInput(graph()->zone(), arraylike_or_spread_index + i, load);
+    }
+  } else {
+    DCHECK_EQ(arguments_list->opcode(), IrOpcode::kJSCreateEmptyLiteralArray);
+
+    // Remove the {arguments_list} node; there are no arguments nodes to add.
+    new_argument_count = argument_count - 1;
+    node->RemoveInput(arraylike_or_spread_index);
+
+    // Speculate on that array's length being equal to the dynamic length of
+    // arguments_list; generate a deopting check.
+    effect = CheckArrayLength(arguments_list, NO_ELEMENTS, 0, feedback_source,
+                              effect, control);
+  }
+
+  NodeProperties::ChangeOp(
+      node, javascript()->Call(
+                JSCallNode::ArityForArgc(new_argument_count), frequency,
+                feedback_source, ConvertReceiverMode::kNullOrUndefined,
+                speculation_mode, CallFeedbackRelation::kUnrelated));
+  NodeProperties::ReplaceEffectInput(node, effect);
+  return Changed(node).FollowedBy(ReduceJSCall(node));
+}
 
 bool JSCallReducer::IsBuiltinOrApiFunction(JSFunctionRef function) const {
   if (!function.serialized()) return false;
@@ -4658,8 +4858,9 @@ Reduction JSCallReducer::ReduceJSCallWithArrayLike(Node* node) {
   CallParameters const& p = n.Parameters();
   DCHECK_EQ(p.arity_without_implicit_args(), 1);  // The arraylike object.
   return ReduceCallOrConstructWithArrayLikeOrSpread(
-      node, n.LastArgumentIndex(), p.frequency(), p.feedback(),
-      p.speculation_mode(), p.feedback_relation());
+      node, n.ArgumentCount(), n.LastArgumentIndex(), p.frequency(),
+      p.feedback(), p.speculation_mode(), p.feedback_relation(), n.target(),
+      n.effect(), n.control());
 }
 
 Reduction JSCallReducer::ReduceJSCallWithSpread(Node* node) {
@@ -4667,8 +4868,9 @@ Reduction JSCallReducer::ReduceJSCallWithSpread(Node* node) {
   CallParameters const& p = n.Parameters();
   DCHECK_GE(p.arity_without_implicit_args(), 1);  // At least the spread.
   return ReduceCallOrConstructWithArrayLikeOrSpread(
-      node, n.LastArgumentIndex(), p.frequency(), p.feedback(),
-      p.speculation_mode(), p.feedback_relation());
+      node, n.ArgumentCount(), n.LastArgumentIndex(), p.frequency(),
+      p.feedback(), p.speculation_mode(), p.feedback_relation(), n.target(),
+      n.effect(), n.control());
 }
 
 Reduction JSCallReducer::ReduceJSConstruct(Node* node) {
@@ -5088,8 +5290,9 @@ Reduction JSCallReducer::ReduceJSConstructWithArrayLike(Node* node) {
   const int arraylike_index = n.LastArgumentIndex();
   DCHECK_EQ(n.ArgumentCount(), 1);  // The arraylike object.
   return ReduceCallOrConstructWithArrayLikeOrSpread(
-      node, arraylike_index, p.frequency(), p.feedback(),
-      SpeculationMode::kDisallowSpeculation, CallFeedbackRelation::kTarget);
+      node, n.ArgumentCount(), arraylike_index, p.frequency(), p.feedback(),
+      SpeculationMode::kDisallowSpeculation, CallFeedbackRelation::kTarget,
+      n.target(), n.effect(), n.control());
 }
 
 Reduction JSCallReducer::ReduceJSConstructWithSpread(Node* node) {
@@ -5098,8 +5301,9 @@ Reduction JSCallReducer::ReduceJSConstructWithSpread(Node* node) {
   const int spread_index = n.LastArgumentIndex();
   DCHECK_GE(n.ArgumentCount(), 1);  // At least the spread.
   return ReduceCallOrConstructWithArrayLikeOrSpread(
-      node, spread_index, p.frequency(), p.feedback(),
-      SpeculationMode::kDisallowSpeculation, CallFeedbackRelation::kTarget);
+      node, n.ArgumentCount(), spread_index, p.frequency(), p.feedback(),
+      SpeculationMode::kDisallowSpeculation, CallFeedbackRelation::kTarget,
+      n.target(), n.effect(), n.control());
 }
 
 Reduction JSCallReducer::ReduceReturnReceiver(Node* node) {

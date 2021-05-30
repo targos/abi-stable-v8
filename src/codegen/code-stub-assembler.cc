@@ -1394,16 +1394,29 @@ TNode<HeapObject> CodeStubAssembler::Allocate(TNode<IntPtrT> size_in_bytes,
       new_space
           ? ExternalReference::new_space_allocation_top_address(isolate())
           : ExternalReference::old_space_allocation_top_address(isolate()));
-  DCHECK_EQ(kSystemPointerSize,
-            ExternalReference::new_space_allocation_limit_address(isolate())
-                    .address() -
-                ExternalReference::new_space_allocation_top_address(isolate())
-                    .address());
+
+#ifdef DEBUG
+  // New space is optional and if disabled both top and limit return
+  // kNullAddress.
+  if (ExternalReference::new_space_allocation_top_address(isolate())
+          .address() != kNullAddress) {
+    Address top_address =
+        ExternalReference::new_space_allocation_top_address(isolate())
+            .address();
+    Address limit_address =
+        ExternalReference::new_space_allocation_limit_address(isolate())
+            .address();
+
+    CHECK_EQ(kSystemPointerSize, limit_address - top_address);
+  }
+
   DCHECK_EQ(kSystemPointerSize,
             ExternalReference::old_space_allocation_limit_address(isolate())
                     .address() -
                 ExternalReference::old_space_allocation_top_address(isolate())
                     .address());
+#endif
+
   TNode<IntPtrT> limit_address =
       IntPtrAdd(ReinterpretCast<IntPtrT>(top_address),
                 IntPtrConstant(kSystemPointerSize));
@@ -9273,6 +9286,9 @@ void CodeStubAssembler::LoadPropertyFromFastObject(
     TNode<Uint32T> representation =
         DecodeWord32<PropertyDetails::RepresentationField>(details);
 
+    // TODO(ishell): support WasmValues.
+    CSA_ASSERT(this, Word32NotEqual(representation,
+                                    Int32Constant(Representation::kWasmValue)));
     field_index =
         IntPtrAdd(field_index, LoadMapInobjectPropertiesStartInWords(map));
     TNode<IntPtrT> instance_size_in_words = LoadMapInstanceSizeInWords(map);
@@ -9776,8 +9792,6 @@ void CodeStubAssembler::TryPrototypeChainLookup(
   TNode<Uint16T> instance_type = LoadMapInstanceType(map);
   {
     Label if_objectisreceiver(this);
-    STATIC_ASSERT(LAST_JS_RECEIVER_TYPE == LAST_TYPE);
-    STATIC_ASSERT(FIRST_JS_RECEIVER_TYPE == JS_PROXY_TYPE);
     Branch(IsJSReceiverInstanceType(instance_type), &if_objectisreceiver,
            if_bailout);
     BIND(&if_objectisreceiver);
@@ -11222,7 +11236,7 @@ void CodeStubAssembler::TrapAllocationMemento(TNode<JSObject> object,
 }
 
 TNode<IntPtrT> CodeStubAssembler::PageFromAddress(TNode<IntPtrT> address) {
-  if (FLAG_enable_third_party_heap) Unreachable();
+  DCHECK(!V8_ENABLE_THIRD_PARTY_HEAP_BOOL);
   return WordAnd(address, IntPtrConstant(~kPageAlignmentMask));
 }
 

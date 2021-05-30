@@ -1269,14 +1269,14 @@ T Simulator::ReadMem(int64_t addr, Instruction* instr) {
            addr, reinterpret_cast<intptr_t>(instr));
     DieOrDebug();
   }
-
+#ifndef V8_COMPRESS_POINTERS  // TODO(RISCV): v8:11812
   // check for natural alignment
   if ((addr & (sizeof(T) - 1)) != 0) {
     PrintF("Unaligned read at 0x%08" PRIx64 " , pc=0x%08" V8PRIxPTR "\n", addr,
            reinterpret_cast<intptr_t>(instr));
     DieOrDebug();
   }
-
+#endif
   T* ptr = reinterpret_cast<T*>(addr);
   T value = *ptr;
   return value;
@@ -1291,14 +1291,14 @@ void Simulator::WriteMem(int64_t addr, T value, Instruction* instr) {
            addr, reinterpret_cast<intptr_t>(instr));
     DieOrDebug();
   }
-
+#ifndef V8_COMPRESS_POINTERS  // TODO(RISCV): v8:11812
   // check for natural alignment
   if ((addr & (sizeof(T) - 1)) != 0) {
     PrintF("Unaligned write at 0x%08" PRIx64 " , pc=0x%08" V8PRIxPTR "\n", addr,
            reinterpret_cast<intptr_t>(instr));
     DieOrDebug();
   }
-
+#endif
   T* ptr = reinterpret_cast<T*>(addr);
   TraceMemWr(addr, value);
   *ptr = value;
@@ -3182,13 +3182,13 @@ void Simulator::DecodeCAType() {
       set_rvc_rs1s(sext_xlen(rvc_rs1s() - rvc_rs2s()));
       break;
     case RO_C_XOR:
-      set_rvc_rs1s(sext_xlen(rvc_rs1s() ^ rvc_rs2s()));
+      set_rvc_rs1s(rvc_rs1s() ^ rvc_rs2s());
       break;
     case RO_C_OR:
-      set_rvc_rs1s(sext_xlen(rvc_rs1s() | rvc_rs2s()));
+      set_rvc_rs1s(rvc_rs1s() | rvc_rs2s());
       break;
     case RO_C_AND:
-      set_rvc_rs1s(sext_xlen(rvc_rs1s() & rvc_rs2s()));
+      set_rvc_rs1s(rvc_rs1s() & rvc_rs2s());
       break;
     case RO_C_SUBW:
       set_rvc_rs1s(sext32(rvc_rs1s() - rvc_rs2s()));
@@ -3347,6 +3347,37 @@ void Simulator::DecodeCJType() {
   }
 }
 
+void Simulator::DecodeCBType() {
+  switch (instr_.RvcOpcode()) {
+    case RO_C_BNEZ:
+      if (rvc_rs1() != 0) {
+        int64_t next_pc = get_pc() + rvc_imm8_b();
+        set_pc(next_pc);
+      }
+      break;
+    case RO_C_BEQZ:
+      if (rvc_rs1() == 0) {
+        int64_t next_pc = get_pc() + rvc_imm8_b();
+        set_pc(next_pc);
+      }
+      break;
+    case RO_C_MISC_ALU:
+      if (instr_.RvcFunct2BValue() == 0b00) {  // c.srli
+        set_rvc_rs1s(sext_xlen(sext_xlen(rvc_rs1s()) >> rvc_shamt6()));
+      } else if (instr_.RvcFunct2BValue() == 0b01) {  // c.srai
+        require(rvc_shamt6() < xlen);
+        set_rvc_rs1s(sext_xlen(sext_xlen(rvc_rs1s()) >> rvc_shamt6()));
+      } else if (instr_.RvcFunct2BValue() == 0b10) {  // c.andi
+        set_rvc_rs1s(rvc_imm6() & rvc_rs1s());
+      } else {
+        UNSUPPORTED();
+      }
+      break;
+    default:
+      UNSUPPORTED();
+  }
+}
+
 // Executes the current instruction.
 void Simulator::InstructionDecode(Instruction* instr) {
   if (v8::internal::FLAG_check_icache) {
@@ -3364,7 +3395,7 @@ void Simulator::InstructionDecode(Instruction* instr) {
     dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(instr));
 
     // PrintF("EXECUTING  0x%08" PRIxPTR "   %-44s\n",
-    //       reinterpret_cast<intptr_t>(instr), buffer.begin());
+    //        reinterpret_cast<intptr_t>(instr), buffer.begin());
   }
 
   instr_ = instr;
@@ -3398,6 +3429,9 @@ void Simulator::InstructionDecode(Instruction* instr) {
       break;
     case Instruction::kCJType:
       DecodeCJType();
+      break;
+    case Instruction::kCBType:
+      DecodeCBType();
       break;
     case Instruction::kCIType:
       DecodeCIType();

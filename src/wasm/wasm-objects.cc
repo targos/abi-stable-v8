@@ -1668,6 +1668,12 @@ wasm::WasmValue WasmArray::GetElement(uint32_t index) {
   }
 }
 
+ObjectSlot WasmArray::ElementSlot(uint32_t index) {
+  DCHECK_LE(index, length());
+  DCHECK(type()->element_type().is_reference());
+  return RawField(kHeaderSize + kTaggedSize * index);
+}
+
 // static
 Handle<WasmExceptionObject> WasmExceptionObject::New(
     Isolate* isolate, const wasm::FunctionSig* sig,
@@ -2181,18 +2187,20 @@ bool TypecheckJSObject(Isolate* isolate, const WasmModule* module,
         case HeapType::kI31: {
           // TODO(7748): Change this when we have a decision on the JS API for
           // structs/arrays.
-          Handle<Name> key = isolate->factory()->wasm_wrapped_object_symbol();
-          LookupIterator it(isolate, value, key,
-                            LookupIterator::OWN_SKIP_INTERCEPTOR);
-          if (it.state() != LookupIterator::DATA) {
-            *error_message =
-                "eqref/dataref/i31ref object must be null (if nullable) or "
-                "wrapped with the wasm object wrapper";
-            return false;
+          if (!FLAG_wasm_gc_js_interop) {
+            Handle<Name> key = isolate->factory()->wasm_wrapped_object_symbol();
+            LookupIterator it(isolate, value, key,
+                              LookupIterator::OWN_SKIP_INTERCEPTOR);
+            if (it.state() != LookupIterator::DATA) {
+              *error_message =
+                  "eqref/dataref/i31ref object must be null (if nullable) or "
+                  "wrapped with the wasm object wrapper";
+              return false;
+            }
+            value = it.GetDataValue();
           }
 
           if (expected.is_reference_to(HeapType::kEq)) return true;
-          Handle<Object> value = it.GetDataValue();
 
           if (expected.is_reference_to(HeapType::kData)) {
             if (value->IsSmi()) {

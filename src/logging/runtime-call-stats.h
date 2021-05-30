@@ -333,6 +333,7 @@ class RuntimeCallTimer final {
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, CSAOptimization)                 \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, DecideSpillingMode)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, DecompressionOptimization)       \
+  ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, EarlyGraphTrimming)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, EarlyOptimization)               \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, EffectLinearization)             \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, EscapeAnalysis)                  \
@@ -365,6 +366,7 @@ class RuntimeCallTimer final {
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, SelectInstructions)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, SimplifiedLowering)              \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, StoreStoreElimination)           \
+  ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, TraceScheduleAndVerify)          \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, TypeAssertions)                  \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, TypedLowering)                   \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, Typer)                           \
@@ -373,6 +375,7 @@ class RuntimeCallTimer final {
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, WasmBaseOptimization)            \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, WasmInlining)                    \
   ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, WasmLoopUnrolling)               \
+  ADD_THREAD_SPECIFIC_COUNTER(V, Optimize, WasmOptimization)                \
                                                                             \
   ADD_THREAD_SPECIFIC_COUNTER(V, Parse, ArrowFunctionLiteral)               \
   ADD_THREAD_SPECIFIC_COUNTER(V, Parse, FunctionLiteral)                    \
