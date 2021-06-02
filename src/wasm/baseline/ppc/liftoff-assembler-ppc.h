@@ -241,16 +241,17 @@ void LiftoffAssembler::StoreTaggedPointer(Register dst_addr,
   if (offset_reg != no_reg) {
     add(ip, ip, offset_reg);
   }
-  CallRecordWriteStub(dst_addr, ip, RememberedSetAction::kEmit,
-                      SaveFPRegsMode::kSave,
-                      StubCallMode::kCallWasmRuntimeStub);
+  CallRecordWriteStubSaveRegisters(dst_addr, ip, RememberedSetAction::kEmit,
+                                   SaveFPRegsMode::kSave,
+                                   StubCallMode::kCallWasmRuntimeStub);
   bind(&exit);
 }
 
 void LiftoffAssembler::Load(LiftoffRegister dst, Register src_addr,
                             Register offset_reg, uintptr_t offset_imm,
                             LoadType type, LiftoffRegList pinned,
-                            uint32_t* protected_load_pc, bool is_load_mem) {
+                            uint32_t* protected_load_pc, bool is_load_mem,
+                            bool i64_offset) {
   bailout(kUnsupportedArchitecture, "Load");
 }
 

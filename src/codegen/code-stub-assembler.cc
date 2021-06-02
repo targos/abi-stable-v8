@@ -1444,17 +1444,6 @@ TNode<HeapObject> CodeStubAssembler::Allocate(int size_in_bytes,
   return CodeStubAssembler::Allocate(IntPtrConstant(size_in_bytes), flags);
 }
 
-TNode<HeapObject> CodeStubAssembler::InnerAllocate(TNode<HeapObject> previous,
-                                                   TNode<IntPtrT> offset) {
-  return UncheckedCast<HeapObject>(
-      BitcastWordToTagged(IntPtrAdd(BitcastTaggedToWord(previous), offset)));
-}
-
-TNode<HeapObject> CodeStubAssembler::InnerAllocate(TNode<HeapObject> previous,
-                                                   int offset) {
-  return InnerAllocate(previous, IntPtrConstant(offset));
-}
-
 TNode<BoolT> CodeStubAssembler::IsRegularHeapObjectSize(TNode<IntPtrT> size) {
   return UintPtrLessThanOrEqual(size,
                                 IntPtrConstant(kMaxRegularHeapObjectSize));
@@ -3917,6 +3906,7 @@ TNode<JSArray> CodeStubAssembler::AllocateJSArray(
 
   int base_size = array_header_size;
   if (allocation_site) {
+    DCHECK(V8_ALLOCATION_SITE_TRACKING_BOOL);
     base_size += AllocationMemento::kSize;
   }
 
@@ -3926,6 +3916,20 @@ TNode<JSArray> CodeStubAssembler::AllocateJSArray(
   StoreObjectFieldNoWriteBarrier(result, JSArray::kElementsOffset, elements);
   return result;
 }
+
+namespace {
+
+// To prevent GC between the array and elements allocation, the elements
+// object allocation is folded together with the js-array allocation.
+TNode<FixedArrayBase> InnerAllocateElements(CodeStubAssembler* csa,
+                                            TNode<JSArray> js_array,
+                                            int offset) {
+  return csa->UncheckedCast<FixedArrayBase>(
+      csa->BitcastWordToTagged(csa->IntPtrAdd(
+          csa->BitcastTaggedToWord(js_array), csa->IntPtrConstant(offset))));
+}
+
+}  // namespace
 
 std::pair<TNode<JSArray>, TNode<FixedArrayBase>>
 CodeStubAssembler::AllocateUninitializedJSArrayWithElements(
@@ -3969,6 +3973,7 @@ CodeStubAssembler::AllocateUninitializedJSArrayWithElements(
   {
     int base_size = array_header_size;
     if (allocation_site) {
+      DCHECK(V8_ALLOCATION_SITE_TRACKING_BOOL);
       base_size += AllocationMemento::kSize;
     }
 
@@ -3983,9 +3988,14 @@ CodeStubAssembler::AllocateUninitializedJSArrayWithElements(
     // folding trick. Instead, we first allocate the elements in large object
     // space, and then allocate the JSArray (and possibly the allocation
     // memento) in new space.
-    if (allocation_flags & kAllowLargeObjectAllocation) {
+    const bool inline_allocation =
+        !V8_DISABLE_WRITE_BARRIERS_BOOL || V8_ALLOCATION_FOLDING_BOOL;
+    if ((allocation_flags & kAllowLargeObjectAllocation) ||
+        !inline_allocation) {
       Label next(this);
-      GotoIf(IsRegularHeapObjectSize(size), &next);
+      if (inline_allocation) {
+        GotoIf(IsRegularHeapObjectSize(size), &next);
+      }
 
       CSA_CHECK(this, IsValidFastJSArrayCapacity(capacity));
 
@@ -4007,14 +4017,17 @@ CodeStubAssembler::AllocateUninitializedJSArrayWithElements(
 
       Goto(&out);
 
-      BIND(&next);
+      if (inline_allocation) {
+        BIND(&next);
+      }
     }
+
+    if (!inline_allocation) Unreachable();
 
     // Fold all objects into a single new space allocation.
     array =
         AllocateUninitializedJSArray(array_map, length, allocation_site, size);
-    elements = UncheckedCast<FixedArrayBase>(
-        InnerAllocate(array.value(), elements_offset));
+    elements = InnerAllocateElements(this, array.value(), elements_offset);
 
     StoreObjectFieldNoWriteBarrier(array.value(), JSObject::kElementsOffset,
                                    elements.value());
@@ -4053,6 +4066,7 @@ TNode<JSArray> CodeStubAssembler::AllocateUninitializedJSArray(
                        RootIndex::kEmptyFixedArray);
 
   if (allocation_site) {
+    DCHECK(V8_ALLOCATION_SITE_TRACKING_BOOL);
     InitializeAllocationMemento(array, IntPtrConstant(JSArray::kHeaderSize),
                                 *allocation_site);
   }
@@ -5344,11 +5358,28 @@ template TNode<FixedArrayBase> CodeStubAssembler::GrowElementsCapacity<IntPtrT>(
     TNode<HeapObject>, TNode<FixedArrayBase>, ElementsKind, ElementsKind,
     TNode<IntPtrT>, TNode<IntPtrT>, compiler::CodeAssemblerLabel*);
 
+namespace {
+
+// Helper function for folded memento allocation.
+// Memento objects are designed to be put right after the objects they are
+// tracking on. So memento allocations have to be folded together with previous
+// object allocations.
+TNode<HeapObject> InnerAllocateMemento(CodeStubAssembler* csa,
+                                       TNode<HeapObject> previous,
+                                       TNode<IntPtrT> offset) {
+  return csa->UncheckedCast<HeapObject>(csa->BitcastWordToTagged(
+      csa->IntPtrAdd(csa->BitcastTaggedToWord(previous), offset)));
+}
+
+}  // namespace
+
 void CodeStubAssembler::InitializeAllocationMemento(
     TNode<HeapObject> base, TNode<IntPtrT> base_allocation_size,
     TNode<AllocationSite> allocation_site) {
+  DCHECK(V8_ALLOCATION_SITE_TRACKING_BOOL);
   Comment("[Initialize AllocationMemento");
-  TNode<HeapObject> memento = InnerAllocate(base, base_allocation_size);
+  TNode<HeapObject> memento =
+      InnerAllocateMemento(this, base, base_allocation_size);
   StoreMapNoWriteBarrier(memento, RootIndex::kAllocationMementoMap);
   StoreObjectFieldNoWriteBarrier(
       memento, AllocationMemento::kAllocationSiteOffset, allocation_site);
@@ -11165,6 +11196,7 @@ void CodeStubAssembler::TransitionElementsKind(TNode<JSObject> object,
 
 void CodeStubAssembler::TrapAllocationMemento(TNode<JSObject> object,
                                               Label* memento_found) {
+  DCHECK(V8_ALLOCATION_SITE_TRACKING_BOOL);
   Comment("[ TrapAllocationMemento");
   Label no_memento_found(this);
   Label top_check(this), map_check(this);
@@ -13644,8 +13676,8 @@ TNode<JSObject> CodeStubAssembler::AllocateJSIteratorResultForEntry(
   TNode<NativeContext> native_context = LoadNativeContext(context);
   TNode<Smi> length = SmiConstant(2);
   int const elements_size = FixedArray::SizeFor(2);
-  TNode<FixedArray> elements = UncheckedCast<FixedArray>(
-      Allocate(elements_size + JSArray::kHeaderSize + JSIteratorResult::kSize));
+  TNode<FixedArray> elements =
+      UncheckedCast<FixedArray>(Allocate(elements_size));
   StoreObjectFieldRoot(elements, FixedArray::kMapOffset,
                        RootIndex::kFixedArrayMap);
   StoreObjectFieldNoWriteBarrier(elements, FixedArray::kLengthOffset, length);
@@ -13653,7 +13685,7 @@ TNode<JSObject> CodeStubAssembler::AllocateJSIteratorResultForEntry(
   StoreFixedArrayElement(elements, 1, value);
   TNode<Map> array_map = CAST(LoadContextElement(
       native_context, Context::JS_ARRAY_PACKED_ELEMENTS_MAP_INDEX));
-  TNode<HeapObject> array = InnerAllocate(elements, elements_size);
+  TNode<HeapObject> array = Allocate(JSArray::kHeaderSize);
   StoreMapNoWriteBarrier(array, array_map);
   StoreObjectFieldRoot(array, JSArray::kPropertiesOrHashOffset,
                        RootIndex::kEmptyFixedArray);
@@ -13661,7 +13693,7 @@ TNode<JSObject> CodeStubAssembler::AllocateJSIteratorResultForEntry(
   StoreObjectFieldNoWriteBarrier(array, JSArray::kLengthOffset, length);
   TNode<Map> iterator_map = CAST(
       LoadContextElement(native_context, Context::ITERATOR_RESULT_MAP_INDEX));
-  TNode<HeapObject> result = InnerAllocate(array, JSArray::kHeaderSize);
+  TNode<HeapObject> result = Allocate(JSIteratorResult::kSize);
   StoreMapNoWriteBarrier(result, iterator_map);
   StoreObjectFieldRoot(result, JSIteratorResult::kPropertiesOrHashOffset,
                        RootIndex::kEmptyFixedArray);

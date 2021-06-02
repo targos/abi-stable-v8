@@ -502,19 +502,15 @@ void TurboAssembler::LoadAnyTaggedField(const Register& destination,
   }
 }
 
-void TurboAssembler::SmiUntag(Register dst, const MemOperand& src, RCBit rc) {
+void TurboAssembler::SmiUntag(Register dst, const MemOperand& src, RCBit rc,
+                              Register scratch) {
   if (SmiValuesAre31Bits()) {
-    lwz(dst, src);
+    LoadU32(dst, src, scratch);
   } else {
-    LoadU64(dst, src);
+    LoadU64(dst, src, scratch);
   }
 
   SmiUntag(dst, rc);
-}
-
-void TurboAssembler::SmiUntagField(Register dst, const MemOperand& src,
-                                   RCBit rc) {
-  SmiUntag(dst, src, rc);
 }
 
 void TurboAssembler::StoreTaggedFieldX(const Register& value,
@@ -628,20 +624,19 @@ void MacroAssembler::RecordWriteField(Register object, int offset,
   }
 }
 
-void TurboAssembler::SaveRegisters(RegList registers) {
-  DCHECK_GT(NumRegs(registers), 0);
+void TurboAssembler::MaybeSaveRegisters(RegList registers) {
+  if (registers == 0) return;
   RegList regs = 0;
   for (int i = 0; i < Register::kNumRegisters; ++i) {
     if ((registers >> i) & 1u) {
       regs |= Register::from_code(i).bit();
     }
   }
-
   MultiPush(regs);
 }
 
-void TurboAssembler::RestoreRegisters(RegList registers) {
-  DCHECK_GT(NumRegs(registers), 0);
+void TurboAssembler::MaybeRestoreRegisters(RegList registers) {
+  if (registers == 0) return;
   RegList regs = 0;
   for (int i = 0; i < Register::kNumRegisters; ++i) {
     if ((registers >> i) & 1u) {
@@ -651,50 +646,61 @@ void TurboAssembler::RestoreRegisters(RegList registers) {
   MultiPop(regs);
 }
 
-void TurboAssembler::CallEphemeronKeyBarrier(Register object, Register address,
+void TurboAssembler::CallEphemeronKeyBarrier(Register object,
+                                             Register slot_address,
                                              SaveFPRegsMode fp_mode) {
-  WriteBarrierDescriptor descriptor;
-  RegList registers = descriptor.allocatable_registers();
+  DCHECK(!AreAliased(object, slot_address));
+  RegList registers =
+      WriteBarrierDescriptor::ComputeSavedRegisters(object, slot_address);
+  MaybeSaveRegisters(registers);
 
-  SaveRegisters(registers);
-
-  Register object_parameter(
-      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kObject));
-  Register slot_parameter(
-      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kSlotAddress));
+  Register object_parameter = WriteBarrierDescriptor::ObjectRegister();
+  Register slot_address_parameter =
+      WriteBarrierDescriptor::SlotAddressRegister();
 
   push(object);
-  push(address);
-
-  pop(slot_parameter);
+  push(slot_address);
+  pop(slot_address_parameter);
   pop(object_parameter);
 
   Call(isolate()->builtins()->builtin_handle(
            Builtins::GetEphemeronKeyBarrierStub(fp_mode)),
        RelocInfo::CODE_TARGET);
-  RestoreRegisters(registers);
+  MaybeRestoreRegisters(registers);
+}
+
+void TurboAssembler::CallRecordWriteStubSaveRegisters(
+    Register object, Register slot_address,
+    RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+    StubCallMode mode) {
+  DCHECK(!AreAliased(object, slot_address));
+  RegList registers =
+      WriteBarrierDescriptor::ComputeSavedRegisters(object, slot_address);
+  MaybeSaveRegisters(registers);
+
+  Register object_parameter = WriteBarrierDescriptor::ObjectRegister();
+  Register slot_address_parameter =
+      WriteBarrierDescriptor::SlotAddressRegister();
+
+  push(object);
+  push(slot_address);
+  pop(slot_address_parameter);
+  pop(object_parameter);
+
+  CallRecordWriteStub(object_parameter, slot_address_parameter,
+                      remembered_set_action, fp_mode, mode);
+
+  MaybeRestoreRegisters(registers);
 }
 
 void TurboAssembler::CallRecordWriteStub(
-    Register object, Register address,
+    Register object, Register slot_address,
     RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
     StubCallMode mode) {
-  DCHECK(!AreAliased(object, address));
-  WriteBarrierDescriptor descriptor;
-  RegList registers = descriptor.allocatable_registers();
-  SaveRegisters(registers);
-
-  Register object_parameter(
-      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kObject));
-  Register slot_parameter(
-      descriptor.GetRegisterParameter(WriteBarrierDescriptor::kSlotAddress));
-
-  push(object);
-  push(address);
-
-  pop(slot_parameter);
-  pop(object_parameter);
-
+  // Use CallRecordWriteStubSaveRegisters if the object and slot registers
+  // need to be caller saved.
+  DCHECK_EQ(WriteBarrierDescriptor::ObjectRegister(), object);
+  DCHECK_EQ(WriteBarrierDescriptor::SlotAddressRegister(), slot_address);
 #if V8_ENABLE_WEBASSEMBLY
   if (mode == StubCallMode::kCallWasmRuntimeStub) {
     // Use {near_call} for direct Wasm call within a module.
@@ -721,8 +727,6 @@ void TurboAssembler::CallRecordWriteStub(
       Call(code_target, RelocInfo::CODE_TARGET);
     }
   }
-
-  RestoreRegisters(registers);
 }
 
 // Will clobber 4 registers: object, address, scratch, ip.  The
@@ -766,7 +770,8 @@ void MacroAssembler::RecordWrite(Register object, Register address,
     mflr(r0);
     push(r0);
   }
-  CallRecordWriteStub(object, address, remembered_set_action, fp_mode);
+  CallRecordWriteStubSaveRegisters(object, address, remembered_set_action,
+                                   fp_mode);
   if (lr_status == kLRHasNotBeenSaved) {
     pop(r0);
     mtlr(r0);
@@ -1531,8 +1536,8 @@ void MacroAssembler::InvokeFunctionCode(Register function, Register new_target,
   // allow recompilation to take effect without changing any of the
   // call sites.
   Register code = kJavaScriptCallCodeStartRegister;
-  LoadTaggedPointerField(code,
-                         FieldMemOperand(function, JSFunction::kCodeOffset));
+  LoadTaggedPointerField(
+      code, FieldMemOperand(function, JSFunction::kCodeOffset), r0);
   switch (type) {
     case InvokeType::kCall:
       CallCodeObject(code);
@@ -1560,8 +1565,9 @@ void MacroAssembler::InvokeFunctionWithNewTarget(
   Register temp_reg = r7;
 
   LoadTaggedPointerField(
-      temp_reg, FieldMemOperand(r4, JSFunction::kSharedFunctionInfoOffset));
-  LoadTaggedPointerField(cp, FieldMemOperand(r4, JSFunction::kContextOffset));
+      temp_reg, FieldMemOperand(r4, JSFunction::kSharedFunctionInfoOffset), r0);
+  LoadTaggedPointerField(cp, FieldMemOperand(r4, JSFunction::kContextOffset),
+                         r0);
   LoadU16(expected_reg,
           FieldMemOperand(temp_reg,
                           SharedFunctionInfo::kFormalParameterCountOffset));
@@ -1581,7 +1587,8 @@ void MacroAssembler::InvokeFunction(Register function,
   DCHECK_EQ(function, r4);
 
   // Get the function and setup the context.
-  LoadTaggedPointerField(cp, FieldMemOperand(r4, JSFunction::kContextOffset));
+  LoadTaggedPointerField(cp, FieldMemOperand(r4, JSFunction::kContextOffset),
+                         r0);
 
   InvokeFunctionCode(r4, no_reg, expected_parameter_count,
                      actual_parameter_count, type);
@@ -1945,15 +1952,16 @@ void TurboAssembler::Abort(AbortReason reason) {
 
 void TurboAssembler::LoadMap(Register destination, Register object) {
   LoadTaggedPointerField(destination,
-                         FieldMemOperand(object, HeapObject::kMapOffset));
+                         FieldMemOperand(object, HeapObject::kMapOffset), r0);
 }
 
 void MacroAssembler::LoadNativeContextSlot(Register dst, int index) {
   LoadMap(dst, cp);
   LoadTaggedPointerField(
-      dst, FieldMemOperand(
-               dst, Map::kConstructorOrBackPointerOrNativeContextOffset));
-  LoadTaggedPointerField(dst, MemOperand(dst, Context::SlotOffset(index)));
+      dst,
+      FieldMemOperand(dst, Map::kConstructorOrBackPointerOrNativeContextOffset),
+      r0);
+  LoadTaggedPointerField(dst, MemOperand(dst, Context::SlotOffset(index)), r0);
 }
 
 void MacroAssembler::AssertNotSmi(Register object) {
@@ -2675,135 +2683,85 @@ void MacroAssembler::AndSmiLiteral(Register dst, Register src, Smi smi,
 #endif
 }
 
+#define GenerateMemoryOperation(reg, mem, ri_op, rr_op) \
+  {                                                     \
+    int offset = mem.offset();                          \
+                                                        \
+    if (mem.rb() == no_reg) {                           \
+      if (!is_int16(offset)) {                          \
+        /* cannot use d-form */                         \
+        CHECK_NE(scratch, no_reg);                      \
+        mov(scratch, Operand(offset));                  \
+        rr_op(reg, MemOperand(mem.ra(), scratch));      \
+      } else {                                          \
+        ri_op(reg, mem);                                \
+      }                                                 \
+    } else {                                            \
+      if (offset == 0) {                                \
+        rr_op(reg, mem);                                \
+      } else if (is_int16(offset)) {                    \
+        CHECK_NE(scratch, no_reg);                      \
+        addi(scratch, mem.rb(), Operand(offset));       \
+        rr_op(reg, MemOperand(mem.ra(), scratch));      \
+      } else {                                          \
+        CHECK_NE(scratch, no_reg);                      \
+        mov(scratch, Operand(offset));                  \
+        add(scratch, scratch, mem.rb());                \
+        rr_op(reg, MemOperand(mem.ra(), scratch));      \
+      }                                                 \
+    }                                                   \
+  }
+
+#define GenerateMemoryOperationWithAlign(reg, mem, ri_op, rr_op) \
+  {                                                              \
+    int offset = mem.offset();                                   \
+    int misaligned = (offset & 3);                               \
+                                                                 \
+    if (mem.rb() == no_reg) {                                    \
+      if (!is_int16(offset) || misaligned) {                     \
+        /* cannot use d-form */                                  \
+        CHECK_NE(scratch, no_reg);                               \
+        mov(scratch, Operand(offset));                           \
+        rr_op(reg, MemOperand(mem.ra(), scratch));               \
+      } else {                                                   \
+        ri_op(reg, mem);                                         \
+      }                                                          \
+    } else {                                                     \
+      if (offset == 0) {                                         \
+        rr_op(reg, mem);                                         \
+      } else if (is_int16(offset)) {                             \
+        CHECK_NE(scratch, no_reg);                               \
+        addi(scratch, mem.rb(), Operand(offset));                \
+        rr_op(reg, MemOperand(mem.ra(), scratch));               \
+      } else {                                                   \
+        CHECK_NE(scratch, no_reg);                               \
+        mov(scratch, Operand(offset));                           \
+        add(scratch, scratch, mem.rb());                         \
+        rr_op(reg, MemOperand(mem.ra(), scratch));               \
+      }                                                          \
+    }                                                            \
+  }
+
 // Load a "pointer" sized value from the memory location
 void TurboAssembler::LoadU64(Register dst, const MemOperand& mem,
                              Register scratch) {
-  int offset = mem.offset();
-  if (mem.rb() == no_reg) {
-    int misaligned = (offset & 3);
-    int adj = (offset & 3) - 4;
-    int alignedOffset = (offset & ~3) + 4;
-
-    if (!is_int16(offset) || (misaligned && !is_int16(alignedOffset))) {
-      /* cannot use d-form */
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      ldx(dst, MemOperand(mem.ra(), scratch));
-    } else {
-      if (misaligned) {
-        // adjust base to conform to offset alignment requirements
-        // Todo: enhance to use scratch if dst is unsuitable
-        DCHECK_NE(dst, r0);
-        addi(dst, mem.ra(), Operand(adj));
-        ld(dst, MemOperand(dst, alignedOffset));
-      } else {
-        ld(dst, mem);
-      }
-    }
-  } else {
-    if (offset == 0) {
-      ldx(dst, mem);
-    } else if (is_int16(offset)) {
-      CHECK_NE(scratch, no_reg);
-      addi(scratch, mem.rb(), Operand(offset));
-      ldx(dst, mem);
-    } else {
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      add(scratch, scratch, mem.rb());
-      ldx(dst, MemOperand(mem.ra(), scratch));
-    }
-  }
+  GenerateMemoryOperationWithAlign(dst, mem, ld, ldx);
 }
 
 void TurboAssembler::LoadU64WithUpdate(Register dst, const MemOperand& mem,
                                        Register scratch) {
-  int offset = mem.offset();
-
-  if (mem.rb() == no_reg) {
-    if (!is_int16(offset)) {
-      /* cannot use d-form */
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      ldux(dst, MemOperand(mem.ra(), scratch));
-    } else {
-      ldu(dst, mem);
-    }
-  } else {
-    if (offset == 0) {
-      ldux(dst, mem);
-    } else if (is_int16(offset)) {
-      CHECK_NE(scratch, no_reg);
-      addi(scratch, mem.rb(), Operand(offset));
-      ldux(dst, MemOperand(mem.ra(), scratch));
-    } else {
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      add(scratch, scratch, mem.rb());
-      ldux(dst, MemOperand(mem.ra(), scratch));
-    }
-  }
+  GenerateMemoryOperation(dst, mem, ldu, ldux);
 }
 
 // Store a "pointer" sized value to the memory location
 void TurboAssembler::StoreU64(Register src, const MemOperand& mem,
                               Register scratch) {
-  int offset = mem.offset();
-  int misaligned = (offset & 3);
-
-  if (mem.rb() == no_reg) {
-    if (!is_int16(offset) || misaligned) {
-      /* cannot use d-form */
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      stdx(src, MemOperand(mem.ra(), scratch));
-    } else {
-      std(src, mem);
-    }
-  } else {
-    if (offset == 0) {
-      stdx(src, mem);
-    } else if (is_int16(offset)) {
-      CHECK_NE(scratch, no_reg);
-      addi(scratch, mem.rb(), Operand(offset));
-      stdx(src, MemOperand(mem.ra(), scratch));
-    } else {
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      add(scratch, scratch, mem.rb());
-      stdx(src, MemOperand(mem.ra(), scratch));
-    }
-  }
+  GenerateMemoryOperationWithAlign(src, mem, std, stdx);
 }
 
 void TurboAssembler::StoreU64WithUpdate(Register src, const MemOperand& mem,
                                         Register scratch) {
-  int offset = mem.offset();
-  int misaligned = (offset & 3);
-
-  if (mem.rb() == no_reg) {
-    if (!is_int16(offset) || misaligned) {
-      /* cannot use d-form */
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      stdux(src, MemOperand(mem.ra(), scratch));
-    } else {
-      stdu(src, mem);
-    }
-  } else {
-    if (offset == 0) {
-      stdux(src, mem);
-    } else if (is_int16(offset)) {
-      CHECK_NE(scratch, no_reg);
-      addi(scratch, mem.rb(), Operand(offset));
-      stdux(src, MemOperand(mem.ra(), scratch));
-    } else {
-      CHECK_NE(scratch, no_reg);
-      mov(scratch, Operand(offset));
-      add(scratch, scratch, mem.rb());
-      stdux(src, MemOperand(mem.ra(), scratch));
-    }
-  }
+  GenerateMemoryOperationWithAlign(src, mem, stdu, stdux);
 }
 
 void TurboAssembler::LoadS32(Register dst, const MemOperand& mem,

@@ -266,14 +266,18 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     addi(sp, sp, Operand(5 * kSystemPointerSize));
   }
 
-  void SaveRegisters(RegList registers);
-  void RestoreRegisters(RegList registers);
+  void MaybeSaveRegisters(RegList registers);
+  void MaybeRestoreRegisters(RegList registers);
 
-  void CallEphemeronKeyBarrier(Register object, Register address,
+  void CallEphemeronKeyBarrier(Register object, Register slot_address,
                                SaveFPRegsMode fp_mode);
 
+  void CallRecordWriteStubSaveRegisters(
+      Register object, Register slot_address,
+      RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
+      StubCallMode mode = StubCallMode::kCallBuiltinPointer);
   void CallRecordWriteStub(
-      Register object, Register address,
+      Register object, Register slot_address,
       RememberedSetAction remembered_set_action, SaveFPRegsMode fp_mode,
       StubCallMode mode = StubCallMode::kCallBuiltinPointer);
 
@@ -488,7 +492,8 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void Move(Register dst, Register src, Condition cond = al);
   void Move(DoubleRegister dst, DoubleRegister src);
 
-  void SmiUntag(Register dst, const MemOperand& src, RCBit rc);
+  void SmiUntag(Register dst, const MemOperand& src, RCBit rc = LeaveRC,
+                Register scratch = no_reg);
   void SmiUntag(Register reg, RCBit rc = LeaveRC) { SmiUntag(reg, reg, rc); }
 
   void SmiUntag(Register dst, Register src, RCBit rc = LeaveRC) {
@@ -676,9 +681,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void LoadAnyTaggedField(const Register& destination,
                           const MemOperand& field_operand,
                           const Register& scratch = no_reg);
-
-  // Loads a field containing smi value and untags it.
-  void SmiUntagField(Register dst, const MemOperand& src, RCBit rc = LeaveRC);
 
   // Compresses and stores tagged value to given on-heap location.
   void StoreTaggedField(const Register& value,
