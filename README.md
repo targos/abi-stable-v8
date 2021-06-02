@@ -58,3 +58,5 @@ Branch point of 9.3: TBD
 ABI-stable tag: TBD
 
 DIFF: TBD
+
+- [38690c8058](https://github.com/targos/abi-stable-v8/commit/38690c80588466d71c5e6d6cbb758808c9eb2123) - Reverted [[api] Support PropertyAttribute in v8::Template::Set](https://github.com/v8/v8/commit/22a32f11f7a39e4a73105608a51ebab0ad97960f)
