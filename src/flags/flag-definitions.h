@@ -287,8 +287,9 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
 #endif
 
 // Features that are complete (but still behind --harmony/es-staging flag).
-#define HARMONY_STAGED_BASE(V) \
-  V(harmony_class_static_blocks, "harmony static initializer blocks")
+#define HARMONY_STAGED_BASE(V)                                        \
+  V(harmony_class_static_blocks, "harmony static initializer blocks") \
+  V(harmony_object_has_own, "Object.hasOwn")
 
 #ifdef V8_INTL_SUPPORT
 #define HARMONY_STAGED(V)                                 \
@@ -416,6 +417,16 @@ DEFINE_NEG_IMPLICATION(enable_third_party_heap, concurrent_marking)
 
 DEFINE_BOOL_READONLY(enable_third_party_heap, V8_ENABLE_THIRD_PARTY_HEAP_BOOL,
                      "Use third-party heap")
+
+#ifdef V8_ALLOCATION_FOLDING
+#define V8_ALLOCATION_FOLDING_BOOL true
+#else
+#define V8_ALLOCATION_FOLDING_BOOL false
+#endif
+
+DEFINE_BOOL_READONLY(enable_allocation_folding, V8_ALLOCATION_FOLDING_BOOL,
+                     "Use allocation folding globally")
+DEFINE_NEG_NEG_IMPLICATION(enable_allocation_folding, turbo_allocation_folding)
 
 #ifdef V8_DISABLE_WRITE_BARRIERS
 #define V8_DISABLE_WRITE_BARRIERS_BOOL true
