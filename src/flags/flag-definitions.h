@@ -280,8 +280,7 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
 #ifdef V8_INTL_SUPPORT
 #define HARMONY_INPROGRESS(V) \
   HARMONY_INPROGRESS_BASE(V)  \
-  V(harmony_intl_displaynames_date_types, "Intl.DisplayNames date types") \
-  V(harmony_intl_more_timezone, "More Timezone")
+  V(harmony_intl_displaynames_date_types, "Intl.DisplayNames date types")
 #else
 #define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
 #endif
@@ -295,7 +294,9 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
 #define HARMONY_STAGED(V)                                 \
   HARMONY_STAGED_BASE(V)                                  \
   V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher") \
-  V(harmony_intl_locale_info, "Intl locale info")
+  V(harmony_intl_locale_info, "Intl locale info")         \
+  V(harmony_intl_more_timezone,                           \
+    "Extend Intl.DateTimeFormat timeZoneName Option")
 #else
 #define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
 #endif
@@ -484,6 +485,7 @@ DEFINE_WEAK_IMPLICATION(future, super_ic)
 DEFINE_WEAK_IMPLICATION(future, turbo_inline_js_wasm_calls)
 #if ENABLE_SPARKPLUG
 DEFINE_WEAK_IMPLICATION(future, sparkplug)
+DEFINE_WEAK_IMPLICATION(future, baseline_batch_compilation)
 #endif
 #if V8_SHORT_BUILTIN_CALLS
 DEFINE_WEAK_IMPLICATION(future, short_builtin_calls)
@@ -665,6 +667,9 @@ DEFINE_BOOL(always_sparkplug, false, "directly tier up to Sparkplug code")
 DEFINE_IMPLICATION(always_sparkplug, sparkplug)
 #endif
 DEFINE_STRING(sparkplug_filter, "*", "filter for Sparkplug baseline compiler")
+DEFINE_BOOL(baseline_batch_compilation, false, "batch compile Sparkplug code")
+DEFINE_INT(baseline_batch_compilation_threshold, 4 * KB,
+           "the estimated instruction size of a batch to trigger compilation")
 DEFINE_BOOL(trace_baseline, false, "trace baseline compilation")
 
 #undef FLAG

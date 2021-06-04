@@ -730,8 +730,10 @@ bool Shell::ExecuteString(Isolate* isolate, Local<String> source,
     data->realm_current_ = data->realm_switch_;
 
     if (options.web_snapshot_config) {
-      std::vector<std::string> exports;
-      if (!ReadLines(options.web_snapshot_config, exports)) {
+      MaybeLocal<PrimitiveArray> maybe_exports =
+          ReadLines(isolate, options.web_snapshot_config);
+      Local<PrimitiveArray> exports;
+      if (!maybe_exports.ToLocal(&exports)) {
         isolate->ThrowError("Web snapshots: unable to read config");
         CHECK(try_catch.HasCaught());
         ReportException(isolate, &try_catch);
@@ -1515,6 +1517,24 @@ PerIsolateData::RealmScope::~RealmScope() {
   delete[] data_->realms_;
 }
 
+PerIsolateData::ExplicitRealmScope::ExplicitRealmScope(PerIsolateData* data,
+                                                       int index)
+    : data_(data), index_(index) {
+  realm_ = Local<Context>::New(data->isolate_, data->realms_[index_]);
+  realm_->Enter();
+  previous_index_ = data->realm_current_;
+  data->realm_current_ = data->realm_switch_ = index_;
+}
+
+PerIsolateData::ExplicitRealmScope::~ExplicitRealmScope() {
+  realm_->Exit();
+  data_->realm_current_ = data_->realm_switch_ = previous_index_;
+}
+
+Local<Context> PerIsolateData::ExplicitRealmScope::context() const {
+  return realm_;
+}
+
 int PerIsolateData::RealmFind(Local<Context> context) {
   for (int i = 0; i < realm_count_; ++i) {
     if (realms_[i] == context) return i;
@@ -1781,18 +1801,15 @@ void Shell::RealmEval(const v8::FunctionCallbackInfo<v8::Value>& args) {
            .ToLocal(&script)) {
     return;
   }
-  Local<Context> realm = Local<Context>::New(isolate, data->realms_[index]);
-  realm->Enter();
-  int previous_index = data->realm_current_;
-  data->realm_current_ = data->realm_switch_ = index;
   Local<Value> result;
-  if (!script->BindToCurrentContext()->Run(realm).ToLocal(&result)) {
-    realm->Exit();
-    data->realm_current_ = data->realm_switch_ = previous_index;
-    return;
+  {
+    PerIsolateData::ExplicitRealmScope realm_scope(data, index);
+    if (!script->BindToCurrentContext()
+             ->Run(realm_scope.context())
+             .ToLocal(&result)) {
+      return;
+    }
   }
-  realm->Exit();
-  data->realm_current_ = data->realm_switch_ = previous_index;
   args.GetReturnValue().Set(result);
 }
 
@@ -1824,37 +1841,32 @@ void Shell::RealmTakeWebSnapshot(
   PerIsolateData* data = PerIsolateData::Get(isolate);
   int index = data->RealmIndexOrThrow(args, 0);
   if (index == -1) return;
-  // Create a std::vector<std::string> from the list of exports.
-  // TODO(v8:11525): Add an API in the serializer that accepts a Local<String>
-  // Array.
+  // Create a Local<PrimitiveArray> from the exports array.
   Local<Context> current_context = isolate->GetCurrentContext();
   Local<Array> exports_array = args[1].As<Array>();
-  std::vector<std::string> exports;
-  for (int i = 0, length = exports_array->Length(); i < length; ++i) {
-    Local<String> local_str = exports_array->Get(current_context, i)
-                                  .ToLocalChecked()
-                                  ->ToString(current_context)
-                                  .ToLocalChecked();
-    std::string str = ToSTLString(isolate, local_str);
-    exports.push_back(str);
+  int length = exports_array->Length();
+  Local<PrimitiveArray> exports = PrimitiveArray::New(isolate, length);
+  for (int i = 0; i < length; ++i) {
+    Local<Value> value;
+    Local<String> str;
+    if (!exports_array->Get(current_context, i).ToLocal(&value) ||
+        !value->ToString(current_context).ToLocal(&str) || str.IsEmpty()) {
+      isolate->ThrowError("Invalid argument");
+      return;
+    }
+    exports->Set(isolate, i, str);
   }
-  // Enter the realm.
-  Local<Context> realm = Local<Context>::New(isolate, data->realms_[index]);
-  realm->Enter();
-  int previous_index = data->realm_current_;
-  data->realm_current_ = data->realm_switch_ = index;
-  // Take the snapshot.
-  i::WebSnapshotSerializer serializer(isolate);
+  // Take the snapshot in the specified Realm.
   auto snapshot_data_shared = std::make_shared<i::WebSnapshotData>();
-  if (!serializer.TakeSnapshot(realm, exports, *snapshot_data_shared)) {
-    realm->Exit();
-    data->realm_current_ = data->realm_switch_ = previous_index;
-    args.GetReturnValue().Set(Undefined(isolate));
-    return;
+  {
+    PerIsolateData::ExplicitRealmScope realm_scope(data, index);
+    i::WebSnapshotSerializer serializer(isolate);
+    if (!serializer.TakeSnapshot(realm_scope.context(), exports,
+                                 *snapshot_data_shared)) {
+      args.GetReturnValue().Set(Undefined(isolate));
+      return;
+    }
   }
-  // Exit the realm.
-  realm->Exit();
-  data->realm_current_ = data->realm_switch_ = previous_index;
   // Create a snapshot object and store the WebSnapshotData as an embedder
   // field. TODO(v8:11525): Use methods on global Snapshot objects with
   // signature checks.
@@ -1866,7 +1878,8 @@ void Shell::RealmTakeWebSnapshot(
   Local<ObjectTemplate> snapshot_template =
       data->GetSnapshotObjectCtor()->InstanceTemplate();
   Local<Object> snapshot_instance =
-      snapshot_template->NewInstance(realm).ToLocalChecked();
+      snapshot_template->NewInstance(isolate->GetCurrentContext())
+          .ToLocalChecked();
   snapshot_instance->SetInternalField(0, shapshot_data);
   args.GetReturnValue().Set(snapshot_instance);
 }
@@ -1896,18 +1909,14 @@ void Shell::RealmUseWebSnapshot(
       i::Handle<i::Managed<i::WebSnapshotData>>::cast(snapshot_data_handle);
   std::shared_ptr<i::WebSnapshotData> snapshot_data_shared =
       snapshot_data_managed->get();
-  // Enter the realm.
-  Local<Context> realm = Local<Context>::New(isolate, data->realms_[index]);
-  realm->Enter();
-  int previous_index = data->realm_current_;
-  data->realm_current_ = data->realm_switch_ = index;
-  // Deserialize the snapshot.
-  i::WebSnapshotDeserializer deserializer(isolate);
-  bool success = deserializer.UseWebSnapshot(snapshot_data_shared->buffer,
-                                             snapshot_data_shared->buffer_size);
-  args.GetReturnValue().Set(success);
-  realm->Exit();
-  data->realm_current_ = data->realm_switch_ = previous_index;
+  // Deserialize the snapshot in the specified Realm.
+  {
+    PerIsolateData::ExplicitRealmScope realm_scope(data, index);
+    i::WebSnapshotDeserializer deserializer(isolate);
+    bool success = deserializer.UseWebSnapshot(
+        snapshot_data_shared->buffer, snapshot_data_shared->buffer_size);
+    args.GetReturnValue().Set(success);
+  }
 }
 
 void Shell::LogGetAndStop(const v8::FunctionCallbackInfo<v8::Value>& args) {
@@ -2800,13 +2809,13 @@ Local<ObjectTemplate> Shell::CreateGlobalTemplate(Isolate* isolate) {
 Local<ObjectTemplate> Shell::CreateOSTemplate(Isolate* isolate) {
   Local<ObjectTemplate> os_template = ObjectTemplate::New(isolate);
   AddOSMethods(isolate, os_template);
-#if V8_TARGET_OS_LINUX
+#if defined(V8_TARGET_OS_LINUX)
   const char os_name[] = "linux";
-#elif V8_TARGET_OS_WIN
+#elif defined(V8_TARGET_OS_WIN)
   const char os_name[] = "windows";
-#elif V8_TARGET_OS_MACOSX
+#elif defined(V8_TARGET_OS_MACOSX)
   const char os_name[] = "macos";
-#elif V8_TARGET_OS_ANDROID
+#elif defined(V8_TARGET_OS_ANDROID)
   const char os_name[] = "android";
 #else
   const char os_name[] = "unknown";
@@ -3416,18 +3425,33 @@ char* Shell::ReadChars(const char* name, int* size_out) {
   return chars;
 }
 
-bool Shell::ReadLines(const char* name, std::vector<std::string>& lines) {
+MaybeLocal<PrimitiveArray> Shell::ReadLines(Isolate* isolate,
+                                            const char* name) {
   int length;
   const char* data = reinterpret_cast<const char*>(ReadChars(name, &length));
   if (data == nullptr) {
-    return false;
+    return MaybeLocal<PrimitiveArray>();
   }
   std::stringstream stream(data);
   std::string line;
+  std::vector<std::string> lines;
   while (std::getline(stream, line, '\n')) {
     lines.emplace_back(line);
   }
-  return true;
+  // Create a Local<PrimitiveArray> off the read lines.
+  int size = static_cast<int>(lines.size());
+  Local<PrimitiveArray> exports = PrimitiveArray::New(isolate, size);
+  for (int i = 0; i < size; ++i) {
+    MaybeLocal<String> maybe_str = v8::String::NewFromUtf8(
+        isolate, lines[i].c_str(), NewStringType::kNormal,
+        static_cast<int>(lines[i].length()));
+    Local<String> str;
+    if (!maybe_str.ToLocal(&str)) {
+      return MaybeLocal<PrimitiveArray>();
+    }
+    exports->Set(isolate, i, str);
+  }
+  return exports;
 }
 
 void Shell::ReadBuffer(const v8::FunctionCallbackInfo<v8::Value>& args) {

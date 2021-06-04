@@ -254,6 +254,22 @@ class PerIsolateData {
     PerIsolateData* data_;
   };
 
+  // Contrary to RealmScope (which creates a new Realm), ExplicitRealmScope
+  // allows for entering an existing Realm, as specified by its index.
+  class V8_NODISCARD ExplicitRealmScope {
+   public:
+    explicit ExplicitRealmScope(PerIsolateData* data, int index);
+    ~ExplicitRealmScope();
+
+    Local<Context> context() const;
+
+   private:
+    PerIsolateData* data_;
+    Local<Context> realm_;
+    int index_;
+    int previous_index_;
+  };
+
   inline void SetTimeout(Local<Function> callback, Local<Context> context);
   inline MaybeLocal<Function> GetTimeoutCallback();
   inline MaybeLocal<Context> GetTimeoutContext();
@@ -513,7 +529,8 @@ class Shell : public i::AllStatic {
   static void Version(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void ReadFile(const v8::FunctionCallbackInfo<v8::Value>& args);
   static char* ReadChars(const char* name, int* size_out);
-  static bool ReadLines(const char* name, std::vector<std::string>& lines);
+  static MaybeLocal<PrimitiveArray> ReadLines(Isolate* isolate,
+                                              const char* name);
   static void ReadBuffer(const v8::FunctionCallbackInfo<v8::Value>& args);
   static Local<String> ReadFromStdin(Isolate* isolate);
   static void ReadLine(const v8::FunctionCallbackInfo<v8::Value>& args) {

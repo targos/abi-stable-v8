@@ -101,6 +101,7 @@ struct WasmModule;
   V(WasmArrayCopy)                        \
   V(WasmArrayCopyWithChecks)              \
   V(WasmAllocateRtt)                      \
+  V(WasmAllocateFreshRtt)                 \
   V(WasmAllocateStructWithRtt)            \
   V(WasmSubtypeCheck)                     \
   V(WasmOnStackReplace)
@@ -973,6 +974,12 @@ class V8_NODISCARD NativeModuleModificationScope final {
  public:
   explicit NativeModuleModificationScope(NativeModule* native_module);
   ~NativeModuleModificationScope();
+
+  // Disable copy constructor and copy-assignment operator, since this manages
+  // a resource and implicit copying of the scope can yield surprising errors.
+  NativeModuleModificationScope(const NativeModuleModificationScope&) = delete;
+  NativeModuleModificationScope& operator=(
+      const NativeModuleModificationScope&) = delete;
 
  private:
   NativeModule* native_module_;

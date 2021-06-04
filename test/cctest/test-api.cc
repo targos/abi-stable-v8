@@ -13877,6 +13877,10 @@ UNINITIALIZED_TEST(SetJitCodeEventHandler) {
   i::FLAG_stress_compaction = true;
   i::FLAG_incremental_marking = false;
   i::FLAG_stress_concurrent_allocation = false;  // For SimulateFullSpace.
+  // Batch compilation can cause different owning spaces for foo and bar.
+#if ENABLE_SPARKPLUG
+  i::FLAG_baseline_batch_compilation = false;
+#endif
   if (i::FLAG_never_compact) return;
   const char* script =
       "function bar() {"
