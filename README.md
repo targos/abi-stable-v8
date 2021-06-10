@@ -37,6 +37,7 @@ Diff: https://github.com/targos/abi-stable-v8/compare/f565e72d5ba88daae35a59d0f9
 - [15a3932250](https://github.com/targos/abi-stable-v8/commit/15a39322507b9bb8c0f6aabc5814c2d87ede2f62) - Reverted [[api] Avoid handles for const API functions](https://github.com/v8/v8/commit/aee471b2ff5b1a9e622426454885b748d226535b)
 - [d6bc672189](https://github.com/targos/abi-stable-v8/commit/d6bc67218954f2e7d691316f9518ae598bdb6483) - Reverted [[api] Remove deprecated [Shared]ArrayBuffer API](https://github.com/v8/v8/commit/578f6be77fc5d8af975005c2baf918e7225abb62)
 - [eb7f50e6ee](https://github.com/targos/abi-stable-v8/commit/eb7f50e6eebbfebfa7997f45b480b093bf8d46bc) - Reverted [[Jobs]: Cleanup in v8 platform.](https://github.com/v8/v8/commit/baf2b088dd9f585aa597459f30d71431171666e2)
+- [8565c87209](https://github.com/targos/abi-stable-v8/commit/8565c87209ba74a2bf0190f00ddc76b63079a93e) - Reverted [Skip global registration of [Shared]ArrayBuffer backing stores](https://github.com/v8/v8/commit/fcdf35e6d70d51699ece063e25dc705e80673308)
 
 #### V8 9.1 to 9.2
 
