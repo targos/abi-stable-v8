@@ -1421,46 +1421,7 @@ class ModuleDecoderImpl : public Decoder {
   ModuleOrigin origin_;
 
   ValueType TypeOf(const WasmInitExpr& expr) {
-    switch (expr.kind()) {
-      case WasmInitExpr::kNone:
-        return kWasmVoid;
-      case WasmInitExpr::kGlobalGet:
-        return expr.immediate().index < module_->globals.size()
-                   ? module_->globals[expr.immediate().index].type
-                   : kWasmVoid;
-      case WasmInitExpr::kI32Const:
-        return kWasmI32;
-      case WasmInitExpr::kI64Const:
-        return kWasmI64;
-      case WasmInitExpr::kF32Const:
-        return kWasmF32;
-      case WasmInitExpr::kF64Const:
-        return kWasmF64;
-      case WasmInitExpr::kS128Const:
-        return kWasmS128;
-      case WasmInitExpr::kRefFuncConst: {
-        uint32_t heap_type =
-            enabled_features_.has_typed_funcref()
-                ? module_->functions[expr.immediate().index].sig_index
-                : HeapType::kFunc;
-        return ValueType::Ref(heap_type, kNonNullable);
-      }
-      case WasmInitExpr::kRefNullConst:
-        return ValueType::Ref(expr.immediate().heap_type, kNullable);
-      case WasmInitExpr::kRttCanon: {
-        return ValueType::Rtt(expr.immediate().heap_type, 0);
-      }
-      case WasmInitExpr::kRttSub:
-      case WasmInitExpr::kRttFreshSub: {
-        ValueType operand_type = TypeOf(*expr.operand());
-        if (operand_type.is_rtt()) {
-          return ValueType::Rtt(expr.immediate().heap_type,
-                                operand_type.depth() + 1);
-        } else {
-          return kWasmVoid;
-        }
-      }
-    }
+    return expr.type(module_.get(), enabled_features_);
   }
 
   bool has_seen_unordered_section(SectionCode section_code) {
@@ -1813,7 +1774,8 @@ class ModuleDecoderImpl : public Decoder {
             return {};
           }
 
-          FunctionIndexImmediate<Decoder::kFullValidation> imm(this, pc() + 1);
+          IndexImmediate<Decoder::kFullValidation> imm(this, pc() + 1,
+                                                       "function index");
           len = 1 + imm.length;
           if (V8_UNLIKELY(module->functions.size() <= imm.index)) {
             errorf(pc(), "invalid function index: %u", imm.index);
@@ -1847,7 +1809,7 @@ class ModuleDecoderImpl : public Decoder {
           opcode = read_prefixed_opcode<validate>(pc(), &len);
           switch (opcode) {
             case kExprRttCanon: {
-              TypeIndexImmediate<validate> imm(this, pc() + 2);
+              IndexImmediate<validate> imm(this, pc() + 2, "type index");
               if (V8_UNLIKELY(imm.index >= module_->types.capacity())) {
                 errorf(pc() + 2, "type index %u is out of bounds", imm.index);
                 return {};
@@ -1864,7 +1826,7 @@ class ModuleDecoderImpl : public Decoder {
               }
               V8_FALLTHROUGH;
             case kExprRttSub: {
-              TypeIndexImmediate<validate> imm(this, pc() + 2);
+              IndexImmediate<validate> imm(this, pc() + 2, "type index");
               if (V8_UNLIKELY(imm.index >= module_->types.capacity())) {
                 errorf(pc() + 2, "type index %u is out of bounds", imm.index);
                 return {};

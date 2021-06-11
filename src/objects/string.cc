@@ -1441,7 +1441,8 @@ void SeqTwoByteString::clear_padding() {
          SizeFor(length()) - data_size);
 }
 
-uint16_t ConsString::Get(int index) {
+uint16_t ConsString::Get(
+    int index, const SharedStringAccessGuardIfNeeded& access_guard) const {
   DCHECK(index >= 0 && index < this->length());
 
   // Check for a flattened cons string
@@ -1463,16 +1464,22 @@ uint16_t ConsString::Get(int index) {
         string = cons_string.second();
       }
     } else {
-      return string.Get(index);
+      return string.Get(index, access_guard);
     }
   }
 
   UNREACHABLE();
 }
 
-uint16_t ThinString::Get(int index) { return actual().Get(index); }
+uint16_t ThinString::Get(
+    int index, const SharedStringAccessGuardIfNeeded& access_guard) const {
+  return actual().Get(index, access_guard);
+}
 
-uint16_t SlicedString::Get(int index) { return parent().Get(offset() + index); }
+uint16_t SlicedString::Get(
+    int index, const SharedStringAccessGuardIfNeeded& access_guard) const {
+  return parent().Get(offset() + index, access_guard);
+}
 
 int ExternalString::ExternalPayloadSize() const {
   int length_multiplier = IsTwoByteRepresentation() ? i::kShortSize : kCharSize;
