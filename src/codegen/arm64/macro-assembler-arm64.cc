@@ -393,7 +393,7 @@ void TurboAssembler::Movi32bitHelper(const VRegister& vd, uint64_t imm) {
   DCHECK(is_uint32(imm));
 
   uint8_t bytes[sizeof(imm)];
-  base::Memcpy(bytes, &imm, sizeof(imm));
+  memcpy(bytes, &imm, sizeof(imm));
 
   // All bytes are either 0x00 or 0xFF.
   {
@@ -1829,7 +1829,7 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
   if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtins::kNoBuiltinId;
+    int builtin_index = Builtin::kNoBuiltinId;
     if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index)) {
       // Inline the trampoline.
       CHECK_EQ(cond, Condition::al);  // Implement if necessary.
@@ -1877,7 +1877,7 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode) {
   BlockPoolsScope scope(this);
 
   if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtins::kNoBuiltinId;
+    int builtin_index = Builtin::kNoBuiltinId;
     if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index)) {
       // Inline the trampoline.
       CallBuiltin(builtin_index);
@@ -1924,13 +1924,12 @@ void TurboAssembler::LoadEntryFromBuiltinIndex(Register builtin_index) {
   }
 }
 
-void TurboAssembler::LoadEntryFromBuiltinIndex(Builtins::Name builtin_index,
-                                               Register destination) {
-  Ldr(destination, EntryFromBuiltinIndexAsOperand(builtin_index));
+void TurboAssembler::LoadEntryFromBuiltin(Builtin builtin_index,
+                                          Register destination) {
+  Ldr(destination, EntryFromBuiltinAsOperand(builtin_index));
 }
 
-MemOperand TurboAssembler::EntryFromBuiltinIndexAsOperand(
-    Builtins::Name builtin_index) {
+MemOperand TurboAssembler::EntryFromBuiltinAsOperand(Builtin builtin_index) {
   DCHECK(root_array_available());
   return MemOperand(kRootRegister,
                     IsolateData::builtin_entry_slot_offset(builtin_index));
@@ -1944,7 +1943,7 @@ void TurboAssembler::CallBuiltinByIndex(Register builtin_index) {
 void TurboAssembler::CallBuiltin(int builtin_index) {
   DCHECK(Builtins::IsBuiltinId(builtin_index));
   RecordCommentForOffHeapTrampoline(builtin_index);
-  CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+  CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
   if (options().short_builtin_calls) {
     EmbeddedData d = EmbeddedData::FromBlob(isolate());
     Address entry = d.InstructionStartOfBuiltin(builtin_index);
@@ -1964,7 +1963,7 @@ void TurboAssembler::CallBuiltin(int builtin_index) {
 void TurboAssembler::TailCallBuiltin(int builtin_index) {
   DCHECK(Builtins::IsBuiltinId(builtin_index));
   RecordCommentForOffHeapTrampoline(builtin_index);
-  CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+  CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
   if (options().short_builtin_calls) {
     EmbeddedData d = EmbeddedData::FromBlob(isolate());
     Address entry = d.InstructionStartOfBuiltin(builtin_index);
@@ -2100,8 +2099,8 @@ bool TurboAssembler::IsNearCallOffset(int64_t offset) {
 }
 
 void TurboAssembler::CallForDeoptimization(
-    Builtins::Name target, int deopt_id, Label* exit, DeoptimizeKind kind,
-    Label* ret, Label* jump_deoptimization_entry_label) {
+    Builtin target, int deopt_id, Label* exit, DeoptimizeKind kind, Label* ret,
+    Label* jump_deoptimization_entry_label) {
   BlockPoolsScope scope(this);
   bl(jump_deoptimization_entry_label);
   DCHECK_EQ(SizeOfCodeGeneratedSince(exit),
@@ -2496,7 +2495,7 @@ void TurboAssembler::TruncateDoubleToI(Isolate* isolate, Zone* zone,
   if (false) {
 #endif  // V8_ENABLE_WEBASSEMBLY
   } else if (options().inline_offheap_trampolines) {
-    CallBuiltin(Builtins::kDoubleToI);
+    CallBuiltin(Builtin::kDoubleToI);
   } else {
     Call(BUILTIN_CODE(isolate, DoubleToI), RelocInfo::CODE_TARGET);
   }
@@ -2714,8 +2713,9 @@ void MacroAssembler::LoadWeakValue(Register out, Register in,
   and_(out, in, Operand(~kWeakHeapObjectMask));
 }
 
-void MacroAssembler::IncrementCounter(StatsCounter* counter, int value,
-                                      Register scratch1, Register scratch2) {
+void MacroAssembler::EmitIncrementCounter(StatsCounter* counter, int value,
+                                          Register scratch1,
+                                          Register scratch2) {
   DCHECK_NE(value, 0);
   if (FLAG_native_code_counters && counter->Enabled()) {
     // This operation has to be exactly 32-bit wide in case the external
@@ -2726,11 +2726,6 @@ void MacroAssembler::IncrementCounter(StatsCounter* counter, int value,
     Add(scratch1.W(), scratch1.W(), value);
     Str(scratch1.W(), MemOperand(scratch2));
   }
-}
-
-void MacroAssembler::DecrementCounter(StatsCounter* counter, int value,
-                                      Register scratch1, Register scratch2) {
-  IncrementCounter(counter, -value, scratch1, scratch2);
 }
 
 void MacroAssembler::JumpIfObjectType(Register object, Register map,
@@ -2926,6 +2921,7 @@ void MacroAssembler::RecordWriteField(Register object, int offset,
     Label ok;
     UseScratchRegisterScope temps(this);
     Register scratch = temps.AcquireX();
+    DCHECK(!AreAliased(object, value, scratch));
     Add(scratch, object, offset - kHeapObjectTag);
     Tst(scratch, kTaggedSize - 1);
     B(eq, &ok);
@@ -3064,7 +3060,7 @@ void MacroAssembler::RecordWrite(Register object, Operand offset,
   if (FLAG_debug_code) {
     UseScratchRegisterScope temps(this);
     Register temp = temps.AcquireX();
-
+    DCHECK(!AreAliased(object, value, temp));
     Add(temp, object, offset);
     LoadTaggedPointerField(temp, MemOperand(temp));
     Cmp(temp, value);
@@ -3095,11 +3091,16 @@ void MacroAssembler::RecordWrite(Register object, Operand offset,
   if (lr_status == kLRHasNotBeenSaved) {
     Push<TurboAssembler::kSignLR>(padreg, lr);
   }
-  CallRecordWriteStubSaveRegisters(object, offset, remembered_set_action,
-                                   fp_mode);
+  Register slot_address = WriteBarrierDescriptor::SlotAddressRegister();
+  DCHECK(!AreAliased(object, slot_address, value));
+  // TODO(cbruni): Turn offset into int.
+  DCHECK(offset.IsImmediate());
+  Add(slot_address, object, offset);
+  CallRecordWriteStub(object, slot_address, remembered_set_action, fp_mode);
   if (lr_status == kLRHasNotBeenSaved) {
     Pop<TurboAssembler::kAuthLR>(lr, padreg);
   }
+  if (FLAG_debug_code) Mov(slot_address, Operand(kZapValue));
 
   Bind(&done);
 }

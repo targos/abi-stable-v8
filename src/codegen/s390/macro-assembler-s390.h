@@ -103,7 +103,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void Ret() { b(r14); }
   void Ret(Condition cond) { b(cond, r14); }
 
-  void CallForDeoptimization(Builtins::Name target, int deopt_id, Label* exit,
+  void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
                              Label* jump_deoptimization_entry_label);
 
@@ -1193,9 +1193,19 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // StatsCounter support
 
   void IncrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitIncrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitIncrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
   void DecrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitDecrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitDecrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
 
   // ---------------------------------------------------------------------------
   // Stack limit utilities

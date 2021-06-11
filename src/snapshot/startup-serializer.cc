@@ -98,13 +98,19 @@ bool IsUnexpectedCodeObject(Isolate* isolate, HeapObject obj) {
   // See Heap::interpreter_entry_trampoline_for_profiling.
 
   switch (code.builtin_index()) {
-    case Builtins::kAbort:
-    case Builtins::kCEntry_Return1_DontSaveFPRegs_ArgvOnStack_NoBuiltinExit:
-    case Builtins::kInterpreterEntryTrampoline:
-    case Builtins::kRecordWriteEmitRememberedSetSaveFP:
-    case Builtins::kRecordWriteOmitRememberedSetSaveFP:
-    case Builtins::kRecordWriteEmitRememberedSetIgnoreFP:
-    case Builtins::kRecordWriteOmitRememberedSetIgnoreFP:
+    case Builtin::kAbort:
+    case Builtin::kCEntry_Return1_DontSaveFPRegs_ArgvOnStack_NoBuiltinExit:
+    case Builtin::kInterpreterEntryTrampoline:
+    case Builtin::kRecordWriteEmitRememberedSetSaveFP:
+    case Builtin::kRecordWriteOmitRememberedSetSaveFP:
+    case Builtin::kRecordWriteEmitRememberedSetIgnoreFP:
+    case Builtin::kRecordWriteOmitRememberedSetIgnoreFP:
+#ifdef V8_IS_TSAN
+    case Builtin::kTSANRelaxedStore32IgnoreFP:
+    case Builtin::kTSANRelaxedStore32SaveFP:
+    case Builtin::kTSANRelaxedStore64IgnoreFP:
+    case Builtin::kTSANRelaxedStore64SaveFP:
+#endif  // V8_IS_TSAN
       return false;
     default:
       return true;

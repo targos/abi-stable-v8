@@ -76,6 +76,7 @@
 #include "src/init/v8.h"
 #include "src/interpreter/interpreter.h"
 #include "src/logging/log.h"
+#include "src/logging/runtime-call-stats-scope.h"
 #include "src/numbers/conversions.h"
 #include "src/objects/data-handler.h"
 #include "src/objects/feedback-vector.h"
@@ -4511,7 +4512,7 @@ Code Heap::builtin(int index) {
 }
 
 Address Heap::builtin_address(int index) {
-  DCHECK(Builtins::IsBuiltinId(index) || index == Builtins::builtin_count);
+  DCHECK(Builtins::IsBuiltinId(index) || index == Builtins::kBuiltinCount);
   return reinterpret_cast<Address>(&isolate()->builtins_table()[index]);
 }
 
@@ -4556,9 +4557,9 @@ void Heap::IterateSmiRoots(RootVisitor* v) {
 // sure all handles still needed are updated. Filter out a stale pointer
 // and clear the slot to allow post processing of handles (needed because
 // the sweeper might actually free the underlying page).
-class FixStaleLeftTrimmedHandlesVisitor : public RootVisitor {
+class ClearStaleLeftTrimmedHandlesVisitor : public RootVisitor {
  public:
-  explicit FixStaleLeftTrimmedHandlesVisitor(Heap* heap) : heap_(heap) {
+  explicit ClearStaleLeftTrimmedHandlesVisitor(Heap* heap) : heap_(heap) {
     USE(heap_);
   }
 
@@ -4673,19 +4674,22 @@ void Heap::IterateRoots(RootVisitor* v, base::EnumSet<SkipRoot> options) {
       v->Synchronize(VisitorSynchronization::kStackRoots);
     }
 
-    // Iterate over local handles in handle scopes.
-    FixStaleLeftTrimmedHandlesVisitor left_trim_visitor(this);
 #ifndef V8_ENABLE_CONSERVATIVE_STACK_SCANNING
+    // Iterate over main thread handles in handle scopes.
     if (!options.contains(SkipRoot::kMainThreadHandles)) {
+      // Clear main thread handles with stale references to left-trimmed
+      // objects. The GC would crash on such stale references.
+      ClearStaleLeftTrimmedHandlesVisitor left_trim_visitor(this);
       isolate_->handle_scope_implementer()->Iterate(&left_trim_visitor);
+
       isolate_->handle_scope_implementer()->Iterate(v);
     }
 #endif
 
-    safepoint_->Iterate(&left_trim_visitor);
+    // Iterate local handles for all local heaps.
     safepoint_->Iterate(v);
 
-    isolate_->persistent_handles_list()->Iterate(&left_trim_visitor, isolate_);
+    // Iterates all persistent handles.
     isolate_->persistent_handles_list()->Iterate(v, isolate_);
 
     v->Synchronize(VisitorSynchronization::kHandleScope);
@@ -4733,7 +4737,7 @@ void Heap::IterateWeakGlobalHandles(RootVisitor* v) {
 }
 
 void Heap::IterateBuiltins(RootVisitor* v) {
-  for (int i = 0; i < Builtins::builtin_count; i++) {
+  for (int i = 0; i < Builtins::kBuiltinCount; i++) {
     v->VisitRootPointer(Root::kBuiltins, Builtins::name(i),
                         FullObjectSlot(builtin_address(i)));
   }
@@ -4919,12 +4923,12 @@ void Heap::ConfigureHeap(const v8::ResourceConstraints& constraints) {
 void Heap::AddToRingBuffer(const char* string) {
   size_t first_part =
       std::min(strlen(string), kTraceRingBufferSize - ring_buffer_end_);
-  base::Memcpy(trace_ring_buffer_ + ring_buffer_end_, string, first_part);
+  memcpy(trace_ring_buffer_ + ring_buffer_end_, string, first_part);
   ring_buffer_end_ += first_part;
   if (first_part < strlen(string)) {
     ring_buffer_full_ = true;
     size_t second_part = strlen(string) - first_part;
-    base::Memcpy(trace_ring_buffer_, string + first_part, second_part);
+    memcpy(trace_ring_buffer_, string + first_part, second_part);
     ring_buffer_end_ = second_part;
   }
 }
@@ -4933,9 +4937,9 @@ void Heap::GetFromRingBuffer(char* buffer) {
   size_t copied = 0;
   if (ring_buffer_full_) {
     copied = kTraceRingBufferSize - ring_buffer_end_;
-    base::Memcpy(buffer, trace_ring_buffer_ + ring_buffer_end_, copied);
+    memcpy(buffer, trace_ring_buffer_ + ring_buffer_end_, copied);
   }
-  base::Memcpy(buffer + copied, trace_ring_buffer_, ring_buffer_end_);
+  memcpy(buffer + copied, trace_ring_buffer_, ring_buffer_end_);
 }
 
 void Heap::ConfigureHeapDefault() {
@@ -6470,7 +6474,7 @@ void Heap::SetDetachedContexts(WeakArrayList detached_contexts) {
 }
 
 void Heap::SetInterpreterEntryTrampolineForProfiling(Code code) {
-  DCHECK_EQ(Builtins::kInterpreterEntryTrampoline, code.builtin_index());
+  DCHECK_EQ(Builtin::kInterpreterEntryTrampoline, code.builtin_index());
   set_interpreter_entry_trampoline_for_profiling(code);
 }
 
@@ -6796,8 +6800,7 @@ Code Heap::GcSafeCastToCode(HeapObject object, Address inner_pointer) {
 bool Heap::GcSafeCodeContains(Code code, Address addr) {
   Map map = GcSafeMapOfCodeSpaceObject(code);
   DCHECK(map == ReadOnlyRoots(this).code_map());
-  Builtins::Name maybe_builtin =
-      InstructionStream::TryLookupCode(isolate(), addr);
+  Builtin maybe_builtin = InstructionStream::TryLookupCode(isolate(), addr);
   if (Builtins::IsBuiltinId(maybe_builtin) &&
       code.builtin_index() == maybe_builtin) {
     return true;
@@ -6808,7 +6811,7 @@ bool Heap::GcSafeCodeContains(Code code, Address addr) {
 }
 
 Code Heap::GcSafeFindCodeForInnerPointer(Address inner_pointer) {
-  Builtins::Name maybe_builtin =
+  Builtin maybe_builtin =
       InstructionStream::TryLookupCode(isolate(), inner_pointer);
   if (Builtins::IsBuiltinId(maybe_builtin)) {
     return builtin(maybe_builtin);

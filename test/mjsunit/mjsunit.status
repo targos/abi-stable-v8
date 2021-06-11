@@ -1075,23 +1075,19 @@
   'regress/regress-356053': [SKIP],
   'regress/regress-embedded-cons-string': [SKIP],
 
-  # Intentionally non-deterministic using shared arraybuffers.
+  # Intentionally non-deterministic using shared arraybuffers between workers.
   'wasm/atomics-stress': [SKIP],
   'wasm/atomics64-stress': [SKIP],
   'wasm/futex': [SKIP],
+  'regress/regress-1205290': [SKIP],
   'regress/wasm/regress-1067621': [SKIP],
 
   # BUG(v8:9975).
   'es6/typedarray-copywithin': [SKIP],
 
-  # BUG(v8:11319): Predictable crashes with --wasm-tier-up.
-  'wasm/compiled-module-serialization': [SKIP],
-  'wasm/graceful_shutdown_during_tierup': [SKIP],
-  'wasm/print-code': [SKIP],
-  'regress/wasm/regress-11024': [SKIP],
-  'regress/wasm/regress-7785': [SKIP],
-  'regress/wasm/regress-808848': [SKIP],
-  'regress/wasm/regress-808980': [SKIP],
+  # BUG(v8:11858): Deadlocks in predictable mode when waiting for the native
+  # module cache entry to be completed.
+  'regress/wasm/regress-709684': [SKIP],
 }],  # 'predictable == True'
 
 ##############################################################################
@@ -1609,6 +1605,13 @@
   'wasm/shared-memory-worker-stress': [SKIP],
   'wasm/worker-memory': [SKIP],
   'wasm/worker-module': [SKIP],
+  # Timeout (too many GCs)
+  'wasm/many-memories-no-trap-handler': [SKIP],
+  'wasm/memory_2gb_oob': [SKIP],
+  'wasm/memory_1gb_oob': [SKIP],
+  'wasm/memory_4gb_oob': [SKIP],
+  'regress/regress-331444': [SKIP],
+  'regress/regress-708247': [SKIP],
   # Performs GC
   'code-coverage-precise': [SKIP],
   'compiler/monomorphic-named-load-with-no-map': [SKIP],

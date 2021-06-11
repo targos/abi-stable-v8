@@ -1090,9 +1090,8 @@ TEST_F(FunctionBodyDecoderTest, UnreachableRefTypes) {
   WASM_FEATURE_SCOPE(reftypes);
   WASM_FEATURE_SCOPE(typed_funcref);
   WASM_FEATURE_SCOPE(gc);
+  WASM_FEATURE_SCOPE(gc_experiments);
   WASM_FEATURE_SCOPE(return_call);
-  FlagScope<bool> flag_gc_experiments(&FLAG_experimental_wasm_gc_experiments,
-                                      true);
 
   byte function_index = builder.AddFunction(sigs.i_ii());
   byte struct_index = builder.AddStruct({F(kWasmI32, true), F(kWasmI64, true)});
@@ -4291,9 +4290,7 @@ TEST_F(FunctionBodyDecoderTest, RttSub) {
   WASM_FEATURE_SCOPE(reftypes);
   WASM_FEATURE_SCOPE(typed_funcref);
   WASM_FEATURE_SCOPE(gc);
-  WASM_FEATURE_SCOPE(eh);
-  FlagScope<bool> flag_gc_experiments(&FLAG_experimental_wasm_gc_experiments,
-                                      true);
+  WASM_FEATURE_SCOPE(gc_experiments);
 
   TestModuleBuilder builder;
   module = builder.module();
@@ -4733,7 +4730,7 @@ class WasmOpcodeLengthTest : public TestWithZone {
 
   template <typename... Bytes>
   void ExpectLength(unsigned expected, Bytes... bytes) {
-    const byte code[] = {bytes..., 0, 0, 0, 0, 0, 0, 0, 0};
+    const byte code[] = {static_cast<byte>(bytes)..., 0, 0, 0, 0, 0, 0, 0, 0};
     EXPECT_EQ(expected, OpcodeLength(code, code + sizeof(code)))
         << PrintOpcodes{code, code + sizeof...(bytes)};
   }
@@ -4754,7 +4751,7 @@ class WasmOpcodeLengthTest : public TestWithZone {
 
   template <typename... Bytes>
   void ExpectFailure(Bytes... bytes) {
-    const byte code[] = {bytes..., 0, 0, 0, 0, 0, 0, 0, 0};
+    const byte code[] = {static_cast<byte>(bytes)..., 0, 0, 0, 0, 0, 0, 0, 0};
     WasmFeatures no_features = WasmFeatures::None();
     WasmDecoder<Decoder::kFullValidation> decoder(
         this->zone(), nullptr, no_features, &no_features, nullptr, code,

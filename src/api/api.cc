@@ -59,6 +59,7 @@
 #include "src/json/json-stringifier.h"
 #include "src/logging/counters.h"
 #include "src/logging/metrics.h"
+#include "src/logging/runtime-call-stats-scope.h"
 #include "src/logging/tracing-flags.h"
 #include "src/numbers/conversions-inl.h"
 #include "src/objects/api-callbacks.h"
@@ -5408,7 +5409,7 @@ static int WriteUtf8Impl(i::Vector<const Char> string, char* write_start,
       for (int i = read_index; i < up_to; i++) char_mask |= read_start[i];
       if ((char_mask & 0x80) == 0) {
         int copy_length = up_to - read_index;
-        base::Memcpy(current_write, read_start + read_index, copy_length);
+        memcpy(current_write, read_start + read_index, copy_length);
         current_write += copy_length;
         read_index = up_to;
       } else {
@@ -6150,7 +6151,7 @@ Local<Context> NewContext(
   // TODO(jkummerow): This is for crbug.com/713699. Remove it if it doesn't
   // fail.
   // Sanity-check that the isolate is initialized and usable.
-  CHECK(isolate->builtins()->builtin(i::Builtins::kIllegal).IsCode());
+  CHECK(isolate->builtins()->builtin(i::Builtin::kIllegal).IsCode());
 
   TRACE_EVENT_CALL_STATS_SCOPED(isolate, "v8", "V8.NewContext");
   LOG_API(isolate, Context, New);
@@ -7630,7 +7631,7 @@ void* v8::ArrayBuffer::Allocator::Reallocate(void* data, size_t old_length,
       reinterpret_cast<uint8_t*>(AllocateUninitialized(new_length));
   if (new_data == nullptr) return nullptr;
   size_t bytes_to_copy = std::min(old_length, new_length);
-  base::Memcpy(new_data, data, bytes_to_copy);
+  memcpy(new_data, data, bytes_to_copy);
   if (new_length > bytes_to_copy) {
     memset(new_data + bytes_to_copy, 0, new_length - bytes_to_copy);
   }
@@ -7937,7 +7938,7 @@ size_t v8::ArrayBufferView::CopyContents(void* dest, size_t byte_length) {
                                              isolate);
       source = reinterpret_cast<char*>(typed_array->DataPtr());
     }
-    base::Memcpy(dest, source + byte_offset, bytes_to_copy);
+    memcpy(dest, source + byte_offset, bytes_to_copy);
   }
   return bytes_to_copy;
 }
@@ -8586,6 +8587,11 @@ void Isolate::RequestGarbageCollectionForTesting(GarbageCollectionType type) {
 
 Isolate* Isolate::GetCurrent() {
   i::Isolate* isolate = i::Isolate::Current();
+  return reinterpret_cast<Isolate*>(isolate);
+}
+
+Isolate* Isolate::TryGetCurrent() {
+  i::Isolate* isolate = i::Isolate::TryGetCurrent();
   return reinterpret_cast<Isolate*>(isolate);
 }
 
@@ -9242,6 +9248,12 @@ void Isolate::MemoryPressureNotification(MemoryPressureLevel level) {
   isolate->heap()->MemoryPressureNotification(level, on_isolate_thread);
 }
 
+void Isolate::ClearCachesForTesting() {
+  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
+  isolate->AbortConcurrentOptimization(i::BlockingBehavior::kBlock);
+  isolate->ClearSerializerData();
+}
+
 void Isolate::EnableMemorySavingsMode() {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
   isolate->EnableMemorySavingsMode();
@@ -9305,10 +9317,10 @@ JSEntryStubs Isolate::GetJSEntryStubs() {
   JSEntryStubs entry_stubs;
 
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
-  std::array<std::pair<i::Builtins::Name, JSEntryStub*>, 3> stubs = {
-      {{i::Builtins::kJSEntry, &entry_stubs.js_entry_stub},
-       {i::Builtins::kJSConstructEntry, &entry_stubs.js_construct_entry_stub},
-       {i::Builtins::kJSRunMicrotasksEntry,
+  std::array<std::pair<i::Builtin, JSEntryStub*>, 3> stubs = {
+      {{i::Builtin::kJSEntry, &entry_stubs.js_entry_stub},
+       {i::Builtin::kJSConstructEntry, &entry_stubs.js_construct_entry_stub},
+       {i::Builtin::kJSRunMicrotasksEntry,
         &entry_stubs.js_run_microtasks_entry_stub}}};
   for (auto& pair : stubs) {
     i::Code js_entry = isolate->heap()->builtin(pair.first);

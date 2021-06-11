@@ -185,7 +185,7 @@ std::unique_ptr<const byte[]> WasmCode::ConcatenateBytes(
   byte* ptr = result.get();
   for (auto& vec : vectors) {
     if (vec.empty()) continue;  // Avoid nullptr in {memcpy}.
-    base::Memcpy(ptr, vec.begin(), vec.size());
+    memcpy(ptr, vec.begin(), vec.size());
     ptr += vec.size();
   }
   return result;
@@ -883,8 +883,8 @@ void NativeModule::ReserveCodeTableForTesting(uint32_t max_functions) {
   DCHECK_LE(module_->num_declared_functions, max_functions);
   auto new_table = std::make_unique<WasmCode*[]>(max_functions);
   if (module_->num_declared_functions > 0) {
-    base::Memcpy(new_table.get(), code_table_.get(),
-                 module_->num_declared_functions * sizeof(WasmCode*));
+    memcpy(new_table.get(), code_table_.get(),
+           module_->num_declared_functions * sizeof(WasmCode*));
   }
   code_table_ = std::move(new_table);
 
@@ -967,8 +967,7 @@ WasmCode* NativeModule::AddCodeForTesting(Handle<Code> code) {
   base::RecursiveMutexGuard guard{&allocation_mutex_};
   Vector<uint8_t> dst_code_bytes =
       code_allocator_.AllocateForCode(this, instructions.size());
-  base::Memcpy(dst_code_bytes.begin(), instructions.begin(),
-               instructions.size());
+  memcpy(dst_code_bytes.begin(), instructions.begin(), instructions.size());
 
   // Apply the relocation delta by iterating over the RelocInfo.
   intptr_t delta = reinterpret_cast<Address>(dst_code_bytes.begin()) -
@@ -1096,8 +1095,8 @@ std::unique_ptr<WasmCode> NativeModule::AddCodeWithCodeSpace(
   const int instr_size = desc.instr_size;
 
   CODE_SPACE_WRITE_SCOPE
-  base::Memcpy(dst_code_bytes.begin(), desc.buffer,
-               static_cast<size_t>(desc.instr_size));
+  memcpy(dst_code_bytes.begin(), desc.buffer,
+         static_cast<size_t>(desc.instr_size));
 
   // Apply the relocation delta by iterating over the RelocInfo.
   intptr_t delta = dst_code_bytes.begin() - desc.buffer;
@@ -1469,16 +1468,16 @@ void NativeModule::AddCodeSpaceLocked(base::AddressRegion region) {
         region);
     CHECK(region.contains(far_jump_table->instruction_start()));
     EmbeddedData embedded_data = EmbeddedData::FromBlob();
-#define RUNTIME_STUB(Name) Builtins::k##Name,
+#define RUNTIME_STUB(Name) Builtin::k##Name,
 #define RUNTIME_STUB_TRAP(Name) RUNTIME_STUB(ThrowWasm##Name)
-    Builtins::Name stub_names[WasmCode::kRuntimeStubCount] = {
+    Builtin stub_names[WasmCode::kRuntimeStubCount] = {
         WASM_RUNTIME_STUB_LIST(RUNTIME_STUB, RUNTIME_STUB_TRAP)};
 #undef RUNTIME_STUB
 #undef RUNTIME_STUB_TRAP
     STATIC_ASSERT(Builtins::kAllBuiltinsAreIsolateIndependent);
     Address builtin_addresses[WasmCode::kRuntimeStubCount];
     for (int i = 0; i < WasmCode::kRuntimeStubCount; ++i) {
-      Builtins::Name builtin = stub_names[i];
+      Builtin builtin = stub_names[i];
       builtin_addresses[i] = embedded_data.InstructionStartOfBuiltin(builtin);
     }
     JumpTableAssembler::GenerateFarJumpTable(
@@ -2346,10 +2345,10 @@ void WasmCodeRefScope::AddRef(WasmCode* code) {
   code->IncRef();
 }
 
-Builtins::Name RuntimeStubIdToBuiltinName(WasmCode::RuntimeStubId stub_id) {
-#define RUNTIME_STUB_NAME(Name) Builtins::k##Name,
-#define RUNTIME_STUB_NAME_TRAP(Name) Builtins::kThrowWasm##Name,
-  constexpr Builtins::Name builtin_names[] = {
+Builtin RuntimeStubIdToBuiltinName(WasmCode::RuntimeStubId stub_id) {
+#define RUNTIME_STUB_NAME(Name) Builtin::k##Name,
+#define RUNTIME_STUB_NAME_TRAP(Name) Builtin::kThrowWasm##Name,
+  constexpr Builtin builtin_names[] = {
       WASM_RUNTIME_STUB_LIST(RUNTIME_STUB_NAME, RUNTIME_STUB_NAME_TRAP)};
 #undef RUNTIME_STUB_NAME
 #undef RUNTIME_STUB_NAME_TRAP

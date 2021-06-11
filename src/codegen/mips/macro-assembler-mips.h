@@ -219,7 +219,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
 
   // Load the builtin given by the Smi in |builtin_index| into the same
   // register.
-  void LoadEntryFromBuiltinIndex(Register builtin_index);
+  void LoadEntryFromBuiltin(Register builtin_index);
   void CallBuiltinByIndex(Register builtin_index);
 
   void LoadCodeObjectEntry(Register destination, Register code_object) {
@@ -241,7 +241,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // The return address on the stack is used by frame iteration.
   void StoreReturnAddressAndCall(Register target);
 
-  void CallForDeoptimization(Builtins::Name target, int deopt_id, Label* exit,
+  void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
                              Label* jump_deoptimization_entry_label);
 
@@ -1082,9 +1082,19 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // StatsCounter support.
 
   void IncrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitIncrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitIncrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
   void DecrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitDecrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitDecrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
 
   // -------------------------------------------------------------------------
   // Stack limit utilities

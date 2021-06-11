@@ -386,8 +386,15 @@ class Heap {
   static constexpr size_t kOldGenerationLowMemory =
       128 * MB * kHeapLimitMultiplier;
   static constexpr size_t kNewLargeObjectSpaceToSemiSpaceRatio = 1;
+#if ENABLE_HUGEPAGE
+  static constexpr size_t kMinSemiSpaceSize =
+      kHugePageSize * kPointerMultiplier;
+  static constexpr size_t kMaxSemiSpaceSize =
+      kHugePageSize * 16 * kPointerMultiplier;
+#else
   static constexpr size_t kMinSemiSpaceSize = 512 * KB * kPointerMultiplier;
   static constexpr size_t kMaxSemiSpaceSize = 8192 * KB * kPointerMultiplier;
+#endif
 
   STATIC_ASSERT(kMinSemiSpaceSize % (1 << kPageSizeBits) == 0);
   STATIC_ASSERT(kMaxSemiSpaceSize % (1 << kPageSizeBits) == 0);
@@ -2419,9 +2426,6 @@ class Heap {
   bool delay_sweeper_tasks_for_testing_ = false;
 
   HeapObject pending_layout_change_object_;
-
-  // This mutex protects original_top/limit and pending_object for all spaces.
-  base::SharedMutex pending_allocation_mutex_;
 
   base::Mutex unprotected_memory_chunks_mutex_;
   std::unordered_set<MemoryChunk*> unprotected_memory_chunks_;

@@ -283,7 +283,7 @@ class OutOfLineTruncateDoubleToI final : public OutOfLineCode {
     if (false) {
 #endif  // V8_ENABLE_WEBASSEMBLY
     } else if (tasm()->options().inline_offheap_trampolines) {
-      __ CallBuiltin(Builtins::kDoubleToI);
+      __ CallBuiltin(Builtin::kDoubleToI);
     } else {
       __ Call(BUILTIN_CODE(isolate_, DoubleToI), RelocInfo::CODE_TARGET);
     }
@@ -928,9 +928,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         // We don't actually want to generate a pile of code for this, so just
         // claim there is a stack frame, without generating one.
         FrameScope scope(tasm(), StackFrame::NONE);
-        __ Call(
-            isolate()->builtins()->builtin_handle(Builtins::kAbortCSAAssert),
-            RelocInfo::CODE_TARGET);
+        __ Call(isolate()->builtins()->builtin_handle(Builtin::kAbortCSAAssert),
+                RelocInfo::CODE_TARGET);
       }
       __ int3();
       break;
@@ -4674,12 +4673,19 @@ void CodeGenerator::AssembleReturn(InstructionOperand* additional_pop_count) {
     __ PushReturnAddressFrom(scratch_reg);
     __ Ret();
   } else if (additional_pop_count->IsImmediate()) {
-    Register scratch_reg = ecx;
-    DCHECK_EQ(0u, call_descriptor->CalleeSavedRegisters() & scratch_reg.bit());
     int additional_count = g.ToConstant(additional_pop_count).ToInt32();
     size_t pop_size = (parameter_slots + additional_count) * kSystemPointerSize;
-    CHECK_LE(pop_size, static_cast<size_t>(std::numeric_limits<int>::max()));
-    __ Ret(static_cast<int>(pop_size), scratch_reg);
+    if (is_uint16(pop_size)) {
+      // Avoid the additional scratch register, it might clobber the
+      // CalleeSavedRegisters.
+      __ ret(static_cast<int>(pop_size));
+    } else {
+      Register scratch_reg = ecx;
+      DCHECK_EQ(0u,
+                call_descriptor->CalleeSavedRegisters() & scratch_reg.bit());
+      CHECK_LE(pop_size, static_cast<size_t>(std::numeric_limits<int>::max()));
+      __ Ret(static_cast<int>(pop_size), scratch_reg);
+    }
   } else {
     Register pop_reg = g.ToRegister(additional_pop_count);
     Register scratch_reg = pop_reg == ecx ? edx : ecx;

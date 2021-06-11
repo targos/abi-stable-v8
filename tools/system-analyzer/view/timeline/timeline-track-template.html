@@ -24,43 +24,18 @@ found in the LICENSE file. -->
     font-size: 10px;
     opacity: 0.5;
   }
+  .dataSized {
+    min-height: 200px;
+  }
 
-  #timelineSamples, #timelineChunks {
-    height: 200px;
+  #timelineSamples, #timelineChunks,
+  #timelineMarkers, #timelineAnnotations {
+    top: 0px;
     position: absolute;
     margin-right: 100px;
   }
-
-  #timelineCanvas {
-    height: 200px;
-    position: relative;
-    overflow: visible;
+  #timelineMarkers, #timelineAnnotations {
     pointer-events: none;
-  }
-
-  .chunk {
-    width: 6px;
-    position: absolute;
-    background-size: 100% 100%;
-    image-rendering: pixelated;
-    bottom: 0px;
-    background-color: var(--on-surface-color);
-    cursor: pointer;
-  }
-  .chunk:hover {
-    border-radius: 2px 2px 0 0;
-    margin: 0 0 -2px -2px;
-    border: 2px var(--primary-color) solid;
-  }
-
-  .timestamp {
-    height: 200px;
-    width: 100px;
-    border-left: 1px var(--on-surface-color) dashed;
-    padding-left: 4px;
-    position: absolute;
-    pointer-events: none;
-    font-size: 10px;
   }
 
   .title {
@@ -106,10 +81,12 @@ found in the LICENSE file. -->
     padding: 1px 3px 2px 3px;
   }
 
+  #legendTable td {
+    padding-top: 3px;
+  }
   /* Center colors */
   #legendTable td:nth-of-type(4n+1) {
     text-align: center;
-    padding-top: 3px;
   }
   /* Left align text*/
   #legendTable td:nth-of-type(4n+2) {
@@ -171,21 +148,44 @@ found in the LICENSE file. -->
     flex: initial;
   }
 
+  .txt {
+    font: 8px monospace;
+  }
+  .annotationLabel {
+    fill: var(--on-surface-color);
+    font-size: 9px;
+  }
+  .annotationPoint {
+    fill: var(--on-background-color);
+    stroke-width: 1;
+  }
+  .strokeBG {
+    stroke: var(--on-background-color);
+    stroke-width: 2;
+    fill: none;
+  }
+  .markerLine {
+    stroke: var(--on-background-color);
+    stroke-dasharray: 2 2;
+  }
+  .markerText {
+    fill: var(--on-surface-color);
+    dominant-baseline: hanging;
+    font-size: 9px;
+  }
   .flame {
-    background-color: gray;
-    overflow: hidden;
-    height: 10px;
-    position: absolute;
-    font-size: 8px;
+    stroke: var(--background-color);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
   }
-  .flame.Opt{
-    background-color: red;
+  .flameSelected {
+    fill: none;
+    stroke: var(--on-background-color);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
   }
-  .flame.Baseline{
-    background-color: blue;
-  }
-  .flame.default {
-    background-color: black;
+  svg {
+    shape-rendering: optimizeSpeed;
   }
 </style>
 
@@ -195,14 +195,17 @@ found in the LICENSE file. -->
   <h3 class="title" id="title"></h3>
 
   <div id="timeline">
-    <div id="selection">
+    <div id="selection" class="dataSized">
       <div id="leftHandle"></div>
       <div id="selectionBackground"></div>
       <div id="rightHandle"></div>
     </div>
     <div id="timelineLabel">Frequency</div>
-    <div id="timelineChunks"></div>
-    <div id="timelineSamples"></div>
+    <svg id="timelineChunks" xmlns="http://www.w3.org/2000/svg" class="dataSized">
+      <g id="scalableContent"></g>
+    </svg>
+    <svg id="timelineAnnotations" xmlns="http://www.w3.org/2000/svg" class="dataSized"></svg>
+    <svg id="timelineMarkers" xmlns="http://www.w3.org/2000/svg" class="dataSized"></svg>
     <canvas id="timelineCanvas"></canvas>
   </div>
 
@@ -210,6 +213,7 @@ found in the LICENSE file. -->
     <table id="legendTable">
       <thead>
         <tr>
+          <td></td>
           <td>Type</td>
           <td>Count</td>
           <td>Percent</td>

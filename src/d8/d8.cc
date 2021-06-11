@@ -485,7 +485,7 @@ ScriptCompiler::CachedData* Shell::LookupCodeCache(Isolate* isolate,
   if (entry != cached_code_map_.end() && entry->second) {
     int length = entry->second->length;
     uint8_t* cache = new uint8_t[length];
-    base::Memcpy(cache, entry->second->data, length);
+    memcpy(cache, entry->second->data, length);
     ScriptCompiler::CachedData* cached_data = new ScriptCompiler::CachedData(
         cache, length, ScriptCompiler::CachedData::BufferOwned);
     return cached_data;
@@ -502,7 +502,7 @@ void Shell::StoreInCodeCache(Isolate* isolate, Local<Value> source,
   DCHECK(*key);
   int length = cache_data->length;
   uint8_t* cache = new uint8_t[length];
-  base::Memcpy(cache, cache_data->data, length);
+  memcpy(cache, cache_data->data, length);
   cached_code_map_[*key] = std::unique_ptr<ScriptCompiler::CachedData>(
       new ScriptCompiler::CachedData(cache, length,
                                      ScriptCompiler::CachedData::BufferOwned));
@@ -1787,15 +1787,20 @@ void Shell::RealmEval(const v8::FunctionCallbackInfo<v8::Value>& args) {
   PerIsolateData* data = PerIsolateData::Get(isolate);
   int index = data->RealmIndexOrThrow(args, 0);
   if (index == -1) return;
-  if (args.Length() < 2 || !args[1]->IsString()) {
-    args.GetIsolate()->ThrowError("Invalid argument");
+  if (args.Length() < 2) {
+    isolate->ThrowError("Invalid argument");
+    return;
+  }
+
+  Local<String> source;
+  if (!ReadSource(args, 1, CodeType::kString).ToLocal(&source)) {
+    isolate->ThrowError("Invalid argument");
     return;
   }
   ScriptOrigin origin(isolate,
                       String::NewFromUtf8Literal(isolate, "(d8)",
                                                  NewStringType::kInternalized));
-  ScriptCompiler::Source script_source(
-      args[1]->ToString(isolate->GetCurrentContext()).ToLocalChecked(), origin);
+  ScriptCompiler::Source script_source(source, origin);
   Local<UnboundScript> script;
   if (!ScriptCompiler::CompileUnboundScript(isolate, &script_source)
            .ToLocal(&script)) {
@@ -2236,35 +2241,33 @@ void Shell::SetTimeout(const v8::FunctionCallbackInfo<v8::Value>& args) {
   PerIsolateData::Get(isolate)->SetTimeout(callback, context);
 }
 
-enum WorkerType { kClassic, kString, kFunction, kInvalid, kNone };
-
-void ReadWorkerTypeAndArguments(const v8::FunctionCallbackInfo<v8::Value>& args,
-                                WorkerType* worker_type,
-                                Local<Value>* arguments = nullptr) {
+void Shell::ReadCodeTypeAndArguments(
+    const v8::FunctionCallbackInfo<v8::Value>& args, int index,
+    CodeType* code_type, Local<Value>* arguments) {
   Isolate* isolate = args.GetIsolate();
-  if (args.Length() > 1 && args[1]->IsObject()) {
-    Local<Object> object = args[1].As<Object>();
+  if (args.Length() > index && args[index]->IsObject()) {
+    Local<Object> object = args[index].As<Object>();
     Local<Context> context = isolate->GetCurrentContext();
     Local<Value> value;
     if (!TryGetValue(isolate, context, object, "type").ToLocal(&value)) {
-      *worker_type = WorkerType::kNone;
+      *code_type = CodeType::kNone;
       return;
     }
     if (!value->IsString()) {
-      *worker_type = WorkerType::kInvalid;
+      *code_type = CodeType::kInvalid;
       return;
     }
     Local<String> worker_type_string =
         value->ToString(context).ToLocalChecked();
     String::Utf8Value str(isolate, worker_type_string);
-    if (strcmp("string", *str) == 0) {
-      *worker_type = WorkerType::kString;
-    } else if (strcmp("classic", *str) == 0) {
-      *worker_type = WorkerType::kClassic;
+    if (strcmp("classic", *str) == 0) {
+      *code_type = CodeType::kFileName;
+    } else if (strcmp("string", *str) == 0) {
+      *code_type = CodeType::kString;
     } else if (strcmp("function", *str) == 0) {
-      *worker_type = WorkerType::kFunction;
+      *code_type = CodeType::kFunction;
     } else {
-      *worker_type = WorkerType::kInvalid;
+      *code_type = CodeType::kInvalid;
     }
     if (arguments != nullptr) {
       bool got_arguments =
@@ -2272,13 +2275,14 @@ void ReadWorkerTypeAndArguments(const v8::FunctionCallbackInfo<v8::Value>& args,
       USE(got_arguments);
     }
   } else {
-    *worker_type = WorkerType::kNone;
+    *code_type = CodeType::kNone;
   }
 }
 
-bool FunctionAndArgumentsToString(Local<Function> function,
-                                  Local<Value> arguments, Local<String>* source,
-                                  Isolate* isolate) {
+bool Shell::FunctionAndArgumentsToString(Local<Function> function,
+                                         Local<Value> arguments,
+                                         Local<String>* source,
+                                         Isolate* isolate) {
   Local<Context> context = isolate->GetCurrentContext();
   MaybeLocal<String> maybe_function_string =
       function->FunctionProtoToString(context);
@@ -2321,6 +2325,54 @@ bool FunctionAndArgumentsToString(Local<Function> function,
   return true;
 }
 
+// ReadSource() supports reading source code through `args[index]` as specified
+// by the `default_type` or an optional options bag provided in `args[index+1]`
+// (e.g. `options={type: 'code_type', arguments:[...]}`).
+MaybeLocal<String> Shell::ReadSource(
+    const v8::FunctionCallbackInfo<v8::Value>& args, int index,
+    CodeType default_type) {
+  CodeType code_type;
+  Local<Value> arguments;
+  ReadCodeTypeAndArguments(args, index + 1, &code_type, &arguments);
+
+  Isolate* isolate = args.GetIsolate();
+  Local<String> source;
+  if (code_type == CodeType::kNone) {
+    code_type = default_type;
+  }
+  switch (code_type) {
+    case CodeType::kFunction:
+      if (!args[index]->IsFunction()) {
+        return MaybeLocal<String>();
+      }
+      // Source: ( function_to_string )( params )
+      if (!FunctionAndArgumentsToString(args[index].As<Function>(), arguments,
+                                        &source, isolate)) {
+        return MaybeLocal<String>();
+      }
+      break;
+    case CodeType::kFileName: {
+      if (!args[index]->IsString()) {
+        return MaybeLocal<String>();
+      }
+      String::Utf8Value filename(isolate, args[index]);
+      source = Shell::ReadFile(isolate, *filename);
+      if (source.IsEmpty()) return MaybeLocal<String>();
+      break;
+    }
+    case CodeType::kString:
+      if (!args[index]->IsString()) {
+        return MaybeLocal<String>();
+      }
+      source = args[index].As<String>();
+      break;
+    case CodeType::kNone:
+    case CodeType::kInvalid:
+      return MaybeLocal<String>();
+  }
+  return source;
+}
+
 void Shell::WorkerNew(const v8::FunctionCallbackInfo<v8::Value>& args) {
   Isolate* isolate = args.GetIsolate();
   HandleScope handle_scope(isolate);
@@ -2330,45 +2382,9 @@ void Shell::WorkerNew(const v8::FunctionCallbackInfo<v8::Value>& args) {
   }
 
   Local<String> source;
-  if (args[0]->IsFunction()) {
-    // d8 supports `options={type: 'function', arguments:[...]}`, which means
-    // the first argument is a function with the code to be ran. Restrictions
-    // apply; in particular the function will be converted to a string and the
-    // Worker constructed based on it.
-    WorkerType worker_type;
-    Local<Value> arguments;
-    ReadWorkerTypeAndArguments(args, &worker_type, &arguments);
-    if (worker_type != WorkerType::kFunction) {
-      isolate->ThrowError("Invalid or missing worker type");
-      return;
-    }
-
-    // Source: ( function_to_string )( params )
-    if (!FunctionAndArgumentsToString(args[0].As<Function>(), arguments,
-                                      &source, isolate)) {
-      return;
-    }
-  } else {
-    // d8 honors `options={type: 'string'}`, which means the first argument is
-    // not a filename but string of script to be run.
-    bool load_from_file = true;
-    WorkerType worker_type;
-    ReadWorkerTypeAndArguments(args, &worker_type);
-    if (worker_type == WorkerType::kString) {
-      load_from_file = false;
-    } else if (worker_type != WorkerType::kNone &&
-               worker_type != WorkerType::kClassic) {
-      isolate->ThrowError("Invalid worker type");
-      return;
-    }
-
-    if (load_from_file) {
-      String::Utf8Value filename(isolate, args[0]);
-      source = ReadFile(isolate, *filename);
-      if (source.IsEmpty()) return;
-    } else {
-      source = args[0].As<String>();
-    }
+  if (!ReadSource(args, 0, CodeType::kFileName).ToLocal(&source)) {
+    isolate->ThrowError("Invalid argument");
+    return;
   }
 
   if (!args.IsConstructCall()) {
@@ -4531,19 +4547,22 @@ bool ProcessMessages(
     i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
     i::SaveAndSwitchContext saved_context(i_isolate, i::Context());
     SealHandleScope shs(isolate);
-    while (v8::platform::PumpMessageLoop(g_default_platform, isolate,
-                                         behavior())) {
-      MicrotasksScope::PerformCheckpoint(isolate);
+    for (bool ran_tasks = true; ran_tasks;) {
+      // Execute one foreground task (if one exists), then microtasks.
+      ran_tasks = v8::platform::PumpMessageLoop(g_default_platform, isolate,
+                                                behavior());
+      if (ran_tasks) MicrotasksScope::PerformCheckpoint(isolate);
 
+      // In predictable mode we push all background tasks into the foreground
+      // task queue of the {kProcessGlobalPredictablePlatformWorkerTaskQueue}
+      // isolate. We execute all background tasks after running one foreground
+      // task.
       if (i::FLAG_verify_predictable) {
-        // In predictable mode we push all background tasks into the foreground
-        // task queue of the {kProcessGlobalPredictablePlatformWorkerTaskQueue}
-        // isolate. We execute the tasks after one foreground task has been
-        // executed.
         while (v8::platform::PumpMessageLoop(
             g_default_platform,
             kProcessGlobalPredictablePlatformWorkerTaskQueue,
             platform::MessageLoopBehavior::kDoNotWait)) {
+          ran_tasks = true;
         }
       }
     }
@@ -4552,13 +4571,9 @@ bool ProcessMessages(
                                  50.0 / base::Time::kMillisecondsPerSecond);
     }
     bool ran_set_timeout = false;
-    if (!RunSetTimeoutCallback(isolate, &ran_set_timeout)) {
-      return false;
-    }
-
+    if (!RunSetTimeoutCallback(isolate, &ran_set_timeout)) return false;
     if (!ran_set_timeout) return true;
   }
-  return true;
 }
 }  // anonymous namespace
 
@@ -5175,8 +5190,7 @@ int Shell::Main(int argc, char* argv[]) {
         RunShell(isolate);
       }
 
-      if (i::FLAG_trace_ignition_dispatches &&
-          i::FLAG_trace_ignition_dispatches_output_file != nullptr) {
+      if (i::FLAG_trace_ignition_dispatches_output_file != nullptr) {
         WriteIgnitionDispatchCountersFile(isolate);
       }
 

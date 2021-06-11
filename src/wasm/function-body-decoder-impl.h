@@ -445,7 +445,7 @@ struct ImmF32Immediate {
     // returns a float would potentially flip NaN bits per C++ semantics, so we
     // have to inline the memcpy call directly.
     uint32_t tmp = decoder->read_u32<validate>(pc, "immf32");
-    base::Memcpy(&value, &tmp, sizeof(value));
+    memcpy(&value, &tmp, sizeof(value));
   }
 };
 
@@ -456,7 +456,7 @@ struct ImmF64Immediate {
   inline ImmF64Immediate(Decoder* decoder, const byte* pc) {
     // Avoid bit_cast because it might not preserve the signalling bit of a NaN.
     uint64_t tmp = decoder->read_u64<validate>(pc, "immf64");
-    base::Memcpy(&value, &tmp, sizeof(value));
+    memcpy(&value, &tmp, sizeof(value));
   }
 };
 
@@ -3623,8 +3623,14 @@ class WasmFullDecoder : public WasmDecoder<validate> {
 
     CALL_INTERFACE_IF_OK_AND_PARENT_REACHABLE(PopControl, c);
 
-    // A loop just leaves the values on the stack.
-    if (!c->is_loop()) PushMergeValues(c, &c->end_merge);
+    // - In non-unreachable code, a loop just leaves the values on the stack.
+    // - In unreachable code, it is not guaranteed that we have Values of the
+    //   correct types on the stack, so we have to make sure we do. Their values
+    //   do not matter, so we might as well push the (uninitialized) values of
+    //   the loop's end merge.
+    if (!c->is_loop() || c->unreachable()) {
+      PushMergeValues(c, &c->end_merge);
+    }
 
     bool parent_reached =
         c->reachable() || c->end_merge.reached || c->is_onearmed_if();
@@ -4215,11 +4221,7 @@ class WasmFullDecoder : public WasmDecoder<validate> {
         return opcode_length + imm.length;
       }
       case kExprRttFreshSub:
-        if (!FLAG_experimental_wasm_gc_experiments) {
-          this->DecodeError(
-              "rtt.fresh_sub requires --experimental-wasm-gc-experiments");
-          return 0;
-        }
+        CHECK_PROTOTYPE_OPCODE(gc_experiments);
         V8_FALLTHROUGH;
       case kExprRttSub: {
         IndexImmediate<validate> imm(this, this->pc_ + opcode_length,

@@ -20,6 +20,7 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/osr.h"
 #include "src/heap/memory-chunk.h"
+#include "src/objects/code-kind.h"
 #include "src/objects/smi.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -237,7 +238,7 @@ class OutOfLineTruncateDoubleToI final : public OutOfLineCode {
     } else if (tasm()->options().inline_offheap_trampolines) {
       // With embedded builtins we do not need the isolate here. This allows
       // the call to be generated asynchronously.
-      __ CallBuiltin(Builtins::kDoubleToI);
+      __ CallBuiltin(Builtin::kDoubleToI);
     } else {
       __ Call(BUILTIN_CODE(isolate_, DoubleToI), RelocInfo::CODE_TARGET);
     }
@@ -376,6 +377,13 @@ void EmitTSANStoreOOLIfNeeded(Zone* zone, CodeGenerator* codegen,
                               TurboAssembler* tasm, Operand operand,
                               Register value_reg, X64OperandConverter& i,
                               StubCallMode mode, int size) {
+  // The FOR_TESTING code doesn't initialize the root register. We can't call
+  // the TSAN builtin since we need to load the external reference through the
+  // root register.
+  // TODO(solanes, v8:7790, v8:11600): See if we can support the FOR_TESTING
+  // path. It is not crucial, but it would be nice to remove this if.
+  if (codegen->code_kind() == CodeKind::FOR_TESTING) return;
+
   Register scratch0 = i.TempRegister(0);
   auto tsan_ool = zone->New<OutOfLineTSANRelaxedStore>(
       codegen, operand, value_reg, scratch0, mode, size);
@@ -387,6 +395,13 @@ void EmitTSANStoreOOLIfNeeded(Zone* zone, CodeGenerator* codegen,
                               TurboAssembler* tasm, Operand operand,
                               Immediate value, X64OperandConverter& i,
                               StubCallMode mode, int size) {
+  // The FOR_TESTING code doesn't initialize the root register. We can't call
+  // the TSAN builtin since we need to load the external reference through the
+  // root register.
+  // TODO(solanes, v8:7790, v8:11600): See if we can support the FOR_TESTING
+  // path. It is not crucial, but it would be nice to remove this if.
+  if (codegen->code_kind() == CodeKind::FOR_TESTING) return;
+
   Register value_reg = i.TempRegister(1);
   tasm->movq(value_reg, value);
   EmitTSANStoreOOLIfNeeded(zone, codegen, tasm, operand, value_reg, i, mode,
@@ -1188,9 +1203,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         // We don't actually want to generate a pile of code for this, so just
         // claim there is a stack frame, without generating one.
         FrameScope scope(tasm(), StackFrame::NONE);
-        __ Call(
-            isolate()->builtins()->builtin_handle(Builtins::kAbortCSAAssert),
-            RelocInfo::CODE_TARGET);
+        __ Call(isolate()->builtins()->builtin_handle(Builtin::kAbortCSAAssert),
+                RelocInfo::CODE_TARGET);
       }
       __ int3();
       unwinding_info_writer_.MarkBlockWillExit();
@@ -1270,9 +1284,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Operand operand = i.MemoryOperand(&index);
       Register value = i.InputRegister(index);
       Register scratch0 = i.TempRegister(0);
-
-      EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
-                               DetermineStubCallMode(), kTaggedSize);
       Register scratch1 = i.TempRegister(1);
       auto ool = zone()->New<OutOfLineRecordWrite>(this, object, operand, value,
                                                    scratch0, scratch1, mode,
@@ -1285,6 +1296,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
                        MemoryChunk::kPointersFromHereAreInterestingMask,
                        not_zero, ool->entry());
       __ bind(ool->exit());
+      EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
+                               DetermineStubCallMode(), kTaggedSize);
       break;
     }
     case kArchWordPoisonOnSpeculation:
@@ -2181,9 +2194,15 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         size_t index = 0;
         Operand operand = i.MemoryOperand(&index);
         if (HasImmediateInput(instr, index)) {
-          __ movl(operand, i.InputImmediate(index));
+          Immediate value = i.InputImmediate(index);
+          __ movl(operand, value);
+          EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
+                                   DetermineStubCallMode(), kInt32Size);
         } else {
-          __ movl(operand, i.InputRegister(index));
+          Register value = i.InputRegister(index);
+          __ movl(operand, value);
+          EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
+                                   DetermineStubCallMode(), kInt32Size);
         }
       }
       EmitWordLoadPoisoningIfNeeded(this, opcode, instr, i);
@@ -2217,14 +2236,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Operand operand = i.MemoryOperand(&index);
       if (HasImmediateInput(instr, index)) {
         Immediate value = i.InputImmediate(index);
+        __ StoreTaggedField(operand, value);
         EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
                                  DetermineStubCallMode(), kTaggedSize);
-        __ StoreTaggedField(operand, value);
       } else {
         Register value = i.InputRegister(index);
+        __ StoreTaggedField(operand, value);
         EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
                                  DetermineStubCallMode(), kTaggedSize);
-        __ StoreTaggedField(operand, value);
       }
       break;
     }
@@ -2236,9 +2255,15 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         size_t index = 0;
         Operand operand = i.MemoryOperand(&index);
         if (HasImmediateInput(instr, index)) {
-          __ movq(operand, i.InputImmediate(index));
+          Immediate value = i.InputImmediate(index);
+          __ movq(operand, value);
+          EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
+                                   DetermineStubCallMode(), kInt64Size);
         } else {
-          __ movq(operand, i.InputRegister(index));
+          Register value = i.InputRegister(index);
+          __ movq(operand, value);
+          EmitTSANStoreOOLIfNeeded(zone(), this, tasm(), operand, value, i,
+                                   DetermineStubCallMode(), kInt64Size);
         }
       }
       EmitWordLoadPoisoningIfNeeded(this, opcode, instr, i);

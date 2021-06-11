@@ -170,7 +170,7 @@
   'cpu-profiler/coverage-block': [SKIP],
   'debugger/get-possible-breakpoints': [SKIP],
   'debugger/get-possible-breakpoints-array-literal': [SKIP],
-  'debugger/get-possible-breakpoints-master': [SKIP],
+  'debugger/get-possible-breakpoints-main': [SKIP],
   'debugger/limit-size-of-collected-scripts': [SKIP],
   'debugger/not-hold-promises': [SKIP],
   'debugger/regression-424142': [SKIP],
@@ -218,6 +218,8 @@
 ################################################################################
 ['third_party_heap', {
   # Requires a second isolate
+  'debugger/wasm-side-effect-free-debug-evaluate': [SKIP],
+  'regress/regress-crbug-1081162': [SKIP],
   'regress/regress-crbug-1207867': [SKIP],
   'regress/regress-crbug-1197392': [SKIP],
   'debugger/command-line-api-with-arrow-function': [SKIP],
@@ -302,7 +304,7 @@
   'debugger/get-possible-breakpoints-array-literal': [SKIP],
   'debugger/get-possible-breakpoints-class-fields': [SKIP],
   'debugger/get-possible-breakpoints-lazy-error': [SKIP],
-  'debugger/get-possible-breakpoints-master': [SKIP],
+  'debugger/get-possible-breakpoints-main': [SKIP],
   'debugger/get-possible-breakpoints-restrict-to-function': [SKIP],
   'debugger/get-properties-paused': [SKIP],
   'debugger/inspector-break-api': [SKIP],

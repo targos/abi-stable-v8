@@ -84,8 +84,10 @@ void StaticCallInterfaceDescriptor<DerivedDescriptor>::Initialize(
 
   DCHECK(data->IsInitialized());
   DCHECK(this->CheckFloatingPointParameters(data));
+#if DEBUG
+  DerivedDescriptor::Verify(data);
+#endif
 }
-
 // static
 template <typename DerivedDescriptor>
 constexpr int
@@ -505,7 +507,7 @@ constexpr Register RunMicrotasksDescriptor::MicrotaskQueueRegister() {
 
 #define DEFINE_STATIC_BUILTIN_DESCRIPTOR_GETTER(Name, DescriptorName) \
   template <>                                                         \
-  struct CallInterfaceDescriptorFor<Builtins::k##Name> {              \
+  struct CallInterfaceDescriptorFor<Builtin::k##Name> {               \
     using type = DescriptorName##Descriptor;                          \
   };
 BUILTIN_LIST(IGNORE_BUILTIN, IGNORE_BUILTIN,
@@ -515,7 +517,7 @@ BUILTIN_LIST(IGNORE_BUILTIN, IGNORE_BUILTIN,
 #undef DEFINE_STATIC_BUILTIN_DESCRIPTOR_GETTER
 #define DEFINE_STATIC_BUILTIN_DESCRIPTOR_GETTER(Name, ...) \
   template <>                                              \
-  struct CallInterfaceDescriptorFor<Builtins::k##Name> {   \
+  struct CallInterfaceDescriptorFor<Builtin::k##Name> {    \
     using type = Name##Descriptor;                         \
   };
 BUILTIN_LIST_TFS(DEFINE_STATIC_BUILTIN_DESCRIPTOR_GETTER)

@@ -498,16 +498,30 @@ void TurboAssembler::CallTSANRelaxedStoreStub(Register address, Register value,
   // value_parameter <= value
   MovePair(address_parameter, address, value_parameter, value);
 
-  if (mode == StubCallMode::kCallWasmRuntimeStub) {
-    // Use {near_call} for direct Wasm call within a module.
-    auto wasm_target = wasm::WasmCode::GetTSANRelaxedStoreStub(fp_mode, size);
-    near_call(wasm_target, RelocInfo::WASM_STUB_CALL);
-  } else {
+  if (isolate()) {
     auto builtin_index = Builtins::GetTSANRelaxedStoreStub(fp_mode, size);
     Handle<Code> code_target =
         isolate()->builtins()->builtin_handle(builtin_index);
     Call(code_target, RelocInfo::CODE_TARGET);
   }
+#if V8_ENABLE_WEBASSEMBLY
+  // There are two different kinds of wasm-to-js functions: one lives in the
+  // wasm code space, and another one lives on the heap. Both of them have the
+  // same CodeKind (WASM_TO_JS_FUNCTION), but depending on where they are they
+  // have to either use the wasm stub calls, or call the builtin using the
+  // isolate like JS does. In order to know which wasm-to-js function we are
+  // compiling right now, we check if the isolate is null.
+  // TODO(solanes, v8:11600): Split CodeKind::WASM_TO_JS_FUNCTION into two
+  // different CodeKinds and pass the CodeKind as a parameter so that we can use
+  // that instead of a nullptr check.
+  // NOLINTNEXTLINE(readability/braces)
+  else {
+    DCHECK_EQ(mode, StubCallMode::kCallWasmRuntimeStub);
+    // Use {near_call} for direct Wasm call within a module.
+    auto wasm_target = wasm::WasmCode::GetTSANRelaxedStoreStub(fp_mode, size);
+    near_call(wasm_target, RelocInfo::WASM_STUB_CALL);
+  }
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   MaybeRestoreRegisters(registers);
 }
@@ -553,8 +567,7 @@ void MacroAssembler::RecordWrite(Register object, Register slot_address,
                 MemoryChunk::kPointersFromHereAreInterestingMask, zero, &done,
                 Label::kNear);
 
-  CallRecordWriteStubSaveRegisters(object, slot_address, remembered_set_action,
-                                   fp_mode);
+  CallRecordWriteStub(object, slot_address, remembered_set_action, fp_mode);
 
   bind(&done);
 
@@ -1640,7 +1653,7 @@ void TurboAssembler::Jump(Handle<Code> code_object, RelocInfo::Mode rmode,
   DCHECK_IMPLIES(options().isolate_independent_code,
                  Builtins::IsIsolateIndependentBuiltin(*code_object));
   if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtins::kNoBuiltinId;
+    int builtin_index = Builtin::kNoBuiltinId;
     if (isolate()->builtins()->IsBuiltinHandle(code_object, &builtin_index)) {
       Label skip;
       if (cc != always) {
@@ -1683,7 +1696,7 @@ void TurboAssembler::Call(Handle<Code> code_object, RelocInfo::Mode rmode) {
   DCHECK_IMPLIES(options().isolate_independent_code,
                  Builtins::IsIsolateIndependentBuiltin(*code_object));
   if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtins::kNoBuiltinId;
+    int builtin_index = Builtin::kNoBuiltinId;
     if (isolate()->builtins()->IsBuiltinHandle(code_object, &builtin_index)) {
       // Inline the trampoline.
       CallBuiltin(builtin_index);
@@ -1694,8 +1707,7 @@ void TurboAssembler::Call(Handle<Code> code_object, RelocInfo::Mode rmode) {
   call(code_object, rmode);
 }
 
-Operand TurboAssembler::EntryFromBuiltinIndexAsOperand(
-    Builtins::Name builtin_index) {
+Operand TurboAssembler::EntryFromBuiltinAsOperand(Builtin builtin_index) {
   DCHECK(root_array_available());
   return Operand(kRootRegister,
                  IsolateData::builtin_entry_slot_offset(builtin_index));
@@ -1725,7 +1737,7 @@ void TurboAssembler::CallBuiltinByIndex(Register builtin_index) {
 void TurboAssembler::CallBuiltin(int builtin_index) {
   DCHECK(Builtins::IsBuiltinId(builtin_index));
   RecordCommentForOffHeapTrampoline(builtin_index);
-  CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+  CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
   if (options().short_builtin_calls) {
     EmbeddedData d = EmbeddedData::FromBlob(isolate());
     Address entry = d.InstructionStartOfBuiltin(builtin_index);
@@ -1743,7 +1755,7 @@ void TurboAssembler::CallBuiltin(int builtin_index) {
 void TurboAssembler::TailCallBuiltin(int builtin_index) {
   DCHECK(Builtins::IsBuiltinId(builtin_index));
   RecordCommentForOffHeapTrampoline(builtin_index);
-  CHECK_NE(builtin_index, Builtins::kNoBuiltinId);
+  CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
   if (options().short_builtin_calls) {
     EmbeddedData d = EmbeddedData::FromBlob(isolate());
     Address entry = d.InstructionStartOfBuiltin(builtin_index);
@@ -2697,7 +2709,7 @@ void MacroAssembler::LoadWeakValue(Register in_out, Label* target_if_cleared) {
   andq(in_out, Immediate(~static_cast<int32_t>(kWeakHeapObjectMask)));
 }
 
-void MacroAssembler::IncrementCounter(StatsCounter* counter, int value) {
+void MacroAssembler::EmitIncrementCounter(StatsCounter* counter, int value) {
   DCHECK_GT(value, 0);
   if (FLAG_native_code_counters && counter->Enabled()) {
     Operand counter_operand =
@@ -2713,7 +2725,7 @@ void MacroAssembler::IncrementCounter(StatsCounter* counter, int value) {
   }
 }
 
-void MacroAssembler::DecrementCounter(StatsCounter* counter, int value) {
+void MacroAssembler::EmitDecrementCounter(StatsCounter* counter, int value) {
   DCHECK_GT(value, 0);
   if (FLAG_native_code_counters && counter->Enabled()) {
     Operand counter_operand =
@@ -3359,13 +3371,13 @@ void TurboAssembler::ResetSpeculationPoisonRegister() {
   Move(kSpeculationPoisonRegister, -1);
 }
 
-void TurboAssembler::CallForDeoptimization(Builtins::Name target, int,
-                                           Label* exit, DeoptimizeKind kind,
-                                           Label* ret, Label*) {
+void TurboAssembler::CallForDeoptimization(Builtin target, int, Label* exit,
+                                           DeoptimizeKind kind, Label* ret,
+                                           Label*) {
   // Note: Assembler::call is used here on purpose to guarantee fixed-size
   // exits even on Atom CPUs; see TurboAssembler::Call for Atom-specific
   // performance tuning which emits a different instruction sequence.
-  call(EntryFromBuiltinIndexAsOperand(target));
+  call(EntryFromBuiltinAsOperand(target));
   DCHECK_EQ(SizeOfCodeGeneratedSince(exit),
             (kind == DeoptimizeKind::kLazy)
                 ? Deoptimizer::kLazyDeoptExitSize

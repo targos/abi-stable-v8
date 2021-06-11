@@ -8899,6 +8899,14 @@ class V8_EXPORT Isolate {
   static Isolate* GetCurrent();
 
   /**
+   * Returns the entered isolate for the current thread or NULL in
+   * case there is no current isolate.
+   *
+   * No checks are performed by this method.
+   */
+  static Isolate* TryGetCurrent();
+
+  /**
    * Clears the set of objects held strongly by the heap. This set of
    * objects are originally built when a WeakRef is created or
    * successfully dereferenced.
@@ -8963,6 +8971,13 @@ class V8_EXPORT Isolate {
    * the isolate is executing long running JavaScript code.
    */
   void MemoryPressureNotification(MemoryPressureLevel level);
+
+  /**
+   * Drop non-essential caches. Should only be called from testing code.
+   * The method can potentially block for a long time and does not necessarily
+   * trigger GC.
+   */
+  void ClearCachesForTesting();
 
   /**
    * Methods below this point require holding a lock (using Locker) in

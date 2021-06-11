@@ -22,6 +22,7 @@
 #include "src/utils/ostreams.h"
 #include "src/utils/utils.h"
 #include "src/wasm/baseline/liftoff-assembler.h"
+#include "src/wasm/baseline/liftoff-register.h"
 #include "src/wasm/function-body-decoder-impl.h"
 #include "src/wasm/function-compiler.h"
 #include "src/wasm/memory-tracing.h"
@@ -455,7 +456,8 @@ class LiftoffCompiler {
                   std::unique_ptr<AssemblerBuffer> buffer,
                   DebugSideTableBuilder* debug_sidetable_builder,
                   ForDebugging for_debugging, int func_index,
-                  Vector<const int> breakpoints = {}, int dead_breakpoint = 0)
+                  Vector<const int> breakpoints = {}, int dead_breakpoint = 0,
+                  int* max_steps = nullptr)
       : asm_(std::move(buffer)),
         descriptor_(
             GetLoweredCallDescriptor(compilation_zone, call_descriptor)),
@@ -471,7 +473,8 @@ class LiftoffCompiler {
         next_breakpoint_ptr_(breakpoints.begin()),
         next_breakpoint_end_(breakpoints.end()),
         dead_breakpoint_(dead_breakpoint),
-        handlers_(compilation_zone) {
+        handlers_(compilation_zone),
+        max_steps_(max_steps) {
     if (breakpoints.empty()) {
       next_breakpoint_ptr_ = next_breakpoint_end_ = nullptr;
     }
@@ -1018,6 +1021,26 @@ class LiftoffCompiler {
       EmitBreakpoint(decoder);
       __ bind(&cont);
     }
+    if (V8_UNLIKELY(max_steps_ != nullptr)) {
+      LiftoffRegList pinned;
+      LiftoffRegister max_steps = __ GetUnusedRegister(kGpReg, {});
+      pinned.set(max_steps);
+      LiftoffRegister max_steps_addr = __ GetUnusedRegister(kGpReg, pinned);
+      pinned.set(max_steps_addr);
+      __ LoadConstant(
+          max_steps_addr,
+          WasmValue::ForUintPtr(reinterpret_cast<uintptr_t>(max_steps_)));
+      __ Load(max_steps, max_steps_addr.gp(), no_reg, 0, LoadType::kI32Load,
+              pinned);
+      Label cont;
+      __ emit_i32_cond_jumpi(kUnequal, &cont, max_steps.gp(), 0);
+      // Abort.
+      Trap(decoder, kTrapUnreachable);
+      __ bind(&cont);
+      __ emit_i32_subi(max_steps.gp(), max_steps.gp(), 1);
+      __ Store(max_steps_addr.gp(), no_reg, 0, max_steps, StoreType::kI32Store,
+               pinned);
+    }
   }
 
   void NextInstruction(FullDecoder* decoder, WasmOpcode opcode) {
@@ -1232,7 +1255,23 @@ class LiftoffCompiler {
 
     // Test the condition, jump to else if zero.
     Register value = __ PopToRegister().gp();
-    __ emit_cond_jump(kEqual, if_block->else_state->label.get(), kI32, value);
+    if (!has_outstanding_op()) {
+      // Unary "equal" means "equals zero".
+      __ emit_cond_jump(kEqual, if_block->else_state->label.get(), kI32, value);
+    } else if (outstanding_op_ == kExprI32Eqz) {
+      // Unary "unequal" means "not equals zero".
+      __ emit_cond_jump(kUnequal, if_block->else_state->label.get(), kI32,
+                        value);
+      outstanding_op_ = kNoOutstandingOp;
+    } else {
+      // Otherwise, it's an i32 compare opcode.
+      LiftoffCondition cond = Negate(GetCompareCondition(outstanding_op_));
+      Register rhs = value;
+      Register lhs = __ PopToRegister(LiftoffRegList::ForRegs(rhs)).gp();
+      __ emit_cond_jump(cond, if_block->else_state->label.get(), kI32, lhs,
+                        rhs);
+      outstanding_op_ = kNoOutstandingOp;
+    }
 
     // Store the state (after popping the value) for executing the else branch.
     if_block->else_state->state.Split(*__ cache_state());
@@ -1679,7 +1718,8 @@ class LiftoffCompiler {
   template <WasmOpcode opcode>
   void EmitI32CmpOp(FullDecoder* decoder) {
     DCHECK(decoder->lookahead(0, opcode));
-    if (decoder->lookahead(1, kExprBrIf) && !for_debugging_) {
+    if ((decoder->lookahead(1, kExprBrIf) || decoder->lookahead(1, kExprIf)) &&
+        !for_debugging_) {
       DCHECK(!has_outstanding_op());
       outstanding_op_ = opcode;
       return;
@@ -2248,7 +2288,7 @@ class LiftoffCompiler {
     LiftoffRegister value =
         pinned.set(__ GetUnusedRegister(reg_class_for(kind), pinned));
     LoadType type = LoadType::ForValueKind(kind);
-    __ Load(value, addr, no_reg, offset, type, pinned, nullptr, true);
+    __ Load(value, addr, no_reg, offset, type, pinned, nullptr, false);
     __ PushRegister(kind, value);
   }
 
@@ -2289,7 +2329,7 @@ class LiftoffCompiler {
     Register addr = GetGlobalBaseAndOffset(global, &pinned, &offset);
     LiftoffRegister reg = pinned.set(__ PopToRegister(pinned));
     StoreType type = StoreType::ForValueKind(kind);
-    __ Store(addr, no_reg, offset, reg, type, {}, nullptr, true);
+    __ Store(addr, no_reg, offset, reg, type, {}, nullptr, false);
   }
 
   void TableGet(FullDecoder* decoder, const Value&, Value*,
@@ -3903,7 +3943,7 @@ class LiftoffCompiler {
     LiftoffRegister dst = __ GetUnusedRegister(result_rc, {lhs, rhs}, {});
 
     uint8_t shuffle[kSimd128Size];
-    base::Memcpy(shuffle, imm.value, sizeof(shuffle));
+    memcpy(shuffle, imm.value, sizeof(shuffle));
     bool is_swizzle;
     bool needs_swap;
     wasm::SimdShuffle::CanonicalizeShuffle(lhs == rhs, shuffle, &needs_swap,
@@ -6079,6 +6119,8 @@ class LiftoffCompiler {
   // Current number of exception refs on the stack.
   int num_exceptions_ = 0;
 
+  int* max_steps_;
+
   bool has_outstanding_op() const {
     return outstanding_op_ != kNoOutstandingOp;
   }
@@ -6135,7 +6177,8 @@ WasmCompilationResult ExecuteLiftoffCompilation(
     AccountingAllocator* allocator, CompilationEnv* env,
     const FunctionBody& func_body, int func_index, ForDebugging for_debugging,
     Counters* counters, WasmFeatures* detected, Vector<const int> breakpoints,
-    std::unique_ptr<DebugSideTable>* debug_sidetable, int dead_breakpoint) {
+    std::unique_ptr<DebugSideTable>* debug_sidetable, int dead_breakpoint,
+    int* max_steps) {
   int func_body_size = static_cast<int>(func_body.end - func_body.start);
   TRACE_EVENT2(TRACE_DISABLED_BY_DEFAULT("v8.wasm.detailed"),
                "wasm.CompileBaseline", "funcIndex", func_index, "bodySize",
@@ -6153,11 +6196,12 @@ WasmCompilationResult ExecuteLiftoffCompilation(
   if (debug_sidetable) {
     debug_sidetable_builder = std::make_unique<DebugSideTableBuilder>();
   }
+  DCHECK_IMPLIES(max_steps, for_debugging == kForDebugging);
   WasmFullDecoder<Decoder::kBooleanValidation, LiftoffCompiler> decoder(
       &zone, env->module, env->enabled_features, detected, func_body,
       call_descriptor, env, &zone, instruction_buffer->CreateView(),
       debug_sidetable_builder.get(), for_debugging, func_index, breakpoints,
-      dead_breakpoint);
+      dead_breakpoint, max_steps);
   decoder.Decode();
   LiftoffCompiler* compiler = &decoder.interface();
   if (decoder.failed()) compiler->OnFirstError(&decoder);

@@ -473,9 +473,17 @@ class StaticCallInterfaceDescriptor : public CallInterfaceDescriptor {
   static constexpr inline Register GetRegisterParameter(int i) {
     return DerivedDescriptor::registers()[i];
   }
-
   explicit StaticCallInterfaceDescriptor(CallDescriptors::Key key)
       : CallInterfaceDescriptor(key) {}
+
+#if DEBUG
+  // Overwritten in DerivedDescriptor.
+  static void Verify(CallInterfaceDescriptorData* data);
+  // Verify that the CallInterfaceDescriptorData contains the default
+  // argument registers for {argc} arguments.
+  static inline void VerifyArgumentRegisterCount(
+      CallInterfaceDescriptorData* data, int nof_expected_args);
+#endif
 
  private:
   // {CallDescriptors} is allowed to call the private {Initialize} method.
@@ -502,7 +510,7 @@ class StaticJSCallInterfaceDescriptor
       Descriptor>::StaticCallInterfaceDescriptor;
 };
 
-template <Builtins::Name kBuiltin>
+template <Builtin kBuiltin>
 struct CallInterfaceDescriptorFor;
 
 // Stub class replacing std::array<Register, 0>, as a workaround for MSVC's
@@ -1015,16 +1023,16 @@ class WriteBarrierDescriptor final
   DECLARE_DESCRIPTOR(WriteBarrierDescriptor)
   static constexpr auto registers();
   static constexpr bool kRestrictAllocatableRegisters = true;
-#if V8_TARGET_ARCH_X64
-  // TODO(cbruni): Extend to all platforms.
   static constexpr bool kCalleeSaveRegisters = true;
-#endif
   static constexpr inline Register ObjectRegister();
   static constexpr inline Register SlotAddressRegister();
   // A temporary register used in helpers.
   static constexpr inline Register ValueRegister();
   static constexpr inline RegList ComputeSavedRegisters(
       Register object, Register slot_address = no_reg);
+#if DEBUG
+  static void Verify(CallInterfaceDescriptorData* data);
+#endif
 };
 
 #ifdef V8_IS_TSAN

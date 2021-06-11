@@ -2286,7 +2286,7 @@ void BytecodeGraphBuilder::VisitCreateClosure() {
 
   const Operator* op = javascript()->CreateClosure(
       shared_info.object(),
-      jsgraph()->isolate()->builtins()->builtin_handle(Builtins::kCompileLazy),
+      jsgraph()->isolate()->builtins()->builtin_handle(Builtin::kCompileLazy),
       allocation);
   Node* closure = NewNode(
       op, BuildLoadFeedbackCell(bytecode_iterator().GetIndexOperand(1)));
@@ -3661,7 +3661,7 @@ void BytecodeGraphBuilder::VisitIncBlockCounter() {
   Node* coverage_array_slot =
       jsgraph()->Constant(bytecode_iterator().GetIndexOperand(0));
 
-  // Lowered by js-intrinsic-lowering to call Builtins::kIncBlockCounter.
+  // Lowered by js-intrinsic-lowering to call Builtin::kIncBlockCounter.
   const Operator* op =
       javascript()->CallRuntime(Runtime::kInlineIncBlockCounter);
 
@@ -4402,8 +4402,7 @@ Node* BytecodeGraphBuilder::MakeNode(const Operator* op, int value_input_count,
     if (has_effect) ++input_count_with_deps;
     Node** buffer = EnsureInputBufferSize(input_count_with_deps);
     if (value_input_count > 0) {
-      base::Memcpy(buffer, value_inputs,
-                   kSystemPointerSize * value_input_count);
+      memcpy(buffer, value_inputs, kSystemPointerSize * value_input_count);
     }
     Node** current_input = buffer + value_input_count;
     if (has_context) {

@@ -192,7 +192,7 @@ class SlotAccessorForHandle {
 template <typename TSlot>
 int Deserializer::WriteAddress(TSlot dest, Address value) {
   DCHECK(!next_reference_is_weak_);
-  base::Memcpy(dest.ToVoidPtr(), &value, kSystemPointerSize);
+  memcpy(dest.ToVoidPtr(), &value, kSystemPointerSize);
   STATIC_ASSERT(IsAligned(kSystemPointerSize, TSlot::kSlotDataSize));
   return (kSystemPointerSize / TSlot::kSlotDataSize);
 }
@@ -357,7 +357,7 @@ void Deserializer::PostProcessNewObject(Handle<Map> map, Handle<HeapObject> obj,
       Handle<String> result =
           isolate()->string_table()->LookupKey(isolate(), &key);
 
-      if (FLAG_thin_strings && *result != *string) {
+      if (*result != *string) {
         string->MakeThin(isolate(), *result);
         // Mutate the given object handle so that the backreference entry is
         // also updated.

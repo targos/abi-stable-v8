@@ -786,9 +786,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         // We don't actually want to generate a pile of code for this, so just
         // claim there is a stack frame, without generating one.
         FrameScope scope(tasm(), StackFrame::NONE);
-        __ Call(
-            isolate()->builtins()->builtin_handle(Builtins::kAbortCSAAssert),
-            RelocInfo::CODE_TARGET);
+        __ Call(isolate()->builtins()->builtin_handle(Builtin::kAbortCSAAssert),
+                RelocInfo::CODE_TARGET);
       }
       __ stop();
       break;
@@ -1458,7 +1457,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       // output (i.e., kScratchReg  < output)
       if (set_overflow_to_min_i32) {
         __ Add32(kScratchReg, i.OutputRegister(), 1);
-        __ Branch(&done, lt, i.OutputRegister(), Operand(kScratchReg));
+        __ BranchShort(&done, lt, i.OutputRegister(), Operand(kScratchReg));
         __ Move(i.OutputRegister(), kScratchReg);
         __ bind(&done);
       }
@@ -1476,7 +1475,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ Trunc_l_d(i.OutputRegister(), i.InputDoubleRegister(0), result);
       if (set_overflow_to_min_i64) {
         __ Add64(kScratchReg, i.OutputRegister(), 1);
-        __ Branch(&done, lt, i.OutputRegister(), Operand(kScratchReg));
+        __ BranchShort(&done, lt, i.OutputRegister(), Operand(kScratchReg));
         __ Move(i.OutputRegister(), kScratchReg);
         __ bind(&done);
       }
@@ -2517,7 +2516,7 @@ void CodeGenerator::AssembleConstructFrame() {
         __ Ld(kScratchReg, MemOperand(kScratchReg));
         __ Add64(kScratchReg, kScratchReg,
                  Operand(required_slots * kSystemPointerSize));
-        __ Branch(&done, uge, sp, Operand(kScratchReg));
+        __ BranchShort(&done, uge, sp, Operand(kScratchReg));
       }
 
       __ Call(wasm::WasmCode::kWasmStackOverflow, RelocInfo::WASM_STUB_CALL);
@@ -2632,7 +2631,7 @@ void CodeGenerator::AssembleReturn(InstructionOperand* additional_pop_count) {
     if (parameter_slots > 1) {
       Label done;
       __ li(kScratchReg, parameter_slots);
-      __ Branch(&done, ge, t0, Operand(kScratchReg));
+      __ BranchShort(&done, ge, t0, Operand(kScratchReg));
       __ Move(t0, kScratchReg);
       __ bind(&done);
     }

@@ -138,10 +138,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     mov(kRootRegister, Operand(isolate_root));
   }
 
-  void LoadDouble(DoubleRegister dst, const MemOperand& mem,
-                  Register scratch = no_reg);
-  void LoadFloat32(DoubleRegister dst, const MemOperand& mem,
-                   Register scratch = no_reg);
   void LoadDoubleLiteral(DoubleRegister result, Double value, Register scratch);
   void LoadSimd128(Simd128Register dst, const MemOperand& mem);
 
@@ -150,23 +146,8 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // load an SMI value <value> to GPR <dst>
   void LoadSmiLiteral(Register dst, Smi smi);
 
-  void LoadSingle(DoubleRegister dst, const MemOperand& mem,
-                  Register scratch = no_reg);
-  void LoadSingleU(DoubleRegister dst, const MemOperand& mem,
-                   Register scratch = no_reg);
   void LoadPC(Register dst);
   void ComputeCodeStartAddress(Register dst);
-
-  void StoreDouble(DoubleRegister src, const MemOperand& mem,
-                   Register scratch = no_reg);
-  void StoreDoubleU(DoubleRegister src, const MemOperand& mem,
-                    Register scratch = no_reg);
-
-  void StoreSingle(DoubleRegister src, const MemOperand& mem,
-                   Register scratch = no_reg);
-  void StoreSingleU(DoubleRegister src, const MemOperand& mem,
-                    Register scratch = no_reg);
-  void StoreSimd128(Simd128Register src, const MemOperand& mem);
 
   void Cmpi(Register src1, const Operand& src2, Register scratch,
             CRegister cr = cr7);
@@ -435,7 +416,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
                       JumpMode jump_mode = JumpMode::kJump);
 
   void CallBuiltinByIndex(Register builtin_index);
-  void CallForDeoptimization(Builtins::Name target, int deopt_id, Label* exit,
+  void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
                              Label* jump_deoptimization_entry_label);
 
@@ -685,9 +666,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void StoreTaggedField(const Register& value,
                         const MemOperand& dst_field_operand,
                         const Register& scratch = no_reg);
-  void StoreTaggedFieldX(const Register& value,
-                         const MemOperand& dst_field_operand,
-                         const Register& scratch = no_reg);
 
   void DecompressTaggedSigned(Register destination, MemOperand field_operand);
   void DecompressTaggedSigned(Register destination, Register src);
@@ -696,10 +674,27 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void DecompressAnyTagged(Register destination, MemOperand field_operand);
   void DecompressAnyTagged(Register destination, Register source);
 
-  void LoadU64WithUpdate(Register dst, const MemOperand& mem,
+  void LoadF64(DoubleRegister dst, const MemOperand& mem,
+               Register scratch = no_reg);
+  void LoadF32(DoubleRegister dst, const MemOperand& mem,
+               Register scratch = no_reg);
+
+  void StoreF32(DoubleRegister src, const MemOperand& mem,
+                Register scratch = no_reg);
+  void StoreF64(DoubleRegister src, const MemOperand& mem,
+                Register scratch = no_reg);
+
+  void LoadF32WithUpdate(DoubleRegister dst, const MemOperand& mem,
                          Register scratch = no_reg);
-  void StoreU64WithUpdate(Register src, const MemOperand& mem,
+  void LoadF64WithUpdate(DoubleRegister dst, const MemOperand& mem,
+                         Register scratch = no_reg);
+
+  void StoreF32WithUpdate(DoubleRegister src, const MemOperand& mem,
                           Register scratch = no_reg);
+  void StoreF64WithUpdate(DoubleRegister src, const MemOperand& mem,
+                          Register scratch = no_reg);
+
+  void StoreSimd128(Simd128Register src, const MemOperand& mem);
 
   void LoadU64(Register dst, const MemOperand& mem, Register scratch = no_reg);
   void LoadU32(Register dst, const MemOperand& mem, Register scratch = no_reg);
@@ -712,6 +707,11 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void StoreU32(Register src, const MemOperand& mem, Register scratch);
   void StoreU16(Register src, const MemOperand& mem, Register scratch);
   void StoreU8(Register src, const MemOperand& mem, Register scratch);
+
+  void LoadU64WithUpdate(Register dst, const MemOperand& mem,
+                         Register scratch = no_reg);
+  void StoreU64WithUpdate(Register src, const MemOperand& mem,
+                          Register scratch = no_reg);
 
  private:
   static const int kSmiShift = kSmiTagSize + kSmiShiftSize;
@@ -787,9 +787,6 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // than assembler-ppc and may generate variable length sequences
 
   // load a literal double value <value> to FPR <result>
-
-  void LoadDoubleU(DoubleRegister dst, const MemOperand& mem,
-                   Register scratch = no_reg);
 
   void Cmplwi(Register src1, const Operand& src2, Register scratch,
               CRegister cr = cr7);
@@ -941,9 +938,19 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // StatsCounter support
 
   void IncrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitIncrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitIncrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
   void DecrementCounter(StatsCounter* counter, int value, Register scratch1,
-                        Register scratch2);
+                        Register scratch2) {
+    if (!FLAG_native_code_counters) return;
+    EmitDecrementCounter(counter, value, scratch1, scratch2);
+  }
+  void EmitDecrementCounter(StatsCounter* counter, int value, Register scratch1,
+                            Register scratch2);
 
   // ---------------------------------------------------------------------------
   // Stack limit utilities

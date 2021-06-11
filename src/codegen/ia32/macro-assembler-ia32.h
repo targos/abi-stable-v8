@@ -139,7 +139,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public SharedTurboAssembler {
   void Move(XMMRegister dst, float src) { Move(dst, bit_cast<uint32_t>(src)); }
   void Move(XMMRegister dst, double src) { Move(dst, bit_cast<uint64_t>(src)); }
 
-  Operand EntryFromBuiltinIndexAsOperand(Builtins::Name builtin_index);
+  Operand EntryFromBuiltinAsOperand(Builtin builtin_index);
 
   void Call(Register reg) { call(reg); }
   void Call(Operand op) { call(op); }
@@ -170,7 +170,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public SharedTurboAssembler {
   void Trap();
   void DebugBreak();
 
-  void CallForDeoptimization(Builtins::Name target, int deopt_id, Label* exit,
+  void CallForDeoptimization(Builtin target, int deopt_id, Label* exit,
                              DeoptimizeKind kind, Label* ret,
                              Label* jump_deoptimization_entry_label);
 
@@ -709,8 +709,16 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // ---------------------------------------------------------------------------
   // StatsCounter support
 
-  void IncrementCounter(StatsCounter* counter, int value, Register scratch);
-  void DecrementCounter(StatsCounter* counter, int value, Register scratch);
+  void IncrementCounter(StatsCounter* counter, int value, Register scratch) {
+    if (!FLAG_native_code_counters) return;
+    EmitIncrementCounter(counter, value, scratch);
+  }
+  void EmitIncrementCounter(StatsCounter* counter, int value, Register scratch);
+  void DecrementCounter(StatsCounter* counter, int value, Register scratch) {
+    if (!FLAG_native_code_counters) return;
+    EmitDecrementCounter(counter, value, scratch);
+  }
+  void EmitDecrementCounter(StatsCounter* counter, int value, Register scratch);
 
   // ---------------------------------------------------------------------------
   // Stack limit utilities

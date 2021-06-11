@@ -1612,7 +1612,7 @@ wasm::WasmValue WasmInstanceObject::GetGlobalValue(
   switch (global.type.kind()) {
 #define CASE_TYPE(valuetype, ctype) \
   case wasm::valuetype:             \
-    return wasm::WasmValue(base::ReadLittleEndianValue<ctype>(ptr));
+    return wasm::WasmValue(base::ReadUnalignedValue<ctype>(ptr));
     FOREACH_WASMVALUE_CTYPES(CASE_TYPE)
 #undef CASE_TYPE
     default:
@@ -1628,7 +1628,7 @@ wasm::WasmValue WasmStruct::GetFieldValue(uint32_t index) {
   switch (field_type.kind()) {
 #define CASE_TYPE(valuetype, ctype) \
   case wasm::valuetype:             \
-    return wasm::WasmValue(base::ReadLittleEndianValue<ctype>(field_address));
+    return wasm::WasmValue(base::ReadUnalignedValue<ctype>(field_address));
     CASE_TYPE(kI8, int8_t)
     CASE_TYPE(kI16, int16_t)
     FOREACH_WASMVALUE_CTYPES(CASE_TYPE)
@@ -1658,7 +1658,7 @@ wasm::WasmValue WasmArray::GetElement(uint32_t index) {
   switch (element_type.kind()) {
 #define CASE_TYPE(value_type, ctype) \
   case wasm::value_type:             \
-    return wasm::WasmValue(base::ReadLittleEndianValue<ctype>(element_address));
+    return wasm::WasmValue(base::ReadUnalignedValue<ctype>(element_address));
     CASE_TYPE(kI8, int8_t)
     CASE_TYPE(kI16, int16_t)
     FOREACH_WASMVALUE_CTYPES(CASE_TYPE)
@@ -1852,7 +1852,7 @@ bool WasmExportedFunction::IsWasmExportedFunction(Object object) {
   if (!object.IsJSFunction()) return false;
   JSFunction js_function = JSFunction::cast(object);
   if (CodeKind::JS_TO_WASM_FUNCTION != js_function.code().kind() &&
-      js_function.code().builtin_index() != Builtins::kGenericJSToWasmWrapper) {
+      js_function.code().builtin_index() != Builtin::kGenericJSToWasmWrapper) {
     return false;
   }
   DCHECK(js_function.shared().HasWasmExportedFunctionData());
@@ -1886,7 +1886,7 @@ Handle<WasmCapiFunction> WasmCapiFunction::New(
   Handle<WasmCapiFunctionData> fun_data =
       isolate->factory()->NewWasmCapiFunctionData(
           call_target, embedder_data,
-          isolate->builtins()->builtin_handle(Builtins::kIllegal),
+          isolate->builtins()->builtin_handle(Builtin::kIllegal),
           serialized_signature);
   Handle<SharedFunctionInfo> shared =
       isolate->factory()->NewSharedFunctionInfoForWasmCapiFunction(fun_data);
@@ -1906,10 +1906,9 @@ int WasmExportedFunction::function_index() {
 Handle<WasmExportedFunction> WasmExportedFunction::New(
     Isolate* isolate, Handle<WasmInstanceObject> instance, int func_index,
     int arity, Handle<Code> export_wrapper) {
-  DCHECK(
-      CodeKind::JS_TO_WASM_FUNCTION == export_wrapper->kind() ||
-      (export_wrapper->is_builtin() &&
-       export_wrapper->builtin_index() == Builtins::kGenericJSToWasmWrapper));
+  DCHECK(CodeKind::JS_TO_WASM_FUNCTION == export_wrapper->kind() ||
+         (export_wrapper->is_builtin() &&
+          export_wrapper->builtin_index() == Builtin::kGenericJSToWasmWrapper));
   int num_imported_functions = instance->module()->num_imported_functions;
   Handle<Object> ref =
       func_index >= num_imported_functions

@@ -15,7 +15,7 @@
 #include "src/heap/memory-chunk-inl.h"
 #include "src/heap/paged-spaces-inl.h"
 #include "src/heap/read-only-heap.h"
-#include "src/logging/counters.h"
+#include "src/logging/runtime-call-stats-scope.h"
 #include "src/objects/string.h"
 #include "src/utils/utils.h"
 
@@ -278,7 +278,7 @@ void PagedSpace::SetTopAndLimit(Address top, Address limit) {
 
   base::Optional<base::SharedMutexGuard<base::kExclusive>> optional_guard;
   if (!is_compaction_space())
-    optional_guard.emplace(&heap_->pending_allocation_mutex_);
+    optional_guard.emplace(&pending_allocation_mutex_);
   original_limit_ = limit;
   original_top_ = top;
 }

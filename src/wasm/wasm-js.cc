@@ -637,7 +637,7 @@ void WebAssemblyValidate(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (is_shared) {
     // Make a copy of the wire bytes to avoid concurrent modification.
     std::unique_ptr<uint8_t[]> copy(new uint8_t[bytes.length()]);
-    base::Memcpy(copy.get(), bytes.start(), bytes.length());
+    memcpy(copy.get(), bytes.start(), bytes.length());
     i::wasm::ModuleWireBytes bytes_copy(copy.get(),
                                         copy.get() + bytes.length());
     validated = i_isolate->wasm_engine()->SyncValidate(
@@ -680,7 +680,7 @@ void WebAssemblyModule(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (is_shared) {
     // Make a copy of the wire bytes to avoid concurrent modification.
     std::unique_ptr<uint8_t[]> copy(new uint8_t[bytes.length()]);
-    base::Memcpy(copy.get(), bytes.start(), bytes.length());
+    memcpy(copy.get(), bytes.start(), bytes.length());
     i::wasm::ModuleWireBytes bytes_copy(copy.get(),
                                         copy.get() + bytes.length());
     module_obj = i_isolate->wasm_engine()->SyncCompile(
@@ -2096,7 +2096,7 @@ void WasmJs::Install(Isolate* isolate, bool exposed_on_global_object) {
   Handle<String> name = v8_str(isolate, "WebAssembly");
   // Not supposed to be called, hence using the kIllegal builtin as code.
   Handle<SharedFunctionInfo> info =
-      factory->NewSharedFunctionInfoForBuiltin(name, Builtins::kIllegal);
+      factory->NewSharedFunctionInfoForBuiltin(name, Builtin::kIllegal);
   info->set_language_mode(LanguageMode::kStrict);
 
   Handle<JSFunction> cons =

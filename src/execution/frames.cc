@@ -225,13 +225,13 @@ namespace {
 
 bool IsInterpreterFramePc(Isolate* isolate, Address pc,
                           StackFrame::State* state) {
-  Builtins::Name builtin_index = InstructionStream::TryLookupCode(isolate, pc);
-  if (builtin_index != Builtins::kNoBuiltinId &&
-      (builtin_index == Builtins::kInterpreterEntryTrampoline ||
-       builtin_index == Builtins::kInterpreterEnterAtBytecode ||
-       builtin_index == Builtins::kInterpreterEnterAtNextBytecode ||
-       builtin_index == Builtins::kBaselineEnterAtBytecode ||
-       builtin_index == Builtins::kBaselineEnterAtNextBytecode)) {
+  Builtin builtin_index = InstructionStream::TryLookupCode(isolate, pc);
+  if (builtin_index != Builtin::kNoBuiltinId &&
+      (builtin_index == Builtin::kInterpreterEntryTrampoline ||
+       builtin_index == Builtin::kInterpreterEnterAtBytecode ||
+       builtin_index == Builtin::kInterpreterEnterAtNextBytecode ||
+       builtin_index == Builtin::kBaselineEnterAtBytecode ||
+       builtin_index == Builtin::kBaselineEnterAtNextBytecode)) {
     return true;
   } else if (FLAG_interpreted_frames_native_stack) {
     intptr_t marker = Memory<intptr_t>(
@@ -694,7 +694,7 @@ void NativeFrame::ComputeCallerState(State* state) const {
 }
 
 Code EntryFrame::unchecked_code() const {
-  return isolate()->heap()->builtin(Builtins::kJSEntry);
+  return isolate()->heap()->builtin(Builtin::kJSEntry);
 }
 
 void EntryFrame::ComputeCallerState(State* state) const {
@@ -716,7 +716,7 @@ StackFrame::Type CWasmEntryFrame::GetCallerState(State* state) const {
 #endif  // V8_ENABLE_WEBASSEMBLY
 
 Code ConstructEntryFrame::unchecked_code() const {
-  return isolate()->heap()->builtin(Builtins::kJSConstructEntry);
+  return isolate()->heap()->builtin(Builtin::kJSConstructEntry);
 }
 
 void ExitFrame::ComputeCallerState(State* state) const {
@@ -1869,7 +1869,7 @@ void WasmFrame::Print(StringStream* accumulator, PrintMode mode,
   const int kMaxPrintedFunctionName = 64;
   char func_name[kMaxPrintedFunctionName + 1];
   int func_name_len = std::min(kMaxPrintedFunctionName, raw_func_name.length());
-  base::Memcpy(func_name, raw_func_name.begin(), func_name_len);
+  memcpy(func_name, raw_func_name.begin(), func_name_len);
   func_name[func_name_len] = '\0';
   int pos = position();
   const wasm::WasmModule* module = wasm_instance().module_object().module();
@@ -2012,7 +2012,7 @@ void JsToWasmFrame::Iterate(RootVisitor* v) const {
   //        |      ....       | <- spill_slot_base--|
   //        |- - - - - - - - -|                     |
   if (code.is_null() || !code.is_builtin() ||
-      code.builtin_index() != Builtins::kGenericJSToWasmWrapper) {
+      code.builtin_index() != Builtin::kGenericJSToWasmWrapper) {
     // If it's not the  GenericJSToWasmWrapper, then it's the TurboFan compiled
     // specific wrapper. So we have to call IterateCompiledFrame.
     IterateCompiledFrame(v);
@@ -2332,7 +2332,7 @@ ConstructStubFrameInfo::ConstructStubFrameInfo(int translation_height,
   // value of result register is preserved during continuation execution.
   // We do this here by "pushing" the result of the constructor function to
   // the top of the reconstructed stack and popping it in
-  // {Builtins::kNotifyDeoptimized}.
+  // {Builtin::kNotifyDeoptimized}.
 
   static constexpr int kTopOfStackPadding = TopOfStackRegisterPaddingSlots();
   static constexpr int kTheResult = 1;
@@ -2388,7 +2388,7 @@ BuiltinContinuationFrameInfo::BuiltinContinuationFrameInfo(
   // value of result register is preserved during continuation execution.
   // We do this here by "pushing" the result of callback function to the
   // top of the reconstructed stack and popping it in
-  // {Builtins::kNotifyDeoptimized}.
+  // {Builtin::kNotifyDeoptimized}.
   static constexpr int kTopOfStackPadding = TopOfStackRegisterPaddingSlots();
   static constexpr int kTheResult = 1;
   const int push_result_count =

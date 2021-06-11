@@ -18,7 +18,7 @@ namespace baseline {
 void BaselineCompiler::Prologue() {
   DCHECK_EQ(kJSFunctionRegister, kJavaScriptCallTargetRegister);
   int max_frame_size = bytecode_->frame_size() + max_call_args_;
-  CallBuiltin<Builtins::kBaselineOutOfLinePrologue>(
+  CallBuiltin<Builtin::kBaselineOutOfLinePrologue>(
       kContextRegister, kJSFunctionRegister, kJavaScriptCallArgCountRegister,
       max_frame_size, kJavaScriptCallNewTargetRegister, bytecode_);
 
@@ -72,7 +72,7 @@ void BaselineCompiler::PrologueFillFrame() {
       __ Push(kInterpreterAccumulatorRegister);
     }
     __ masm()->dec(scratch);
-    __ JumpIf(Condition::kGreaterThan, &loop);
+    __ masm()->j(greater, &loop);
   }
   __ RecordComment("]");
 }

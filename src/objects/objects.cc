@@ -43,6 +43,7 @@
 #include "src/init/bootstrapper.h"
 #include "src/logging/counters.h"
 #include "src/logging/log.h"
+#include "src/logging/runtime-call-stats-scope.h"
 #include "src/objects/allocation-site-inl.h"
 #include "src/objects/allocation-site-scopes.h"
 #include "src/objects/api-callbacks.h"
@@ -2566,9 +2567,21 @@ Maybe<bool> Object::SetPropertyInternal(LookupIterator* it,
           if ((maybe_attributes.FromJust() & READ_ONLY) != 0) {
             return WriteToReadOnlyProperty(it, value, should_throw);
           }
-          if (maybe_attributes.FromJust() == ABSENT) break;
-          *found = false;
-          return Nothing<bool>();
+          // At this point we might have called interceptor's query or getter
+          // callback. Assuming that the callbacks have side effects, we use
+          // Object::SetSuperProperty() which works properly regardless on
+          // whether the property was present on the receiver or not when
+          // storing to the receiver.
+          if (maybe_attributes.FromJust() == ABSENT) {
+            // Proceed lookup from the next state.
+            it->Next();
+          } else {
+            // Finish lookup in order to make Object::SetSuperProperty() store
+            // property to the receiver.
+            it->NotFound();
+          }
+          return Object::SetSuperProperty(it, value, store_origin,
+                                          should_throw);
         }
         break;
       }
@@ -2633,6 +2646,34 @@ Maybe<bool> Object::SetPropertyInternal(LookupIterator* it,
   return Nothing<bool>();
 }
 
+namespace {
+
+// If the receiver is the JSGlobalObject, the store was contextual. In case
+// the property did not exist yet on the global object itself, we have to
+// throw a reference error in strict mode.  In sloppy mode, we continue.
+// Returns false if the exception was thrown, otherwise true.
+bool CheckContextualStoreToJSGlobalObject(LookupIterator* it,
+                                          Maybe<ShouldThrow> should_throw) {
+  Isolate* isolate = it->isolate();
+
+  if (it->GetReceiver()->IsJSGlobalObject(isolate) &&
+      (GetShouldThrow(isolate, should_throw) == ShouldThrow::kThrowOnError)) {
+    if (it->state() == LookupIterator::TRANSITION) {
+      // The property cell that we have created is garbage because we are going
+      // to throw now instead of putting it into the global dictionary. However,
+      // the cell might already have been stored into the feedback vector, so
+      // we must invalidate it nevertheless.
+      it->transition_cell()->ClearAndInvalidate(ReadOnlyRoots(isolate));
+    }
+    isolate->Throw(*isolate->factory()->NewReferenceError(
+        MessageTemplate::kNotDefined, it->GetName()));
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
 Maybe<bool> Object::SetProperty(LookupIterator* it, Handle<Object> value,
                                 StoreOrigin store_origin,
                                 Maybe<ShouldThrow> should_throw) {
@@ -2643,24 +2684,9 @@ Maybe<bool> Object::SetProperty(LookupIterator* it, Handle<Object> value,
     if (found) return result;
   }
 
-  // If the receiver is the JSGlobalObject, the store was contextual. In case
-  // the property did not exist yet on the global object itself, we have to
-  // throw a reference error in strict mode.  In sloppy mode, we continue.
-  if (it->GetReceiver()->IsJSGlobalObject() &&
-      (GetShouldThrow(it->isolate(), should_throw) ==
-       ShouldThrow::kThrowOnError)) {
-    if (it->state() == LookupIterator::TRANSITION) {
-      // The property cell that we have created is garbage because we are going
-      // to throw now instead of putting it into the global dictionary. However,
-      // the cell might already have been stored into the feedback vector, so
-      // we must invalidate it nevertheless.
-      it->transition_cell()->ClearAndInvalidate(ReadOnlyRoots(it->isolate()));
-    }
-    it->isolate()->Throw(*it->isolate()->factory()->NewReferenceError(
-        MessageTemplate::kNotDefined, it->GetName()));
+  if (!CheckContextualStoreToJSGlobalObject(it, should_throw)) {
     return Nothing<bool>();
   }
-
   return AddDataProperty(it, value, NONE, should_throw, store_origin);
 }
 
@@ -2686,6 +2712,8 @@ Maybe<bool> Object::SetSuperProperty(LookupIterator* it, Handle<Object> value,
   }
   Handle<JSReceiver> receiver = Handle<JSReceiver>::cast(it->GetReceiver());
 
+  // Note, the callers rely on the fact that this code is redoing the full own
+  // lookup from scratch.
   LookupIterator::Configuration c = LookupIterator::OWN;
   LookupIterator own_lookup =
       it->IsElement() ? LookupIterator(isolate, receiver, it->index(), c)
@@ -2748,6 +2776,9 @@ Maybe<bool> Object::SetSuperProperty(LookupIterator* it, Handle<Object> value,
     }
   }
 
+  if (!CheckContextualStoreToJSGlobalObject(&own_lookup, should_throw)) {
+    return Nothing<bool>();
+  }
   return AddDataProperty(&own_lookup, value, NONE, should_throw, store_origin);
 }
 
@@ -3987,8 +4018,12 @@ Handle<ArrayList> ArrayList::Add(Isolate* isolate, Handle<ArrayList> array,
   array = EnsureSpace(isolate, array, length + 1);
   // Check that GC didn't remove elements from the array.
   DCHECK_EQ(array->Length(), length);
-  array->Set(length, *obj);
-  array->SetLength(length + 1);
+  {
+    DisallowGarbageCollection no_gc;
+    ArrayList raw_array = *array;
+    raw_array.Set(length, *obj);
+    raw_array.SetLength(length + 1);
+  }
   return array;
 }
 
@@ -3999,9 +4034,30 @@ Handle<ArrayList> ArrayList::Add(Isolate* isolate, Handle<ArrayList> array,
   array = EnsureSpace(isolate, array, length + 2);
   // Check that GC didn't remove elements from the array.
   DCHECK_EQ(array->Length(), length);
-  array->Set(length, *obj1);
-  array->Set(length + 1, *obj2);
-  array->SetLength(length + 2);
+  {
+    DisallowGarbageCollection no_gc;
+    ArrayList raw_array = *array;
+    raw_array.Set(length, *obj1);
+    raw_array.Set(length + 1, *obj2);
+    raw_array.SetLength(length + 2);
+  }
+  return array;
+}
+
+Handle<ArrayList> ArrayList::Add(Isolate* isolate, Handle<ArrayList> array,
+                                 Handle<Object> obj1, Smi obj2, Smi obj3) {
+  int length = array->Length();
+  array = EnsureSpace(isolate, array, length + 3);
+  // Check that GC didn't remove elements from the array.
+  DCHECK_EQ(array->Length(), length);
+  {
+    DisallowGarbageCollection no_gc;
+    ArrayList raw_array = *array;
+    raw_array.Set(length, *obj1);
+    raw_array.Set(length + 1, obj2);
+    raw_array.Set(length + 2, obj3);
+    raw_array.SetLength(length + 3);
+  }
   return array;
 }
 
