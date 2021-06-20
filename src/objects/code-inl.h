@@ -10,6 +10,7 @@
 #include "src/codegen/code-desc.h"
 #include "src/common/assert-scope.h"
 #include "src/execution/isolate.h"
+#include "src/heap/heap-inl.h"
 #include "src/interpreter/bytecode-register.h"
 #include "src/objects/code.h"
 #include "src/objects/dictionary.h"
@@ -202,6 +203,43 @@ RELEASE_ACQUIRE_CODE_ACCESSORS(code_data_container, CodeDataContainer,
                                kCodeDataContainerOffset)
 #undef CODE_ACCESSORS
 #undef RELEASE_ACQUIRE_CODE_ACCESSORS
+
+CodeDataContainer Code::GCSafeCodeDataContainer(AcquireLoadTag) const {
+  PtrComprCageBase cage_base = GetPtrComprCageBase(*this);
+  HeapObject object =
+      TaggedField<HeapObject, kCodeDataContainerOffset>::Acquire_Load(cage_base,
+                                                                      *this);
+  DCHECK(!ObjectInYoungGeneration(object));
+  CodeDataContainer code_data_container =
+      ForwardingAddress(CodeDataContainer::unchecked_cast(object));
+  return code_data_container;
+}
+
+// Helper functions for converting Code objects to CodeDataContainer and back
+// when V8_EXTERNAL_CODE_SPACE is enabled.
+inline CodeT ToCodeT(Code code) {
+#if V8_EXTERNAL_CODE_SPACE
+  return code.code_data_container(kAcquireLoad);
+#else
+  return code;
+#endif
+}
+
+inline Code FromCodeT(CodeT code) {
+#if V8_EXTERNAL_CODE_SPACE
+  return code.code();
+#else
+  return code;
+#endif
+}
+
+inline CodeDataContainer CodeDataContainerFromCodeT(CodeT code) {
+#if V8_EXTERNAL_CODE_SPACE
+  return code;
+#else
+  return code.code_data_container(kAcquireLoad);
+#endif
+}
 
 void Code::WipeOutHeader() {
   WRITE_FIELD(*this, kRelocationInfoOffset, Smi::FromInt(0));
@@ -733,7 +771,50 @@ STATIC_ASSERT(FIELD_SIZE(CodeDataContainer::kKindSpecificFlagsOffset) ==
               kInt32Size);
 RELAXED_INT32_ACCESSORS(CodeDataContainer, kind_specific_flags,
                         kKindSpecificFlagsOffset)
+ACCESSORS_CHECKED(CodeDataContainer, raw_code, Object, kCodeOffset,
+                  V8_EXTERNAL_CODE_SPACE_BOOL)
 ACCESSORS(CodeDataContainer, next_code_link, Object, kNextCodeLinkOffset)
+
+void CodeDataContainer::AllocateExternalPointerEntries(Isolate* isolate) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  InitExternalPointerField(kCodeEntryPointOffset, isolate);
+}
+
+DEF_GETTER(CodeDataContainer, code, Code) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  return Code::cast(raw_code(cage_base));
+}
+
+DEF_GETTER(CodeDataContainer, code_entry_point, Address) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  Isolate* isolate = GetIsolateForHeapSandbox(*this);
+  return ReadExternalPointerField(kCodeEntryPointOffset, isolate,
+                                  kCodeEntryPointTag);
+}
+
+void CodeDataContainer::set_code_entry_point(Isolate* isolate, Address value) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  WriteExternalPointerField(kCodeEntryPointOffset, isolate, value,
+                            kCodeEntryPointTag);
+}
+
+void CodeDataContainer::SetCodeAndEntryPoint(Isolate* isolate_for_sandbox,
+                                             Code code, WriteBarrierMode mode) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  set_raw_code(code, mode);
+  set_code_entry_point(isolate_for_sandbox, code.InstructionStart());
+}
+
+void CodeDataContainer::UpdateCodeEntryPoint(Isolate* isolate_for_sandbox,
+                                             Code code) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  DCHECK_EQ(raw_code(), code);
+  set_code_entry_point(isolate_for_sandbox, code.InstructionStart());
+}
+
+Address CodeDataContainer::InstructionStart() const {
+  return code_entry_point();
+}
 
 void CodeDataContainer::clear_padding() {
   memset(reinterpret_cast<void*>(address() + kUnalignedSize), 0,

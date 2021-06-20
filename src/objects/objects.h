@@ -284,6 +284,7 @@ class Object : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   HEAP_OBJECT_TYPE_LIST(IS_TYPE_FUNCTION_DECL)
   IS_TYPE_FUNCTION_DECL(HashTableBase)
   IS_TYPE_FUNCTION_DECL(SmallOrderedHashTable)
+  IS_TYPE_FUNCTION_DECL(CodeT)
 #undef IS_TYPE_FUNCTION_DECL
   V8_INLINE bool IsNumber(ReadOnlyRoots roots) const;
 
@@ -336,7 +337,9 @@ class Object : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   V8_EXPORT_PRIVATE static Handle<Object> NewStorageFor(
       Isolate* isolate, Handle<Object> object, Representation representation);
 
-  static Handle<Object> WrapForRead(Isolate* isolate, Handle<Object> object,
+  template <AllocationType allocation_type = AllocationType::kYoung,
+            typename IsolateT>
+  static Handle<Object> WrapForRead(IsolateT* isolate, Handle<Object> object,
                                     Representation representation);
 
   // Returns true if the object is of the correct type to be used as a
@@ -405,6 +408,9 @@ class Object : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
 
   // ES6 section 7.1.12 ToString
   V8_WARN_UNUSED_RESULT static inline MaybeHandle<String> ToString(
+      Isolate* isolate, Handle<Object> input);
+
+  V8_EXPORT_PRIVATE static MaybeHandle<String> NoSideEffectsToMaybeString(
       Isolate* isolate, Handle<Object> input);
 
   V8_EXPORT_PRIVATE static Handle<String> NoSideEffectsToString(

@@ -28,6 +28,7 @@
 #include "include/libplatform/libplatform.h"
 #include "src/api/api-inl.h"
 #include "src/base/platform/wrappers.h"
+#include "src/builtins/builtins.h"
 #include "src/compiler/wasm-compiler.h"
 #include "src/objects/js-collection-inl.h"
 #include "src/objects/managed.h"
@@ -117,7 +118,7 @@ i::wasm::ValueType WasmValKindToV8(ValKind kind) {
 }
 
 Name GetNameFromWireBytes(const i::wasm::WireBytesRef& ref,
-                          const i::Vector<const uint8_t>& wire_bytes) {
+                          const v8::base::Vector<const uint8_t>& wire_bytes) {
   DCHECK_LE(ref.offset(), wire_bytes.length());
   DCHECK_LE(ref.end_offset(), wire_bytes.length());
   if (ref.length() == 0) return Name::make();
@@ -1143,7 +1144,8 @@ auto Module::imports() const -> ownvec<ImportType> {
   const i::wasm::NativeModule* native_module =
       impl(this)->v8_object()->native_module();
   const i::wasm::WasmModule* module = native_module->module();
-  const i::Vector<const uint8_t> wire_bytes = native_module->wire_bytes();
+  const v8::base::Vector<const uint8_t> wire_bytes =
+      native_module->wire_bytes();
   const std::vector<i::wasm::WasmImport>& import_table = module->import_table;
   size_t size = import_table.size();
   ownvec<ImportType> imports = ownvec<ImportType>::make_uninitialized(size);
@@ -1161,7 +1163,8 @@ auto Module::imports() const -> ownvec<ImportType> {
 ownvec<ExportType> ExportsImpl(i::Handle<i::WasmModuleObject> module_obj) {
   const i::wasm::NativeModule* native_module = module_obj->native_module();
   const i::wasm::WasmModule* module = native_module->module();
-  const i::Vector<const uint8_t> wire_bytes = native_module->wire_bytes();
+  const v8::base::Vector<const uint8_t> wire_bytes =
+      native_module->wire_bytes();
   const std::vector<i::wasm::WasmExport>& export_table = module->export_table;
   size_t size = export_table.size();
   ownvec<ExportType> exports = ownvec<ExportType>::make_uninitialized(size);
@@ -1181,7 +1184,7 @@ auto Module::exports() const -> ownvec<ExportType> {
 auto Module::serialize() const -> vec<byte_t> {
   i::wasm::NativeModule* native_module =
       impl(this)->v8_object()->native_module();
-  i::Vector<const uint8_t> wire_bytes = native_module->wire_bytes();
+  v8::base::Vector<const uint8_t> wire_bytes = native_module->wire_bytes();
   size_t binary_size = wire_bytes.size();
   // We can only serialize after top-tier compilation (TurboFan) finished.
   native_module->compilation_state()->WaitForTopTierFinished();
@@ -1514,9 +1517,13 @@ void PrepareFunctionData(i::Isolate* isolate,
                          const i::wasm::FunctionSig* sig,
                          const i::wasm::WasmModule* module) {
   // If the data is already populated, return immediately.
-  if (!function_data->c_wrapper_code().IsSmi()) return;
+  // TODO(v8:11880): avoid roundtrips between cdc and code.
+  if (function_data->c_wrapper_code() !=
+      ToCodeT(*BUILTIN_CODE(isolate, Illegal))) {
+    return;
+  }
   // Compile wrapper code.
-  i::Handle<i::Code> wrapper_code =
+  i::Handle<i::CodeT> wrapper_code =
       i::compiler::CompileCWasmEntry(isolate, sig, module);
   function_data->set_c_wrapper_code(*wrapper_code);
   // Compute packed args size.
@@ -1656,8 +1663,9 @@ auto Func::call(const Val args[], Val results[]) const -> own<Trap> {
   const i::wasm::FunctionSig* sig =
       instance->module()->functions[function_index].sig;
   PrepareFunctionData(isolate, function_data, sig, instance->module());
-  i::Handle<i::Code> wrapper_code = i::Handle<i::Code>(
-      i::Code::cast(function_data->c_wrapper_code()), isolate);
+  // TODO(v8:11880): avoid roundtrips between cdc and code.
+  i::Handle<i::CodeT> wrapper_code = i::Handle<i::CodeT>(
+      i::CodeT::cast(function_data->c_wrapper_code()), isolate);
   i::Address call_target = function_data->foreign_address();
 
   i::wasm::CWasmArgumentsPacker packer(function_data->packed_args_size());

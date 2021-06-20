@@ -22,7 +22,6 @@
 #include "src/logging/counters.h"
 #include "src/objects/heap-number.h"
 #include "src/runtime/runtime.h"
-#include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -295,20 +294,14 @@ void TurboAssembler::CallRecordWriteStub(
   if (false) {
 #endif
   } else {
-    auto builtin_index =
-        Builtins::GetRecordWriteStub(remembered_set_action, fp_mode);
+    auto builtin = Builtins::GetRecordWriteStub(remembered_set_action, fp_mode);
     if (options().inline_offheap_trampolines) {
       // Inline the trampoline.
-      DCHECK(Builtins::IsBuiltinId(builtin_index));
-      RecordCommentForOffHeapTrampoline(builtin_index);
-      CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-      EmbeddedData d = EmbeddedData::FromBlob();
-      Address entry = d.InstructionStartOfBuiltin(builtin_index);
-      li(t9, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      RecordCommentForOffHeapTrampoline(builtin);
+      li(t9, Operand(BuiltinEntry(builtin), RelocInfo::OFF_HEAP_TARGET));
       Call(t9);
     } else {
-      Handle<Code> code_target =
-          isolate()->builtins()->code_handle(builtin_index);
+      Handle<Code> code_target = isolate()->builtins()->code_handle(builtin);
       Call(code_target, RelocInfo::CODE_TARGET);
     }
   }
@@ -4344,15 +4337,12 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
     Jump(t9, cond, rs, rt, bd);
     return;
   } else if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtin::kNoBuiltinId;
-    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-        Builtins::IsIsolateIndependent(builtin_index)) {
+    Builtin builtin = Builtin::kNoBuiltinId;
+    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin) &&
+        Builtins::IsIsolateIndependent(builtin)) {
       // Inline the trampoline.
-      RecordCommentForOffHeapTrampoline(builtin_index);
-      CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-      EmbeddedData d = EmbeddedData::FromBlob();
-      Address entry = d.InstructionStartOfBuiltin(builtin_index);
-      li(t9, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      RecordCommentForOffHeapTrampoline(builtin);
+      li(t9, Operand(BuiltinEntry(builtin), RelocInfo::OFF_HEAP_TARGET));
       Jump(t9, cond, rs, rt, bd);
       return;
     }
@@ -4423,15 +4413,12 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
     Call(t9, cond, rs, rt, bd);
     return;
   } else if (options().inline_offheap_trampolines) {
-    int builtin_index = Builtin::kNoBuiltinId;
-    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin_index) &&
-        Builtins::IsIsolateIndependent(builtin_index)) {
+    Builtin builtin = Builtin::kNoBuiltinId;
+    if (isolate()->builtins()->IsBuiltinHandle(code, &builtin) &&
+        Builtins::IsIsolateIndependent(builtin)) {
       // Inline the trampoline.
-      RecordCommentForOffHeapTrampoline(builtin_index);
-      CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-      EmbeddedData d = EmbeddedData::FromBlob();
-      Address entry = d.InstructionStartOfBuiltin(builtin_index);
-      li(t9, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      RecordCommentForOffHeapTrampoline(builtin);
+      li(t9, Operand(BuiltinEntry(builtin), RelocInfo::OFF_HEAP_TARGET));
       Call(t9, cond, rs, rt, bd);
       return;
     }
@@ -4453,27 +4440,23 @@ void TurboAssembler::LoadEntryFromBuiltinIndex(Register builtin_index) {
   Ld(builtin_index,
      MemOperand(builtin_index, IsolateData::builtin_entry_table_offset()));
 }
-void TurboAssembler::LoadEntryFromBuiltin(Builtin builtin_index,
+void TurboAssembler::LoadEntryFromBuiltin(Builtin builtin,
                                           Register destination) {
-  Ld(destination, EntryFromBuiltinAsOperand(builtin_index));
+  Ld(destination, EntryFromBuiltinAsOperand(builtin));
 }
-MemOperand TurboAssembler::EntryFromBuiltinAsOperand(Builtin builtin_index) {
+MemOperand TurboAssembler::EntryFromBuiltinAsOperand(Builtin builtin) {
   DCHECK(root_array_available());
   return MemOperand(kRootRegister,
-                    IsolateData::builtin_entry_slot_offset(builtin_index));
+                    IsolateData::builtin_entry_slot_offset(builtin));
 }
 
 void TurboAssembler::CallBuiltinByIndex(Register builtin_index) {
   LoadEntryFromBuiltinIndex(builtin_index);
   Call(builtin_index);
 }
-void TurboAssembler::CallBuiltin(int builtin_index) {
-  DCHECK(Builtin::IsBuiltinId(builtin_index));
-  RecordCommentForOffHeapTrampoline(builtin_index);
-  CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-  EmbeddedData d = EmbeddedData::FromBlob(isolate());
-  Address entry = d.InstructionStartOfBuiltin(builtin_index);
-  Call(entry, RelocInfo::OFF_HEAP_TARGET);
+void TurboAssembler::CallBuiltin(Builtin builtin) {
+  RecordCommentForOffHeapTrampoline(builtin);
+  Call(BuiltinEntry(builtin), RelocInfo::OFF_HEAP_TARGET);
   if (FLAG_code_comments) RecordComment("]");
 }
 

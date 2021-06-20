@@ -231,16 +231,23 @@ Handle<Object> Object::NewStorageFor(Isolate* isolate, Handle<Object> object,
   return result;
 }
 
-Handle<Object> Object::WrapForRead(Isolate* isolate, Handle<Object> object,
+template <AllocationType allocation_type, typename IsolateT>
+Handle<Object> Object::WrapForRead(IsolateT* isolate, Handle<Object> object,
                                    Representation representation) {
   DCHECK(!object->IsUninitialized(isolate));
   if (!representation.IsDouble()) {
     DCHECK(object->FitsRepresentation(representation));
     return object;
   }
-  return isolate->factory()->NewHeapNumberFromBits(
+  return isolate->factory()->template NewHeapNumberFromBits<allocation_type>(
       HeapNumber::cast(*object).value_as_bits());
 }
+
+template Handle<Object> Object::WrapForRead<AllocationType::kYoung>(
+    Isolate* isolate, Handle<Object> object, Representation representation);
+template Handle<Object> Object::WrapForRead<AllocationType::kOld>(
+    LocalIsolate* isolate, Handle<Object> object,
+    Representation representation);
 
 MaybeHandle<JSReceiver> Object::ToObjectImpl(Isolate* isolate,
                                              Handle<Object> object,
@@ -456,8 +463,8 @@ Handle<String> NoSideEffectsErrorToString(Isolate* isolate,
 }  // namespace
 
 // static
-Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
-                                             Handle<Object> input) {
+MaybeHandle<String> Object::NoSideEffectsToMaybeString(Isolate* isolate,
+                                                       Handle<Object> input) {
   DisallowJavascriptExecution no_js(isolate);
 
   if (input->IsString() || input->IsNumber() || input->IsOddball()) {
@@ -553,6 +560,20 @@ Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
         }
       }
     }
+  }
+  return MaybeHandle<String>(kNullMaybeHandle);
+}
+
+// static
+Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
+                                             Handle<Object> input) {
+  DisallowJavascriptExecution no_js(isolate);
+
+  // Try to convert input to a meaningful string.
+  MaybeHandle<String> maybe_string = NoSideEffectsToMaybeString(isolate, input);
+  Handle<String> string_handle;
+  if (maybe_string.ToHandle(&string_handle)) {
+    return string_handle;
   }
 
   // At this point, input is either none of the above or a JSReceiver.
@@ -4781,7 +4802,7 @@ bool Script::ContainsAsmModule() {
 namespace {
 
 template <typename Char>
-bool GetPositionInfoSlowImpl(const Vector<Char>& source, int position,
+bool GetPositionInfoSlowImpl(const base::Vector<Char>& source, int position,
                              Script::PositionInfo* info) {
   if (position < 0) {
     position = 0;

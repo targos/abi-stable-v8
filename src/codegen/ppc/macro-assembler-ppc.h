@@ -271,6 +271,11 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void MultiPushV128(RegList dregs, Register location = sp);
   void MultiPopV128(RegList dregs, Register location = sp);
 
+  void MultiPushF64AndV128(RegList dregs, RegList simd_regs,
+                           Register location = sp);
+  void MultiPopF64AndV128(RegList dregs, RegList simd_regs,
+                          Register location = sp);
+
   // Calculate how much stack space (in bytes) are required to store caller
   // registers excluding those specified in the arguments.
   int RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
@@ -702,6 +707,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void LoadU16(Register dst, const MemOperand& mem, Register scratch = no_reg);
   void LoadS16(Register dst, const MemOperand& mem, Register scratch = no_reg);
   void LoadU8(Register dst, const MemOperand& mem, Register scratch = no_reg);
+  void LoadS8(Register dst, const MemOperand& mem, Register scratch = no_reg);
 
   void StoreU64(Register src, const MemOperand& mem, Register scratch = no_reg);
   void StoreU32(Register src, const MemOperand& mem, Register scratch);
@@ -712,6 +718,26 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
                          Register scratch = no_reg);
   void StoreU64WithUpdate(Register src, const MemOperand& mem,
                           Register scratch = no_reg);
+
+  void LoadU64LE(Register dst, const MemOperand& mem, Register scratch);
+  void LoadU32LE(Register dst, const MemOperand& mem, Register scratch);
+  void LoadU16LE(Register dst, const MemOperand& mem, Register scratch);
+  void StoreU64LE(Register src, const MemOperand& mem, Register scratch);
+  void StoreU32LE(Register src, const MemOperand& mem, Register scratch);
+  void StoreU16LE(Register src, const MemOperand& mem, Register scratch);
+
+  void LoadS32LE(Register dst, const MemOperand& mem, Register scratch);
+  void LoadS16LE(Register dst, const MemOperand& mem, Register scratch);
+
+  void LoadF64LE(DoubleRegister dst, const MemOperand& mem, Register scratch,
+                 Register scratch2);
+  void LoadF32LE(DoubleRegister dst, const MemOperand& mem, Register scratch,
+                 Register scratch2);
+
+  void StoreF32LE(DoubleRegister src, const MemOperand& mem, Register scratch,
+                  Register scratch2);
+  void StoreF64LE(DoubleRegister src, const MemOperand& mem, Register scratch,
+                  Register scratch2);
 
  private:
   static const int kSmiShift = kSmiTagSize + kSmiShiftSize;

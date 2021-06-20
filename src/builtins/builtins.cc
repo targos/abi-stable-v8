@@ -236,8 +236,8 @@ void Builtins::PrintBuiltinCode() {
        ++builtin) {
     const char* builtin_name = name(builtin);
     Handle<Code> code = code_handle(builtin);
-    if (PassesFilter(CStrVector(builtin_name),
-                     CStrVector(FLAG_print_builtin_code_filter))) {
+    if (PassesFilter(base::CStrVector(builtin_name),
+                     base::CStrVector(FLAG_print_builtin_code_filter))) {
       CodeTracer::Scope trace_scope(isolate_->GetCodeTracer());
       OFStream os(trace_scope.file());
       code->Disassemble(builtin_name, os, isolate_);
@@ -396,7 +396,8 @@ Handle<Code> Builtins::GenerateOffHeapTrampolineFor(
                                              : TrampolineType::kAbort);
 
   return Factory::CodeBuilder(isolate, desc, CodeKind::BUILTIN)
-      .set_read_only_data_container(kind_specfic_flags)
+      .set_kind_specific_flags(kind_specfic_flags)
+      .set_read_only_data_container(!V8_EXTERNAL_CODE_SPACE_BOOL)
       .set_self_reference(generator.CodeObject())
       .set_is_executable(generate_jump_to_instruction_stream)
       .Build();

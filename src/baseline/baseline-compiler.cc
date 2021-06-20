@@ -386,9 +386,8 @@ MemOperand BaselineCompiler::FeedbackVector() {
 }
 
 void BaselineCompiler::LoadFeedbackVector(Register output) {
-  __ RecordComment("[ LoadFeedbackVector");
+  ASM_CODE_COMMENT(&masm_);
   __ Move(output, __ FeedbackVectorOperand());
-  __ RecordComment("]");
 }
 
 void BaselineCompiler::LoadClosureFeedbackArray(Register output) {
@@ -463,12 +462,13 @@ void BaselineCompiler::VisitSingleBytecode() {
   // and exception handling, when CFI is enabled.
   __ JumpTarget();
 
+#ifdef V8_CODE_COMMENTS
+  std::ostringstream str;
   if (FLAG_code_comments) {
-    std::ostringstream str;
-    str << "[ ";
     iterator().PrintTo(str);
-    __ RecordComment(str.str().c_str());
   }
+  ASM_CODE_COMMENT_STRING(&masm_, str.str());
+#endif
 
   VerifyFrame();
 
@@ -484,7 +484,6 @@ void BaselineCompiler::VisitSingleBytecode() {
     BYTECODE_LIST(BYTECODE_CASE)
 #undef BYTECODE_CASE
   }
-  __ RecordComment("]");
 
 #ifdef V8_TRACE_UNOPTIMIZED
   TraceBytecode(Runtime::kTraceUnoptimizedBytecodeExit);
@@ -493,7 +492,7 @@ void BaselineCompiler::VisitSingleBytecode() {
 
 void BaselineCompiler::VerifyFrame() {
   if (FLAG_debug_code) {
-    __ RecordComment("[ Verify frame");
+    ASM_CODE_COMMENT(&masm_);
     __ RecordComment(" -- Verify frame size");
     VerifyFrameSize();
 
@@ -512,8 +511,6 @@ void BaselineCompiler::VerifyFrame() {
     }
 
     // TODO(leszeks): More verification.
-
-    __ RecordComment("]");
   }
 }
 
@@ -545,7 +542,7 @@ INTRINSICS_LIST(DECLARE_VISITOR)
 void BaselineCompiler::UpdateInterruptBudgetAndJumpToLabel(
     int weight, Label* label, Label* skip_interrupt_label) {
   if (weight != 0) {
-    __ RecordComment("[ Update Interrupt Budget");
+    ASM_CODE_COMMENT(&masm_);
     __ AddToInterruptBudgetAndJumpIfNotExceeded(weight, skip_interrupt_label);
 
     if (weight < 0) {
@@ -555,7 +552,6 @@ void BaselineCompiler::UpdateInterruptBudgetAndJumpToLabel(
     }
   }
   if (label) __ Jump(label);
-  if (weight != 0) __ RecordComment("]");
 }
 
 void BaselineCompiler::UpdateInterruptBudgetAndDoInterpreterJump() {
@@ -591,10 +587,9 @@ Label* BaselineCompiler::BuildForwardJumpLabel() {
 
 template <Builtin kBuiltin, typename... Args>
 void BaselineCompiler::CallBuiltin(Args... args) {
-  __ RecordComment("[ CallBuiltin");
+  ASM_CODE_COMMENT(&masm_);
   detail::MoveArgumentsForBuiltin<kBuiltin>(&basm_, args...);
   __ CallBuiltin(kBuiltin);
-  __ RecordComment("]");
 }
 
 template <Builtin kBuiltin, typename... Args>
@@ -1279,56 +1274,6 @@ void BaselineCompiler::VisitInvokeIntrinsic() {
   }
 }
 
-void BaselineCompiler::VisitIntrinsicIsJSReceiver(
-    interpreter::RegisterList args) {
-  SelectBooleanConstant(
-      kInterpreterAccumulatorRegister,
-      [&](Label* is_true, Label::Distance distance) {
-        BaselineAssembler::ScratchRegisterScope scratch_scope(&basm_);
-        __ LoadRegister(kInterpreterAccumulatorRegister, args[0]);
-
-        Label is_smi;
-        __ JumpIfSmi(kInterpreterAccumulatorRegister, &is_smi, Label::kNear);
-
-        // If we ever added more instance types after LAST_JS_RECEIVER_TYPE,
-        // this would have to become a range check.
-        STATIC_ASSERT(LAST_JS_RECEIVER_TYPE == LAST_TYPE);
-        __ JumpIfObjectType(Condition::kGreaterThanEqual,
-                            kInterpreterAccumulatorRegister,
-                            FIRST_JS_RECEIVER_TYPE,
-                            scratch_scope.AcquireScratch(), is_true, distance);
-
-        __ Bind(&is_smi);
-      });
-}
-
-void BaselineCompiler::VisitIntrinsicIsArray(interpreter::RegisterList args) {
-  SelectBooleanConstant(
-      kInterpreterAccumulatorRegister,
-      [&](Label* is_true, Label::Distance distance) {
-        BaselineAssembler::ScratchRegisterScope scratch_scope(&basm_);
-        __ LoadRegister(kInterpreterAccumulatorRegister, args[0]);
-
-        Label is_smi;
-        __ JumpIfSmi(kInterpreterAccumulatorRegister, &is_smi, Label::kNear);
-
-        __ JumpIfObjectType(Condition::kEqual, kInterpreterAccumulatorRegister,
-                            JS_ARRAY_TYPE, scratch_scope.AcquireScratch(),
-                            is_true, distance);
-
-        __ Bind(&is_smi);
-      });
-}
-
-void BaselineCompiler::VisitIntrinsicIsSmi(interpreter::RegisterList args) {
-  SelectBooleanConstant(
-      kInterpreterAccumulatorRegister,
-      [&](Label* is_true, Label::Distance distance) {
-        __ LoadRegister(kInterpreterAccumulatorRegister, args[0]);
-        __ JumpIfSmi(kInterpreterAccumulatorRegister, is_true, distance);
-      });
-}
-
 void BaselineCompiler::VisitIntrinsicCopyDataProperties(
     interpreter::RegisterList args) {
   CallBuiltin<Builtin::kCopyDataProperties>(args);
@@ -1337,34 +1282,6 @@ void BaselineCompiler::VisitIntrinsicCopyDataProperties(
 void BaselineCompiler::VisitIntrinsicCreateIterResultObject(
     interpreter::RegisterList args) {
   CallBuiltin<Builtin::kCreateIterResultObject>(args);
-}
-
-void BaselineCompiler::VisitIntrinsicHasProperty(
-    interpreter::RegisterList args) {
-  CallBuiltin<Builtin::kHasProperty>(args);
-}
-
-void BaselineCompiler::VisitIntrinsicToLength(interpreter::RegisterList args) {
-  CallBuiltin<Builtin::kToLength>(args);
-}
-
-void BaselineCompiler::VisitIntrinsicToObject(interpreter::RegisterList args) {
-  CallBuiltin<Builtin::kToObject>(args);
-}
-
-void BaselineCompiler::VisitIntrinsicCall(interpreter::RegisterList args) {
-  // First argument register contains the function target.
-  __ LoadRegister(kJavaScriptCallTargetRegister, args.first_register());
-
-  // The arguments for the target function are from the second runtime call
-  // argument.
-  args = args.PopLeft();
-
-  uint32_t arg_count = args.register_count();
-  CallBuiltin<Builtin::kCall_ReceiverIsAny>(
-      kJavaScriptCallTargetRegister,  // kFunction
-      arg_count - 1,                  // kActualArgumentsCount
-      args);
 }
 
 void BaselineCompiler::VisitIntrinsicCreateAsyncFromSyncIterator(
@@ -1940,15 +1857,17 @@ void BaselineCompiler::VisitJumpLoop() {
   BaselineAssembler::ScratchRegisterScope scope(&basm_);
   Register scratch = scope.AcquireScratch();
   Label osr_not_armed;
-  __ RecordComment("[ OSR Check Armed");
-  Register osr_level = scratch;
-  __ LoadRegister(osr_level, interpreter::Register::bytecode_array());
-  __ LoadByteField(osr_level, osr_level, BytecodeArray::kOsrNestingLevelOffset);
-  int loop_depth = iterator().GetImmediateOperand(1);
-  __ JumpIfByte(Condition::kUnsignedLessThanEqual, osr_level, loop_depth,
-                &osr_not_armed);
-  CallBuiltin<Builtin::kBaselineOnStackReplacement>();
-  __ RecordComment("]");
+  {
+    ASM_CODE_COMMENT_STRING(&masm_, "OSR Check Armed");
+    Register osr_level = scratch;
+    __ LoadRegister(osr_level, interpreter::Register::bytecode_array());
+    __ LoadByteField(osr_level, osr_level,
+                     BytecodeArray::kOsrNestingLevelOffset);
+    int loop_depth = iterator().GetImmediateOperand(1);
+    __ JumpIfByte(Condition::kUnsignedLessThanEqual, osr_level, loop_depth,
+                  &osr_not_armed);
+    CallBuiltin<Builtin::kBaselineOnStackReplacement>();
+  }
 
   __ Bind(&osr_not_armed);
   Label* label = &labels_[iterator().GetJumpTargetOffset()]->unlinked;
@@ -2147,7 +2066,7 @@ void BaselineCompiler::VisitReThrow() {
 }
 
 void BaselineCompiler::VisitReturn() {
-  __ RecordComment("[ Return");
+  ASM_CODE_COMMENT_STRING(&masm_, "Return");
   int profiling_weight = iterator().current_offset() +
                          iterator().current_bytecode_size_without_prefix();
   int parameter_count = bytecode_->parameter_count();
@@ -2159,7 +2078,6 @@ void BaselineCompiler::VisitReturn() {
                             // computation. We'll account for it at the end.
   TailCallBuiltin<Builtin::kBaselineLeaveFrame>(
       parameter_count_without_receiver, -profiling_weight);
-  __ RecordComment("]");
 }
 
 void BaselineCompiler::VisitThrowReferenceErrorIfHole() {

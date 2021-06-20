@@ -79,9 +79,11 @@ void PrintDictionaryContents(std::ostream& os, T dict) {
     return;
   }
 
+#ifdef V8_ENABLE_SWISS_NAME_DICTIONARY
   Isolate* isolate = GetIsolateFromWritableObject(dict);
   // IterateEntries for SwissNameDictionary needs to create a handle.
   HandleScope scope(isolate);
+#endif
   for (InternalIndex i : dict.IterateEntries()) {
     Object k;
     if (!dict.ToKey(roots, i, &k)) continue;
@@ -569,7 +571,7 @@ static void JSObjectPrintHeader(std::ostream& os, JSObject obj,
 static void JSObjectPrintBody(std::ostream& os, JSObject obj,
                               bool print_elements = true) {
   os << "\n - properties: ";
-  Object properties_or_hash = obj.raw_properties_or_hash();
+  Object properties_or_hash = obj.raw_properties_or_hash(kRelaxedLoad);
   if (!properties_or_hash.IsSmi()) {
     os << Brief(properties_or_hash);
   }
@@ -1317,7 +1319,7 @@ void JSDate::JSDatePrint(std::ostream& os) {
     os << "\n - time = NaN\n";
   } else {
     // TODO(svenpanne) Add some basic formatting to our streams.
-    ScopedVector<char> buf(100);
+    base::ScopedVector<char> buf(100);
     SNPrintF(buf, "\n - time = %s %04d/%02d/%02d %02d:%02d:%02d\n",
              weekdays[weekday().IsSmi() ? Smi::ToInt(weekday()) + 1 : 0],
              year().IsSmi() ? Smi::ToInt(year()) : -1,
@@ -1510,7 +1512,7 @@ void JSFunction::JSFunctionPrint(std::ostream& os) {
      << shared().internal_formal_parameter_count();
   os << "\n - kind: " << shared().kind();
   os << "\n - context: " << Brief(context());
-  os << "\n - code: " << Brief(code());
+  os << "\n - code: " << Brief(raw_code());
   if (code().kind() == CodeKind::FOR_TESTING) {
     os << "\n - FOR_TESTING";
   } else if (ActiveTierIsIgnition()) {
@@ -1639,6 +1641,11 @@ void PropertyCell::PropertyCellPrint(std::ostream& os) {
 
 void Code::CodePrint(std::ostream& os) {
   PrintHeader(os, "Code");
+  os << "\n - code_data_container: "
+     << Brief(code_data_container(kAcquireLoad));
+  if (is_builtin()) {
+    os << "\n - builtin_id: " << Builtins::name(builtin_id());
+  }
   os << "\n";
 #ifdef ENABLE_DISASSEMBLER
   Disassemble(nullptr, os, GetIsolate());
@@ -1648,6 +1655,11 @@ void Code::CodePrint(std::ostream& os) {
 void CodeDataContainer::CodeDataContainerPrint(std::ostream& os) {
   PrintHeader(os, "CodeDataContainer");
   os << "\n - kind_specific_flags: " << kind_specific_flags();
+  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+    os << "\n - code: " << Brief(code());
+    os << "\n - code_entry_point: "
+       << reinterpret_cast<void*>(code_entry_point());
+  }
   os << "\n";
 }
 
@@ -1987,7 +1999,7 @@ void WasmInstanceObject::WasmInstanceObjectPrint(std::ostream& os) {
 void WasmFunctionData::WasmFunctionDataPrint(std::ostream& os) {
   os << "\n - target: " << reinterpret_cast<void*>(foreign_address());
   os << "\n - ref: " << Brief(ref());
-  os << "\n - wrapper_code: " << Brief(wrapper_code());
+  os << "\n - wrapper_code: " << Brief(TorqueGeneratedClass::wrapper_code());
 }
 
 void WasmExportedFunctionData::WasmExportedFunctionDataPrint(std::ostream& os) {
@@ -2003,7 +2015,8 @@ void WasmExportedFunctionData::WasmExportedFunctionDataPrint(std::ostream& os) {
 void WasmJSFunctionData::WasmJSFunctionDataPrint(std::ostream& os) {
   PrintHeader(os, "WasmJSFunctionData");
   WasmFunctionDataPrint(os);
-  os << "\n - wasm_to_js_wrapper_code: " << Brief(wasm_to_js_wrapper_code());
+  os << "\n - wasm_to_js_wrapper_code: "
+     << Brief(raw_wasm_to_js_wrapper_code());
   os << "\n - serialized_return_count: " << serialized_return_count();
   os << "\n - serialized_parameter_count: " << serialized_parameter_count();
   os << "\n - serialized_signature: " << Brief(serialized_signature());
@@ -2417,7 +2430,7 @@ void StackFrameInfo::StackFrameInfoPrint(std::ostream& os) {
   PrintHeader(os, "StackFrameInfo");
   os << "\n - receiver_or_instance: " << Brief(receiver_or_instance());
   os << "\n - function: " << Brief(function());
-  os << "\n - code_object: " << Brief(code_object());
+  os << "\n - code_object: " << Brief(TorqueGeneratedClass::code_object());
   os << "\n - code_offset_or_source_position: "
      << code_offset_or_source_position();
   os << "\n - flags: " << flags();
@@ -2515,7 +2528,7 @@ void Name::NameShortPrint() {
 }
 
 // TODO(cbruni): remove once the new maptracer is in place.
-int Name::NameShortPrint(Vector<char> str) {
+int Name::NameShortPrint(base::Vector<char> str) {
   if (this->IsString()) {
     return SNPrintF(str, "%s", String::cast(*this).ToCString().get());
   } else {

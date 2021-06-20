@@ -181,6 +181,13 @@ StaticCallInterfaceDescriptor<DerivedDescriptor>::GetStackParameterCount() {
 }
 
 // static
+template <typename DerivedDescriptor>
+constexpr Register
+StaticCallInterfaceDescriptor<DerivedDescriptor>::GetRegisterParameter(int i) {
+  return DerivedDescriptor::registers()[i];
+}
+
+// static
 constexpr Register FastNewObjectDescriptor::TargetRegister() {
   return kJSFunctionRegister;
 }
@@ -370,11 +377,6 @@ constexpr auto InterpreterCEntry2Descriptor::registers() {
 // static
 constexpr auto FastNewObjectDescriptor::registers() {
   return RegisterArray(TargetRegister(), NewTargetRegister());
-}
-
-// static
-constexpr auto TailCallOptimizedCodeSlotDescriptor::registers() {
-  return RegisterArray(kJavaScriptCallCodeStartRegister);
 }
 
 // static

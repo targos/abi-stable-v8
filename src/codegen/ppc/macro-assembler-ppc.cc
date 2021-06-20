@@ -21,7 +21,6 @@
 #include "src/init/bootstrapper.h"
 #include "src/logging/counters.h"
 #include "src/runtime/runtime.h"
-#include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -36,6 +35,22 @@
 
 namespace v8 {
 namespace internal {
+
+namespace {
+
+// Simd and Floating Pointer registers are not shared. For WebAssembly we save
+// both registers, If we are not running Wasm, we can get away with only saving
+// FP registers.
+#if V8_ENABLE_WEBASSEMBLY
+constexpr int kStackSavedSavedFPSizeInBytes =
+    (kNumCallerSavedDoubles * kSimd128Size) +
+    (kNumCallerSavedDoubles * kDoubleSize);
+#else
+constexpr int kStackSavedSavedFPSizeInBytes =
+    kNumCallerSavedDoubles * kDoubleSize;
+#endif  // V8_ENABLE_WEBASSEMBLY
+
+}  // namespace
 
 int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
                                                     Register exclusion1,
@@ -57,7 +72,7 @@ int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
   bytes += NumRegs(list) * kSystemPointerSize;
 
   if (fp_mode == SaveFPRegsMode::kSave) {
-    bytes += kNumCallerSavedDoubles * kDoubleSize;
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   return bytes;
@@ -82,8 +97,8 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
   bytes += NumRegs(list) * kSystemPointerSize;
 
   if (fp_mode == SaveFPRegsMode::kSave) {
-    MultiPushDoubles(kCallerSavedDoubles);
-    bytes += kNumCallerSavedDoubles * kDoubleSize;
+    MultiPushF64AndV128(kCallerSavedDoubles, kCallerSavedDoubles);
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   return bytes;
@@ -93,8 +108,8 @@ int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
                                    Register exclusion2, Register exclusion3) {
   int bytes = 0;
   if (fp_mode == SaveFPRegsMode::kSave) {
-    MultiPopDoubles(kCallerSavedDoubles);
-    bytes += kNumCallerSavedDoubles * kDoubleSize;
+    MultiPopF64AndV128(kCallerSavedDoubles, kCallerSavedDoubles);
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   RegList exclusions = 0;
@@ -176,7 +191,7 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
   DCHECK_IMPLIES(options().isolate_independent_code,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
-  int builtin_index = Builtin::kNoBuiltinId;
+  Builtin builtin_index = Builtin::kNoBuiltinId;
   bool target_is_builtin =
       isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
@@ -194,11 +209,9 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
     // Inline the trampoline.
     Label skip;
     RecordCommentForOffHeapTrampoline(builtin_index);
-    EmbeddedData d = EmbeddedData::FromBlob();
-    Address entry = d.InstructionStartOfBuiltin(builtin_index);
     // Use ip directly instead of using UseScratchRegisterScope, as we do
     // not preserve scratch registers across calls.
-    mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+    mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
     if (cond != al) b(NegateCondition(cond), &skip, cr);
     Jump(ip);
     bind(&skip);
@@ -265,7 +278,7 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
   DCHECK_IMPLIES(options().use_pc_relative_calls_and_jumps,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
-  int builtin_index = Builtin::kNoBuiltinId;
+  Builtin builtin_index = Builtin::kNoBuiltinId;
   bool target_is_builtin =
       isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
@@ -281,11 +294,9 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
   } else if (options().inline_offheap_trampolines && target_is_builtin) {
     // Inline the trampoline.
     RecordCommentForOffHeapTrampoline(builtin_index);
-    EmbeddedData d = EmbeddedData::FromBlob();
-    Address entry = d.InstructionStartOfBuiltin(builtin_index);
     // Use ip directly instead of using UseScratchRegisterScope, as we do
     // not preserve scratch registers across calls.
-    mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+    mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
     Label skip;
     if (cond != al) b(NegateCondition(cond), &skip);
     Call(ip);
@@ -473,6 +484,70 @@ void TurboAssembler::MultiPopV128(RegList dregs, Register location) {
     }
   }
   addi(location, location, Operand(stack_offset));
+}
+
+void TurboAssembler::MultiPushF64AndV128(RegList dregs, RegList simd_regs,
+                                         Register location) {
+  MultiPushDoubles(dregs);
+#if V8_ENABLE_WEBASSEMBLY
+  bool generating_bultins =
+      isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+  if (generating_bultins) {
+    // V8 uses the same set of fp param registers as Simd param registers.
+    // As these registers are two different sets on ppc we must make
+    // sure to also save them when Simd is enabled.
+    // Check the comments under crrev.com/c/2645694 for more details.
+    Label push_empty_simd, simd_pushed;
+    Move(ip, ExternalReference::supports_wasm_simd_128_address());
+    LoadU8(ip, MemOperand(ip), r0);
+    cmpi(ip, Operand::Zero());  // If > 0 then simd is available.
+    ble(&push_empty_simd);
+    MultiPushV128(simd_regs);
+    b(&simd_pushed);
+    bind(&push_empty_simd);
+    // We still need to allocate empty space on the stack even if we
+    // are not pushing Simd registers (see kFixedFrameSizeFromFp).
+    addi(sp, sp,
+         Operand(-static_cast<int8_t>(NumRegs(simd_regs)) * kSimd128Size));
+    bind(&simd_pushed);
+  } else {
+    if (CpuFeatures::SupportsWasmSimd128()) {
+      MultiPushV128(simd_regs);
+    } else {
+      addi(sp, sp,
+           Operand(-static_cast<int8_t>(NumRegs(simd_regs)) * kSimd128Size));
+    }
+  }
+#endif
+}
+
+void TurboAssembler::MultiPopF64AndV128(RegList dregs, RegList simd_regs,
+                                        Register location) {
+#if V8_ENABLE_WEBASSEMBLY
+  bool generating_bultins =
+      isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+  if (generating_bultins) {
+    Label pop_empty_simd, simd_popped;
+    Move(ip, ExternalReference::supports_wasm_simd_128_address());
+    LoadU8(ip, MemOperand(ip), r0);
+    cmpi(ip, Operand::Zero());  // If > 0 then simd is available.
+    ble(&pop_empty_simd);
+    MultiPopV128(simd_regs);
+    b(&simd_popped);
+    bind(&pop_empty_simd);
+    addi(sp, sp,
+         Operand(static_cast<int8_t>(NumRegs(simd_regs)) * kSimd128Size));
+    bind(&simd_popped);
+  } else {
+    if (CpuFeatures::SupportsWasmSimd128()) {
+      MultiPopV128(simd_regs);
+    } else {
+      addi(sp, sp,
+           Operand(static_cast<int8_t>(NumRegs(simd_regs)) * kSimd128Size));
+    }
+  }
+#endif
+  MultiPopDoubles(dregs);
 }
 
 void TurboAssembler::LoadRoot(Register destination, RootIndex index,
@@ -703,11 +778,9 @@ void TurboAssembler::CallRecordWriteStub(
         Builtins::GetRecordWriteStub(remembered_set_action, fp_mode);
     if (options().inline_offheap_trampolines) {
       RecordCommentForOffHeapTrampoline(builtin_index);
-      EmbeddedData d = EmbeddedData::FromBlob();
-      Address entry = d.InstructionStartOfBuiltin(builtin_index);
       // Use ip directly instead of using UseScratchRegisterScope, as we do
       // not preserve scratch registers across calls.
-      mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
       Call(ip);
     } else {
       Handle<Code> code_target =
@@ -2776,6 +2849,12 @@ MEM_OP_LIST(MEM_OP_FUNCTION)
 #undef MEM_OP_LIST
 #undef MEM_OP_FUNCTION
 
+void TurboAssembler::LoadS8(Register dst, const MemOperand& mem,
+                            Register scratch) {
+  LoadU8(dst, mem, scratch);
+  extsb(dst, dst);
+}
+
 void TurboAssembler::LoadSimd128(Simd128Register src, const MemOperand& mem) {
   DCHECK(mem.rb().is_valid());
   lxvx(src, mem);
@@ -2784,6 +2863,115 @@ void TurboAssembler::LoadSimd128(Simd128Register src, const MemOperand& mem) {
 void TurboAssembler::StoreSimd128(Simd128Register src, const MemOperand& mem) {
   DCHECK(mem.rb().is_valid());
   stxvx(src, mem);
+}
+
+#define GenerateMemoryLEOperation(reg, mem, op)                \
+  {                                                            \
+    if (mem.offset() == 0) {                                   \
+      op(reg, mem);                                            \
+    } else if (is_int16(mem.offset())) {                       \
+      if (mem.rb() != no_reg)                                  \
+        addi(scratch, mem.rb(), Operand(mem.offset()));        \
+      else                                                     \
+        mov(scratch, Operand(mem.offset()));                   \
+      op(reg, MemOperand(mem.ra(), scratch));                  \
+    } else {                                                   \
+      mov(scratch, Operand(mem.offset()));                     \
+      if (mem.rb() != no_reg) add(scratch, scratch, mem.rb()); \
+      op(reg, MemOperand(mem.ra(), scratch));                  \
+    }                                                          \
+  }
+
+#define MEM_LE_OP_LIST(V) \
+  V(LoadU64, ldbrx)       \
+  V(LoadU32, lwbrx)       \
+  V(LoadU16, lhbrx)       \
+  V(StoreU64, stdbrx)     \
+  V(StoreU32, stwbrx)     \
+  V(StoreU16, sthbrx)
+
+#ifdef V8_TARGET_BIG_ENDIAN
+#define MEM_LE_OP_FUNCTION(name, op)                                 \
+  void TurboAssembler::name##LE(Register reg, const MemOperand& mem, \
+                                Register scratch) {                  \
+    GenerateMemoryLEOperation(reg, mem, op);                         \
+  }
+#else
+#define MEM_LE_OP_FUNCTION(name, op)                                 \
+  void TurboAssembler::name##LE(Register reg, const MemOperand& mem, \
+                                Register scratch) {                  \
+    name(reg, mem, scratch);                                         \
+  }
+#endif
+
+MEM_LE_OP_LIST(MEM_LE_OP_FUNCTION)
+#undef MEM_LE_OP_FUNCTION
+#undef MEM_LE_OP_LIST
+
+void TurboAssembler::LoadS32LE(Register dst, const MemOperand& mem,
+                               Register scratch) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  LoadU32LE(dst, mem, scratch);
+  extsw(dst, dst);
+#else
+  LoadS32(dst, mem, scratch);
+#endif
+}
+
+void TurboAssembler::LoadS16LE(Register dst, const MemOperand& mem,
+                               Register scratch) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  LoadU16LE(dst, mem, scratch);
+  extsh(dst, dst);
+#else
+  LoadS16(dst, mem, scratch);
+#endif
+}
+
+void TurboAssembler::LoadF64LE(DoubleRegister dst, const MemOperand& mem,
+                               Register scratch, Register scratch2) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  LoadU64LE(scratch, mem, scratch2);
+  push(scratch);
+  LoadF64(dst, MemOperand(sp), scratch2);
+  pop(scratch);
+#else
+  LoadF64(dst, mem, scratch);
+#endif
+}
+
+void TurboAssembler::LoadF32LE(DoubleRegister dst, const MemOperand& mem,
+                               Register scratch, Register scratch2) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  LoadU32LE(scratch, mem, scratch2);
+  push(scratch);
+  LoadF32(dst, MemOperand(sp, 4), scratch2);
+  pop(scratch);
+#else
+  LoadF32(dst, mem, scratch);
+#endif
+}
+
+void TurboAssembler::StoreF64LE(DoubleRegister dst, const MemOperand& mem,
+                                Register scratch, Register scratch2) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  StoreF64(dst, mem, scratch2);
+  LoadU64(scratch, mem, scratch2);
+  StoreU64LE(scratch, mem, scratch2);
+#else
+  LoadF64(dst, mem, scratch);
+#endif
+}
+
+void TurboAssembler::StoreF32LE(DoubleRegister dst, const MemOperand& mem,
+                                Register scratch, Register scratch2) {
+#ifdef V8_TARGET_BIG_ENDIAN
+  StoreF32(dst, mem, scratch2);
+  LoadU32(scratch, mem, scratch2);
+  StoreU32LE(scratch, mem, scratch2);
+#else
+  LoadF64(dst, mem, scratch);
+#endif
 }
 
 Register GetRegisterThatIsNotOneOf(Register reg1, Register reg2, Register reg3,

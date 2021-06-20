@@ -36,6 +36,7 @@ export class SourcePosition {
     this.line = line;
     this.column = column;
     this.entries = [];
+    this.isFunction = false;
   }
 
   addEntry(entry) {
@@ -44,6 +45,20 @@ export class SourcePosition {
 
   toString() {
     return `${this.script.name}:${this.line}:${this.column}`;
+  }
+
+  get functionPosition() {
+    // TODO(cbruni)
+    return undefined;
+  }
+
+  get toolTipDict() {
+    return {
+      title: this.toString(),
+      __this__: this,
+      script: this.script,
+      entries: this.entries,
+    }
   }
 }
 
@@ -72,6 +87,11 @@ export class Script {
 
   get entries() {
     return this._entries;
+  }
+
+  findFunctionSourcePosition(sourcePosition) {
+    // TODO(cbruni) implmenent
+    return undefined;
   }
 
   addSourcePosition(line, column, entry) {
@@ -108,7 +128,7 @@ export class Script {
       id: this.id,
       url: this.url,
       source: this.source,
-      sourcePositions: this.sourcePositions.length
+      sourcePositions: this.sourcePositions
     }
   }
 
@@ -183,7 +203,7 @@ export class Profile {
 
   /**
    * Returns whether a function with the specified name must be skipped.
-   * Should be overriden by subclasses.
+   * Should be overridden by subclasses.
    *
    * @param {string} name Function name.
    */
@@ -818,6 +838,10 @@ class FunctionEntry extends CodeEntry {
   getSourceCode() {
     // All code entries should map to the same source positions.
     return this._codeEntries.values().next().value.getSourceCode();
+  }
+
+  get codeEntries() {
+    return this._codeEntries;
   }
 
   /**

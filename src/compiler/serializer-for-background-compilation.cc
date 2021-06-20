@@ -1122,10 +1122,6 @@ bool SerializerForBackgroundCompilation::BailoutOnUninitialized(
     // OSR entry point. TODO(neis): Support OSR?
     return false;
   }
-  if (broker()->is_turboprop() &&
-      feedback.slot_kind() == FeedbackSlotKind::kCall) {
-    return false;
-  }
   if (feedback.IsInsufficient()) {
     environment()->Kill();
     return true;
@@ -2682,7 +2678,7 @@ PropertyAccessInfo SerializerForBackgroundCompilation::ProcessMapForRegExpTest(
     // The property is on the prototype chain.
     JSObjectRef holder_ref = MakeRef(broker(), holder);
     holder_ref.GetOwnFastDataProperty(ai_exec.field_representation(),
-                                      ai_exec.field_index(),
+                                      ai_exec.field_index(), nullptr,
                                       SerializationPolicy::kSerializeIfNeeded);
   }
   return ai_exec;
@@ -2701,7 +2697,7 @@ void SerializerForBackgroundCompilation::ProcessHintsForRegExpTest(
       // The property is on the object itself.
       JSObjectRef holder_ref = MakeRef(broker(), regexp);
       holder_ref.GetOwnFastDataProperty(
-          ai_exec.field_representation(), ai_exec.field_index(),
+          ai_exec.field_representation(), ai_exec.field_index(), nullptr,
           SerializationPolicy::kSerializeIfNeeded);
     }
   }
@@ -3093,9 +3089,9 @@ SerializerForBackgroundCompilation::ProcessMapForNamedPropertyAccess(
               access_info.IsFastDataConstant()
                   ? holder->GetOwnFastDataProperty(
                         access_info.field_representation(),
-                        access_info.field_index(), policy)
+                        access_info.field_index(), nullptr, policy)
                   : holder->GetOwnDictionaryProperty(
-                        access_info.dictionary_index(), policy);
+                        access_info.dictionary_index(), nullptr, policy);
           if (constant.has_value()) {
             result_hints->AddConstant(constant->object(), zone(), broker());
           }
@@ -3458,7 +3454,7 @@ void SerializerForBackgroundCompilation::ProcessConstantForInstanceOf(
     JSObjectRef holder_ref =
         found_on_proto ? MakeRef(broker(), holder) : constructor.AsJSObject();
     base::Optional<ObjectRef> constant = holder_ref.GetOwnFastDataProperty(
-        access_info.field_representation(), access_info.field_index(),
+        access_info.field_representation(), access_info.field_index(), nullptr,
         SerializationPolicy::kSerializeIfNeeded);
     CHECK(constant.has_value());
     if (constant->IsJSFunction()) {

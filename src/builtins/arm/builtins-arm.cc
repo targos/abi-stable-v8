@@ -1204,8 +1204,8 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
 //   o sp: stack pointer
 //   o lr: return address
 //
-// The function builds an interpreter frame.  See InterpreterFrameConstants in
-// frames.h for its layout.
+// The function builds an interpreter frame. See InterpreterFrameConstants in
+// frame-constants.h for its layout.
 void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   Register closure = r1;
   Register feedback_vector = r2;
@@ -1775,14 +1775,6 @@ void Builtins::Generate_NotifyDeoptimized(MacroAssembler* masm) {
   DCHECK_EQ(kInterpreterAccumulatorRegister.code(), r0.code());
   __ pop(r0);
   __ Ret();
-}
-
-void Builtins::Generate_TailCallOptimizedCodeSlot(MacroAssembler* masm) {
-  UseScratchRegisterScope temps(masm);
-  // Need a few extra registers
-  temps.Include(r8, r9);
-  Register optimized_code_entry = kJavaScriptCallCodeStartRegister;
-  TailCallOptimizedCodeSlot(masm, optimized_code_entry, temps.Acquire());
 }
 
 namespace {

@@ -7,19 +7,19 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
+#include <cstring>
 #include <vector>
 
 #include "src/base/functional.h"
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
 #include "src/base/platform/wrappers.h"
-#include "src/utils/memcopy.h"
 
 namespace v8 {
 namespace internal {
 
 SimpleStringBuilder::SimpleStringBuilder(int size) {
-  buffer_ = Vector<char>::New(size);
+  buffer_ = base::Vector<char>::New(size);
   position_ = 0;
 }
 
@@ -32,7 +32,7 @@ void SimpleStringBuilder::AddString(const char* s) {
 void SimpleStringBuilder::AddSubstring(const char* s, int n) {
   DCHECK(!is_finalized() && position_ + n <= buffer_.length());
   DCHECK_LE(n, strlen(s));
-  MemCopy(&buffer_[position_], s, n * kCharSize);
+  std::memcpy(&buffer_[position_], s, n * kCharSize);
   position_ += n;
 }
 
@@ -119,7 +119,7 @@ void PrintIsolate(void* isolate, const char* format, ...) {
   va_end(arguments);
 }
 
-int SNPrintF(Vector<char> str, const char* format, ...) {
+int SNPrintF(base::Vector<char> str, const char* format, ...) {
   va_list args;
   va_start(args, format);
   int result = VSNPrintF(str, format, args);
@@ -127,11 +127,11 @@ int SNPrintF(Vector<char> str, const char* format, ...) {
   return result;
 }
 
-int VSNPrintF(Vector<char> str, const char* format, va_list args) {
+int VSNPrintF(base::Vector<char> str, const char* format, va_list args) {
   return base::OS::VSNPrintF(str.begin(), str.length(), format, args);
 }
 
-void StrNCpy(Vector<char> dest, const char* src, size_t n) {
+void StrNCpy(base::Vector<char> dest, const char* src, size_t n) {
   base::OS::StrNCpy(dest.begin(), dest.length(), src, n);
 }
 
@@ -171,12 +171,12 @@ char* ReadLine(const char* prompt) {
       char* new_result = NewArray<char>(new_len);
       // Copy the existing input into the new array and set the new
       // array as the result.
-      MemCopy(new_result, result, offset * kCharSize);
+      std::memcpy(new_result, result, offset * kCharSize);
       DeleteArray(result);
       result = new_result;
     }
     // Copy the newly read line into the result.
-    MemCopy(result + offset, line_buf, len * kCharSize);
+    std::memcpy(result + offset, line_buf, len * kCharSize);
     offset += len;
   }
   DCHECK_NOT_NULL(result);
@@ -321,7 +321,8 @@ uintptr_t GetCurrentStackPosition() {
 //   "name"   only the function "name"
 //   "name*"  only functions starting with "name"
 //   "~"      none; the tilde is not an identifier
-bool PassesFilter(Vector<const char> name, Vector<const char> filter) {
+bool PassesFilter(base::Vector<const char> name,
+                  base::Vector<const char> filter) {
   if (filter.size() == 0) return name.size() == 0;
   auto filter_it = filter.begin();
   bool positive_filter = true;

@@ -47,6 +47,26 @@ class CodeDataContainer : public HeapObject {
   // is deterministic.
   inline void clear_padding();
 
+  // Back-reference to the Code object.
+  // Available only when V8_EXTERNAL_CODE_SPACE is defined.
+  DECL_GETTER(code, Code)
+
+  // Cached value of code().InstructionStart().
+  // Available only when V8_EXTERNAL_CODE_SPACE is defined.
+  DECL_GETTER(code_entry_point, Address)
+
+  inline void SetCodeAndEntryPoint(
+      Isolate* isolate_for_sandbox, Code code,
+      WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+  // Updates the value of the code entry point. The code must be equal to
+  // the code() value.
+  inline void UpdateCodeEntryPoint(Isolate* isolate_for_sandbox, Code code);
+
+  inline void AllocateExternalPointerEntries(Isolate* isolate);
+
+  // Alias for code_entry_point to make it API compatible with Code.
+  inline Address InstructionStart() const;
+
   DECL_CAST(CodeDataContainer)
 
   // Dispatched behavior.
@@ -54,21 +74,31 @@ class CodeDataContainer : public HeapObject {
   DECL_VERIFIER(CodeDataContainer)
 
 // Layout description.
-#define CODE_DATA_FIELDS(V)                                 \
-  /* Weak pointer fields. */                                \
-  V(kPointerFieldsStrongEndOffset, 0)                       \
-  V(kNextCodeLinkOffset, kTaggedSize)                       \
-  V(kPointerFieldsWeakEndOffset, 0)                         \
-  /* Raw data fields. */                                    \
-  V(kKindSpecificFlagsOffset, kInt32Size)                   \
-  V(kUnalignedSize, OBJECT_POINTER_PADDING(kUnalignedSize)) \
-  /* Total size. */                                         \
+#define CODE_DATA_FIELDS(V)                                     \
+  /* Strong pointer fields. */                                  \
+  V(kCodeOffset, V8_EXTERNAL_CODE_SPACE_BOOL ? kTaggedSize : 0) \
+  V(kPointerFieldsStrongEndOffset, 0)                           \
+  /* Weak pointer fields. */                                    \
+  V(kNextCodeLinkOffset, kTaggedSize)                           \
+  V(kPointerFieldsWeakEndOffset, 0)                             \
+  /* Raw data fields. */                                        \
+  V(kCodeEntryPointOffset,                                      \
+    V8_EXTERNAL_CODE_SPACE_BOOL ? kExternalPointerSize : 0)     \
+  V(kKindSpecificFlagsOffset, kInt32Size)                       \
+  V(kUnalignedSize, OBJECT_POINTER_PADDING(kUnalignedSize))     \
+  /* Total size. */                                             \
   V(kSize, 0)
 
   DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize, CODE_DATA_FIELDS)
 #undef CODE_DATA_FIELDS
 
   class BodyDescriptor;
+
+ private:
+  DECL_ACCESSORS(raw_code, Object)
+  inline void set_code_entry_point(Isolate* isolate, Address value);
+
+  friend Factory;
 
   OBJECT_CONSTRUCTORS(CodeDataContainer, HeapObject);
 };
@@ -562,6 +592,9 @@ class Code : public HeapObject {
 
  private:
   friend class RelocIterator;
+  friend class EvacuateVisitorBase;
+
+  inline CodeDataContainer GCSafeCodeDataContainer(AcquireLoadTag) const;
 
   bool is_promise_rejection() const;
   bool is_exception_caught() const;
@@ -594,6 +627,12 @@ class Code::OptimizedCodeIterator {
 
   DISALLOW_GARBAGE_COLLECTION(no_gc)
 };
+
+// Helper functions for converting Code objects to CodeDataContainer and back
+// when V8_EXTERNAL_CODE_SPACE is enabled.
+inline CodeT ToCodeT(Code code);
+inline Code FromCodeT(CodeT code);
+inline CodeDataContainer CodeDataContainerFromCodeT(CodeT code);
 
 class AbstractCode : public HeapObject {
  public:
@@ -714,7 +753,7 @@ class DependentCode : public WeakFixedArray {
 
   // Register a dependency of {code} on {object}, of the kind given by {group}.
   V8_EXPORT_PRIVATE static void InstallDependency(Isolate* isolate,
-                                                  const MaybeObjectHandle& code,
+                                                  Handle<Code> code,
                                                   Handle<HeapObject> object,
                                                   DependencyGroup group);
 
@@ -737,14 +776,14 @@ class DependentCode : public WeakFixedArray {
                                Handle<DependentCode> dep);
 
   static Handle<DependentCode> New(Isolate* isolate, DependencyGroup group,
-                                   const MaybeObjectHandle& object,
+                                   Handle<Code> code,
                                    Handle<DependentCode> next);
   static Handle<DependentCode> EnsureSpace(Isolate* isolate,
                                            Handle<DependentCode> entries);
   static Handle<DependentCode> InsertWeakCode(Isolate* isolate,
                                               Handle<DependentCode> entries,
                                               DependencyGroup group,
-                                              const MaybeObjectHandle& code);
+                                              Handle<Code> code);
 
   // Compact by removing cleared weak cells and return true if there was
   // any cleared weak cell.

@@ -1015,8 +1015,8 @@ static void MaybeOptimizeCodeOrTailCallOptimizedCodeSlot(
 //   o ebp: the caller's frame pointer
 //   o esp: stack pointer (pointing to return address)
 //
-// The function builds an interpreter frame.  See InterpreterFrameConstants in
-// frames.h for its layout.
+// The function builds an interpreter frame. See InterpreterFrameConstants in
+// frame-constants.h for its layout.
 void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   Register closure = edi;
 
@@ -1876,10 +1876,6 @@ void Builtins::Generate_NotifyDeoptimized(MacroAssembler* masm) {
   DCHECK_EQ(kInterpreterAccumulatorRegister.code(), eax.code());
   __ mov(eax, Operand(esp, 1 * kSystemPointerSize));
   __ ret(1 * kSystemPointerSize);  // Remove eax.
-}
-
-void Builtins::Generate_TailCallOptimizedCodeSlot(MacroAssembler* masm) {
-  TailCallOptimizedCodeSlot(masm, ecx);
 }
 
 // static

@@ -469,7 +469,7 @@ bool AddDescriptorsByTemplate(
 
   // Atomically commit the changes.
   receiver->set_map(*map, kReleaseStore);
-  receiver->set_raw_properties_or_hash(*properties_dictionary);
+  receiver->set_raw_properties_or_hash(*properties_dictionary, kRelaxedStore);
   if (elements_dictionary->NumberOfElements() > 0) {
     receiver->set_elements(*elements_dictionary);
   }
@@ -706,11 +706,12 @@ MaybeHandle<JSReceiver> GetSuperHolder(Isolate* isolate,
   PrototypeIterator iter(isolate, home_object);
   Handle<Object> proto = PrototypeIterator::GetCurrent(iter);
   if (!proto->IsJSReceiver()) {
-    MessageTemplate message = mode == SuperMode::kLoad
-                                  ? MessageTemplate::kNonObjectPropertyLoad
-                                  : MessageTemplate::kNonObjectPropertyStore;
+    MessageTemplate message =
+        mode == SuperMode::kLoad
+            ? MessageTemplate::kNonObjectPropertyLoadWithProperty
+            : MessageTemplate::kNonObjectPropertyStoreWithProperty;
     Handle<Name> name = key->GetName(isolate);
-    THROW_NEW_ERROR(isolate, NewTypeError(message, name, proto), JSReceiver);
+    THROW_NEW_ERROR(isolate, NewTypeError(message, proto, name), JSReceiver);
   }
   return Handle<JSReceiver>::cast(proto);
 }

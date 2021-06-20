@@ -641,14 +641,11 @@ DEFINE_BOOL(
     turboprop_as_toptier, false,
     "enable experimental turboprop compiler without further tierup to turbofan")
 DEFINE_IMPLICATION(turboprop_as_toptier, turboprop)
-DEFINE_VALUE_IMPLICATION(turboprop, interrupt_budget, 20 * KB)
-DEFINE_VALUE_IMPLICATION(turboprop, reuse_opt_code_count, 2)
 DEFINE_UINT_READONLY(max_minimorphic_map_checks, 4,
                      "max number of map checks to perform in minimorphic state")
 // The scale factor determines the interrupt budget when tiering up from
-// Turboprop to TurboFan. The default of 10 is approximately the ratio of
-// Turboprop to the TurboFan interrupt budget.
-DEFINE_INT(interrupt_budget_scale_factor_for_top_tier, 10,
+// Turboprop to TurboFan.
+DEFINE_INT(interrupt_budget_scale_factor_for_top_tier, 5,
            "scale factor for profiler ticks when tiering up from midtier")
 
 // Flags for Sparkplug
@@ -663,7 +660,6 @@ DEFINE_BOOL(always_sparkplug, false, "directly tier up to Sparkplug code")
 #if ENABLE_SPARKPLUG
 DEFINE_IMPLICATION(always_sparkplug, sparkplug)
 DEFINE_BOOL(baseline_batch_compilation, true, "batch compile Sparkplug code")
-DEFINE_NEG_NEG_IMPLICATION(sparkplug, baseline_batch_compilation)
 #else
 DEFINE_BOOL(baseline_batch_compilation, false, "batch compile Sparkplug code")
 #endif
@@ -869,6 +865,7 @@ DEFINE_BOOL(turbo_compress_translation_arrays, false,
 DEFINE_BOOL(turbo_inline_js_wasm_calls, false, "inline JS->Wasm calls")
 
 DEFINE_BOOL(turbo_optimize_apply, false, "optimize Function.prototype.apply")
+DEFINE_WEAK_IMPLICATION(future, turbo_optimize_apply)
 
 DEFINE_BOOL(turbo_collect_feedback_in_generic_lowering, true,
             "enable experimental feedback collection in generic lowering.")
@@ -1530,12 +1527,10 @@ DEFINE_BOOL(use_idle_notification, true,
 // ic.cc
 DEFINE_BOOL(log_ic, false,
             "Log inline cache state transitions for tools/ic-processor")
-DEFINE_BOOL(trace_ic, false, "See --log-ic")
-DEFINE_IMPLICATION(trace_ic, log_ic)
 DEFINE_IMPLICATION(log_ic, log_code)
 DEFINE_GENERIC_IMPLICATION(
-    trace_ic, TracingFlags::ic_stats.store(
-                  v8::tracing::TracingCategoryObserver::ENABLED_BY_NATIVE))
+    log_ic, TracingFlags::ic_stats.store(
+                v8::tracing::TracingCategoryObserver::ENABLED_BY_NATIVE))
 DEFINE_BOOL_READONLY(fast_map_update, false,
                      "enable fast map update by caching the migration target")
 DEFINE_INT(max_valid_polymorphic_map_count, 4,

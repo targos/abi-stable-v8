@@ -642,7 +642,7 @@ int WasmScript::NumImportedFunctions() const {
 
 MemorySpan<const uint8_t> WasmScript::Bytecode() const {
   i::Handle<i::Script> script = Utils::OpenHandle(this);
-  i::Vector<const uint8_t> wire_bytes =
+  base::Vector<const uint8_t> wire_bytes =
       script->wasm_native_module()->wire_bytes();
   return {wire_bytes.begin(), wire_bytes.size()};
 }
@@ -683,7 +683,8 @@ uint32_t WasmScript::GetFunctionHash(int function_index) {
   DCHECK_GT(module->functions.size(), function_index);
   const i::wasm::WasmFunction& func = module->functions[function_index];
   i::wasm::ModuleWireBytes wire_bytes(native_module->wire_bytes());
-  i::Vector<const i::byte> function_bytes = wire_bytes.GetFunctionBytes(&func);
+  base::Vector<const i::byte> function_bytes =
+      wire_bytes.GetFunctionBytes(&func);
   // TODO(herhut): Maybe also take module, name and signature into account.
   return i::StringHasher::HashSequentialString(function_bytes.begin(),
                                                function_bytes.length(), 0);
@@ -1173,6 +1174,21 @@ v8::MaybeLocal<v8::Value> WeakMap::Get(v8::Local<v8::Context> context,
                       &result);
   RETURN_ON_FAILED_EXECUTION(Value);
   RETURN_ESCAPED(result);
+}
+
+v8::Maybe<bool> WeakMap::Delete(v8::Local<v8::Context> context,
+                                v8::Local<v8::Value> key) {
+  PREPARE_FOR_EXECUTION_WITH_CONTEXT(context, WeakMap, Delete, Nothing<bool>(),
+                                     InternalEscapableScope, false);
+  auto self = Utils::OpenHandle(this);
+  Local<Value> result;
+  i::Handle<i::Object> argv[] = {Utils::OpenHandle(*key)};
+  has_pending_exception = !ToLocal<Value>(
+      i::Execution::CallBuiltin(isolate, isolate->weakmap_delete(), self,
+                                arraysize(argv), argv),
+      &result);
+  RETURN_ON_FAILED_EXECUTION_PRIMITIVE(bool);
+  return Just(result->IsTrue());
 }
 
 v8::MaybeLocal<WeakMap> WeakMap::Set(v8::Local<v8::Context> context,

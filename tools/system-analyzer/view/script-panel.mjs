@@ -34,8 +34,11 @@ DOM.defineCustomElement('view/script-panel',
   set script(script) {
     if (this._script === script) return;
     this._script = script;
-    this._renderSourcePanel();
-    this._updateScriptDropdownSelection();
+    this.requestUpdate();
+  }
+
+  set focusedSourcePositions(sourcePositions) {
+    this.selectedSourcePositions = sourcePositions;
   }
 
   set selectedSourcePositions(sourcePositions) {
@@ -45,10 +48,6 @@ DOM.defineCustomElement('view/script-panel',
     this._focusSelectedMarkers();
   }
 
-  set focusedSourcePositions(sourcePositions) {
-    this.selectedSourcePositions = sourcePositions;
-  }
-
   set scripts(scripts) {
     this._scripts = scripts;
     this._initializeScriptDropdown();
@@ -56,6 +55,11 @@ DOM.defineCustomElement('view/script-panel',
 
   get scriptDropdown() {
     return this.$('#script-dropdown');
+  }
+
+  _update() {
+    this._renderSourcePanel();
+    this._updateScriptDropdownSelection();
   }
 
   _initializeScriptDropdown() {
@@ -70,6 +74,7 @@ DOM.defineCustomElement('view/script-panel',
       select.add(option);
     }
   }
+
   _updateScriptDropdownSelection() {
     this.scriptDropdown.selectedIndex =
         this._script ? this._scripts.indexOf(this._script) : -1;
@@ -180,9 +185,9 @@ class SourcePositionIterator {
   }
 }
 
-function* lineIterator(source) {
+function* lineIterator(source, startLine) {
   let current = 0;
-  let line = 1;
+  let line = startLine;
   while (current < source.length) {
     const next = source.indexOf('\n', current);
     if (next === -1) break;
@@ -230,7 +235,18 @@ class LineBuilder {
 
   createScriptNode() {
     const scriptNode = DOM.div('scriptNode');
-    for (let [lineIndex, line] of lineIterator(this._script.source)) {
+    let startLine = 1;
+    // Try to infer the start line of the script from its code entries.
+    for (const entry of this._script.entries) {
+      if (entry.type.startsWith('Script')) {
+        if (entry.sourcePosition) {
+          startLine = entry.sourcePosition.line;
+        }
+        break;
+      }
+    }
+    for (let [lineIndex, line] of lineIterator(
+             this._script.source, startLine)) {
       scriptNode.appendChild(this._createLineNode(lineIndex, line));
     }
     return scriptNode;

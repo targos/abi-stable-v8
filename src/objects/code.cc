@@ -515,7 +515,7 @@ void Code::Disassemble(const char* name, std::ostream& os, Isolate* isolate,
     if (int pool_size = constant_pool_size()) {
       DCHECK_EQ(pool_size & kPointerAlignmentMask, 0);
       os << "\nConstant Pool (size = " << pool_size << ")\n";
-      Vector<char> buf = Vector<char>::New(50);
+      base::Vector<char> buf = base::Vector<char>::New(50);
       intptr_t* ptr =
           reinterpret_cast<intptr_t*>(MetadataStart() + constant_pool_offset());
       for (int i = 0; i < pool_size; i += kSystemPointerSize, ptr++) {
@@ -745,8 +745,7 @@ void DependentCode::SetDependentCode(Handle<HeapObject> object,
   }
 }
 
-void DependentCode::InstallDependency(Isolate* isolate,
-                                      const MaybeObjectHandle& code,
+void DependentCode::InstallDependency(Isolate* isolate, Handle<Code> code,
                                       Handle<HeapObject> object,
                                       DependencyGroup group) {
   if (V8_UNLIKELY(FLAG_trace_code_dependencies)) {
@@ -765,7 +764,7 @@ void DependentCode::InstallDependency(Isolate* isolate,
 
 Handle<DependentCode> DependentCode::InsertWeakCode(
     Isolate* isolate, Handle<DependentCode> entries, DependencyGroup group,
-    const MaybeObjectHandle& code) {
+    Handle<Code> code) {
   if (entries->length() == 0 || entries->group() > group) {
     // There is no such group.
     return DependentCode::New(isolate, group, code, entries);
@@ -780,32 +779,44 @@ Handle<DependentCode> DependentCode::InsertWeakCode(
     }
     return entries;
   }
+
   DCHECK_EQ(group, entries->group());
   int count = entries->count();
   // Check for existing entry to avoid duplicates.
-  for (int i = 0; i < count; i++) {
-    if (entries->object_at(i) == *code) return entries;
+  {
+    DisallowHeapAllocation no_gc;
+    HeapObjectReference weak_code_entry =
+        HeapObjectReference::Weak(ToCodeT(*code));
+    for (int i = 0; i < count; i++) {
+      if (entries->object_at(i) == weak_code_entry) return entries;
+    }
   }
   if (entries->length() < kCodesStartIndex + count + 1) {
     entries = EnsureSpace(isolate, entries);
     // Count could have changed, reload it.
     count = entries->count();
   }
-  entries->set_object_at(count, *code);
+  DisallowHeapAllocation no_gc;
+  HeapObjectReference weak_code_entry =
+      HeapObjectReference::Weak(ToCodeT(*code));
+  entries->set_object_at(count, weak_code_entry);
   entries->set_count(count + 1);
   return entries;
 }
 
 Handle<DependentCode> DependentCode::New(Isolate* isolate,
                                          DependencyGroup group,
-                                         const MaybeObjectHandle& object,
+                                         Handle<Code> code,
                                          Handle<DependentCode> next) {
   Handle<DependentCode> result =
       Handle<DependentCode>::cast(isolate->factory()->NewWeakFixedArray(
           kCodesStartIndex + 1, AllocationType::kOld));
   result->set_next_link(*next);
   result->set_flags(GroupField::encode(group) | CountField::encode(1));
-  result->set_object_at(0, *object);
+
+  HeapObjectReference weak_code_entry =
+      HeapObjectReference::Weak(ToCodeT(*code));
+  result->set_object_at(0, weak_code_entry);
   return result;
 }
 
@@ -855,7 +866,8 @@ bool DependentCode::MarkCodeForDeoptimization(
   for (int i = 0; i < count; i++) {
     MaybeObject obj = object_at(i);
     if (obj->IsCleared()) continue;
-    Code code = Code::cast(obj->GetHeapObjectAssumeWeak());
+    // TODO(v8:11880): avoid roundtrips between cdc and code.
+    Code code = FromCodeT(CodeT::cast(obj->GetHeapObjectAssumeWeak()));
     if (!code.marked_for_deoptimization()) {
       code.SetMarkedForDeoptimization(DependencyGroupName(group));
       marked = true;

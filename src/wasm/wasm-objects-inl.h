@@ -341,7 +341,13 @@ CAST_ACCESSOR(WasmExportedFunction)
 
 // WasmFunctionData
 ACCESSORS(WasmFunctionData, ref, Object, kRefOffset)
-ACCESSORS(WasmFunctionData, wrapper_code, Code, kWrapperCodeOffset)
+
+DEF_GETTER(WasmFunctionData, wrapper_code, Code) {
+  return FromCodeT(TorqueGeneratedClass::wrapper_code(cage_base));
+}
+void WasmFunctionData::set_wrapper_code(Code code, WriteBarrierMode mode) {
+  TorqueGeneratedClass::set_wrapper_code(ToCodeT(code), mode);
+}
 
 // WasmExportedFunctionData
 ACCESSORS(WasmExportedFunctionData, instance, WasmInstanceObject,
@@ -349,7 +355,7 @@ ACCESSORS(WasmExportedFunctionData, instance, WasmInstanceObject,
 SMI_ACCESSORS(WasmExportedFunctionData, function_index, kFunctionIndexOffset)
 ACCESSORS(WasmExportedFunctionData, signature, Foreign, kSignatureOffset)
 SMI_ACCESSORS(WasmExportedFunctionData, wrapper_budget, kWrapperBudgetOffset)
-ACCESSORS(WasmExportedFunctionData, c_wrapper_code, Object, kCWrapperCodeOffset)
+ACCESSORS(WasmExportedFunctionData, c_wrapper_code, CodeT, kCWrapperCodeOffset)
 SMI_ACCESSORS(WasmExportedFunctionData, packed_args_size, kPackedArgsSizeOffset)
 
 wasm::FunctionSig* WasmExportedFunctionData::sig() const {
@@ -371,8 +377,16 @@ SMI_ACCESSORS(WasmJSFunctionData, serialized_parameter_count,
               kSerializedParameterCountOffset)
 ACCESSORS(WasmJSFunctionData, serialized_signature, PodArray<wasm::ValueType>,
           kSerializedSignatureOffset)
-ACCESSORS(WasmJSFunctionData, wasm_to_js_wrapper_code, Code,
+ACCESSORS(WasmJSFunctionData, raw_wasm_to_js_wrapper_code, CodeT,
           kWasmToJsWrapperCodeOffset)
+
+DEF_GETTER(WasmJSFunctionData, wasm_to_js_wrapper_code, Code) {
+  return FromCodeT(raw_wasm_to_js_wrapper_code(cage_base));
+}
+void WasmJSFunctionData::set_wasm_to_js_wrapper_code(Code code,
+                                                     WriteBarrierMode mode) {
+  set_raw_wasm_to_js_wrapper_code(ToCodeT(code), mode);
+}
 
 // WasmCapiFunction
 WasmCapiFunction::WasmCapiFunction(Address ptr) : JSFunction(ptr) {
@@ -432,11 +446,20 @@ Handle<Object> WasmObject::ReadValueAt(Isolate* isolate, Handle<HeapObject> obj,
       int32_t value = base::Memory<int32_t>(field_address);
       return isolate->factory()->NewNumberFromInt(value);
     }
-    case wasm::kI64:
-    case wasm::kF32:
-    case wasm::kF64:
+    case wasm::kI64: {
+      int64_t value = base::ReadUnalignedValue<int64_t>(field_address);
+      return BigInt::FromInt64(isolate, value);
+    }
+    case wasm::kF32: {
+      float value = base::Memory<float>(field_address);
+      return isolate->factory()->NewNumber(value);
+    }
+    case wasm::kF64: {
+      double value = base::ReadUnalignedValue<double>(field_address);
+      return isolate->factory()->NewNumber(value);
+    }
     case wasm::kS128:
-      // TODO(ishell): implement
+      // TODO(v8:11804): implement
       UNREACHABLE();
 
     case wasm::kRef:

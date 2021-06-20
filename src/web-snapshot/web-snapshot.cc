@@ -245,7 +245,7 @@ void WebSnapshotSerializer::SerializeString(Handle<String> string,
   String::FlatContent flat = string->GetFlatContent(no_gc);
   DCHECK(flat.IsFlat());
   if (flat.IsOneByte()) {
-    Vector<const uint8_t> chars = flat.ToOneByteVector();
+    base::Vector<const uint8_t> chars = flat.ToOneByteVector();
     string_serializer_.WriteUint32(chars.length());
     string_serializer_.WriteRawBytes(chars.begin(),
                                      chars.length() * sizeof(uint8_t));
@@ -959,7 +959,7 @@ void WebSnapshotDeserializer::DeserializeObjects() {
       property_array->set(i, *value);
     }
     Handle<JSObject> object = isolate_->factory()->NewJSObjectFromMap(map);
-    object->set_raw_properties_or_hash(*property_array);
+    object->set_raw_properties_or_hash(*property_array, kRelaxedStore);
     objects_->set(static_cast<int>(current_object_count_), *object);
   }
   ProcessDeferredReferences();

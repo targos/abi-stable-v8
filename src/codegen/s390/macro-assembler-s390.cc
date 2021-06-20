@@ -22,7 +22,6 @@
 #include "src/logging/counters.h"
 #include "src/objects/smi.h"
 #include "src/runtime/runtime.h"
-#include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -37,6 +36,21 @@
 
 namespace v8 {
 namespace internal {
+
+namespace {
+
+// For WebAssembly we care about the full floating point (Simd) registers. If we
+// are not running Wasm, we can get away with saving half of those (F64)
+// registers.
+#if V8_ENABLE_WEBASSEMBLY
+constexpr int kStackSavedSavedFPSizeInBytes =
+    kNumCallerSavedDoubles * kSimd128Size;
+#else
+constexpr int kStackSavedSavedFPSizeInBytes =
+    kNumCallerSavedDoubles * kDoubleSize;
+#endif  // V8_ENABLE_WEBASSEMBLY
+
+}  // namespace
 
 void TurboAssembler::DoubleMax(DoubleRegister result_reg,
                                DoubleRegister left_reg,
@@ -284,7 +298,7 @@ int TurboAssembler::RequiredStackSizeForCallerSaved(SaveFPRegsMode fp_mode,
   bytes += NumRegs(list) * kSystemPointerSize;
 
   if (fp_mode == SaveFPRegsMode::kSave) {
-    bytes += NumRegs(kCallerSavedDoubles) * kDoubleSize;
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   return bytes;
@@ -309,8 +323,8 @@ int TurboAssembler::PushCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
   bytes += NumRegs(list) * kSystemPointerSize;
 
   if (fp_mode == SaveFPRegsMode::kSave) {
-    MultiPushDoubles(kCallerSavedDoubles);
-    bytes += NumRegs(kCallerSavedDoubles) * kDoubleSize;
+    MultiPushF64OrV128(kCallerSavedDoubles);
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   return bytes;
@@ -320,8 +334,8 @@ int TurboAssembler::PopCallerSaved(SaveFPRegsMode fp_mode, Register exclusion1,
                                    Register exclusion2, Register exclusion3) {
   int bytes = 0;
   if (fp_mode == SaveFPRegsMode::kSave) {
-    MultiPopDoubles(kCallerSavedDoubles);
-    bytes += NumRegs(kCallerSavedDoubles) * kDoubleSize;
+    MultiPopF64OrV128(kCallerSavedDoubles);
+    bytes += kStackSavedSavedFPSizeInBytes;
   }
 
   RegList exclusions = 0;
@@ -401,17 +415,14 @@ void TurboAssembler::Jump(Handle<Code> code, RelocInfo::Mode rmode,
   DCHECK_IMPLIES(options().isolate_independent_code,
                  Builtins::IsIsolateIndependentBuiltin(*code));
 
-  int builtin_index = Builtin::kNoBuiltinId;
+  Builtin builtin_index = Builtin::kNoBuiltinId;
   bool target_is_builtin =
       isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
   if (options().inline_offheap_trampolines && target_is_builtin) {
     // Inline the trampoline.
     RecordCommentForOffHeapTrampoline(builtin_index);
-    CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-    EmbeddedData d = EmbeddedData::FromBlob();
-    Address entry = d.InstructionStartOfBuiltin(builtin_index);
-    mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+    mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
     b(cond, ip);
     return;
   }
@@ -462,17 +473,14 @@ void TurboAssembler::Call(Handle<Code> code, RelocInfo::Mode rmode,
 
   DCHECK_IMPLIES(options().isolate_independent_code,
                  Builtins::IsIsolateIndependentBuiltin(*code));
-  int builtin_index = Builtin::kNoBuiltinId;
+  Builtin builtin_index = Builtin::kNoBuiltinId;
   bool target_is_builtin =
       isolate()->builtins()->IsBuiltinHandle(code, &builtin_index);
 
   if (target_is_builtin && options().inline_offheap_trampolines) {
     // Inline the trampoline.
     RecordCommentForOffHeapTrampoline(builtin_index);
-    CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-    EmbeddedData d = EmbeddedData::FromBlob();
-    Address entry = d.InstructionStartOfBuiltin(builtin_index);
-    mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+    mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
     Call(ip);
     return;
   }
@@ -708,6 +716,70 @@ void TurboAssembler::MultiPopV128(RegList dregs, Register location) {
   AddS64(location, location, Operand(stack_offset));
 }
 
+void TurboAssembler::MultiPushF64OrV128(RegList dregs, Register location) {
+#if V8_ENABLE_WEBASSEMBLY
+  bool generating_bultins =
+      isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+  if (generating_bultins) {
+    Label push_doubles, simd_pushed;
+    Move(r1, ExternalReference::supports_wasm_simd_128_address());
+    LoadU8(r1, MemOperand(r1));
+    LoadAndTestP(r1, r1);  // If > 0 then simd is available.
+    ble(&push_doubles, Label::kNear);
+    // Save vector registers, don't save double registers anymore.
+    MultiPushV128(dregs);
+    b(&simd_pushed);
+    bind(&push_doubles);
+    // Simd not supported, only save double registers.
+    MultiPushDoubles(dregs);
+    // We still need to allocate empty space on the stack as if
+    // Simd rgeisters were saved (see kFixedFrameSizeFromFp).
+    lay(sp, MemOperand(sp, -(NumRegs(dregs) * kDoubleSize)));
+    bind(&simd_pushed);
+  } else {
+    if (CpuFeatures::SupportsWasmSimd128()) {
+      MultiPushV128(dregs);
+    } else {
+      MultiPushDoubles(dregs);
+      lay(sp, MemOperand(sp, -(NumRegs(dregs) * kDoubleSize)));
+    }
+  }
+#else
+  MultiPushDoubles(dregs);
+#endif
+}
+
+void TurboAssembler::MultiPopF64OrV128(RegList dregs, Register location) {
+#if V8_ENABLE_WEBASSEMBLY
+  bool generating_bultins =
+      isolate() && isolate()->IsGeneratingEmbeddedBuiltins();
+  if (generating_bultins) {
+    Label pop_doubles, simd_popped;
+    Move(r1, ExternalReference::supports_wasm_simd_128_address());
+    LoadU8(r1, MemOperand(r1));
+    LoadAndTestP(r1, r1);  // If > 0 then simd is available.
+    ble(&pop_doubles, Label::kNear);
+    // Pop vector registers, don't pop double registers anymore.
+    MultiPopV128(dregs);
+    b(&simd_popped);
+    bind(&pop_doubles);
+    // Simd not supported, only pop double registers.
+    lay(sp, MemOperand(sp, NumRegs(dregs) * kDoubleSize));
+    MultiPopDoubles(dregs);
+    bind(&simd_popped);
+  } else {
+    if (CpuFeatures::SupportsWasmSimd128()) {
+      MultiPopV128(dregs);
+    } else {
+      lay(sp, MemOperand(sp, NumRegs(dregs) * kDoubleSize));
+      MultiPopDoubles(dregs);
+    }
+  }
+#else
+  MultiPopDoubles(dregs);
+#endif
+}
+
 void TurboAssembler::LoadRoot(Register destination, RootIndex index,
                               Condition) {
   LoadU64(destination,
@@ -935,10 +1007,7 @@ void TurboAssembler::CallRecordWriteStub(
         Builtins::GetRecordWriteStub(remembered_set_action, fp_mode);
     if (options().inline_offheap_trampolines) {
       RecordCommentForOffHeapTrampoline(builtin_index);
-      CHECK_NE(builtin_index, Builtin::kNoBuiltinId);
-      EmbeddedData d = EmbeddedData::FromBlob();
-      Address entry = d.InstructionStartOfBuiltin(builtin_index);
-      mov(ip, Operand(entry, RelocInfo::OFF_HEAP_TARGET));
+      mov(ip, Operand(BuiltinEntry(builtin_index), RelocInfo::OFF_HEAP_TARGET));
       Call(ip);
     } else {
       Handle<Code> code_target =

@@ -169,7 +169,7 @@ void CodeStubAssembler::FailAssert(
     const char* message, const std::vector<FileAndLine>& files_and_lines,
     std::initializer_list<ExtraNode> extra_nodes) {
   DCHECK_NOT_NULL(message);
-  EmbeddedVector<char, 1024> chars;
+  base::EmbeddedVector<char, 1024> chars;
   std::stringstream stream;
   for (auto it = files_and_lines.rbegin(); it != files_and_lines.rend(); ++it) {
     if (it->first != nullptr) {
@@ -14240,11 +14240,11 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
 
   // IsBaselineData: Execute baseline code
   BIND(&check_is_baseline_data);
-  TNode<BaselineData> baseline_data = CAST(sfi_data);
-  TNode<Code> baseline_code =
-      CAST(LoadObjectField(baseline_data, BaselineData::kBaselineCodeOffset));
-  sfi_code = baseline_code;
-  Goto(&done);
+  {
+    TNode<CodeT> baseline_code = LoadBaselineDataBaselineCode(CAST(sfi_data));
+    sfi_code = FromCodeT(baseline_code);
+    Goto(&done);
+  }
 
   // IsUncompiledDataWithPreparseData | IsUncompiledDataWithoutPreparseData:
   // Compile lazy
@@ -14264,8 +14264,11 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
   // This is the default branch, so assert that we have the expected data type.
   CSA_ASSERT(this,
              Word32Equal(data_type, Int32Constant(INTERPRETER_DATA_TYPE)));
-  sfi_code = CAST(LoadObjectField(
-      CAST(sfi_data), InterpreterData::kInterpreterTrampolineOffset));
+  {
+    TNode<CodeT> trampoline =
+        LoadInterpreterDataInterpreterTrampoline(CAST(sfi_data));
+    sfi_code = FromCodeT(trampoline);
+  }
   Goto(&done);
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -14288,6 +14291,7 @@ TNode<Code> CodeStubAssembler::GetSharedFunctionInfoCode(
 TNode<JSFunction> CodeStubAssembler::AllocateFunctionWithMapAndContext(
     TNode<Map> map, TNode<SharedFunctionInfo> shared_info,
     TNode<Context> context) {
+  // TODO(v8:11880): avoid roundtrips between cdc and code.
   const TNode<Code> code = GetSharedFunctionInfoCode(shared_info);
 
   // TODO(ishell): All the callers of this function pass map loaded from
@@ -14307,7 +14311,7 @@ TNode<JSFunction> CodeStubAssembler::AllocateFunctionWithMapAndContext(
   StoreObjectFieldNoWriteBarrier(fun, JSFunction::kSharedFunctionInfoOffset,
                                  shared_info);
   StoreObjectFieldNoWriteBarrier(fun, JSFunction::kContextOffset, context);
-  StoreObjectFieldNoWriteBarrier(fun, JSFunction::kCodeOffset, code);
+  StoreObjectFieldNoWriteBarrier(fun, JSFunction::kCodeOffset, ToCodeT(code));
   return CAST(fun);
 }
 
@@ -14628,7 +14632,7 @@ void CodeStubAssembler::RemoveFinalizationRegistryCellFromUnregisterTokenMap(
 PrototypeCheckAssembler::PrototypeCheckAssembler(
     compiler::CodeAssemblerState* state, Flags flags,
     TNode<NativeContext> native_context, TNode<Map> initial_prototype_map,
-    Vector<DescriptorIndexNameValue> properties)
+    base::Vector<DescriptorIndexNameValue> properties)
     : CodeStubAssembler(state),
       flags_(flags),
       native_context_(native_context),

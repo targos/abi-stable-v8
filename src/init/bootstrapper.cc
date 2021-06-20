@@ -82,7 +82,7 @@ void SourceCodeCache::Iterate(RootVisitor* v) {
   v->VisitRootPointer(Root::kExtensions, nullptr, FullObjectSlot(&cache_));
 }
 
-bool SourceCodeCache::Lookup(Isolate* isolate, Vector<const char> name,
+bool SourceCodeCache::Lookup(Isolate* isolate, base::Vector<const char> name,
                              Handle<SharedFunctionInfo>* handle) {
   for (int i = 0; i < cache_.length(); i += 2) {
     SeqOneByteString str = SeqOneByteString::cast(cache_.get(i));
@@ -95,7 +95,7 @@ bool SourceCodeCache::Lookup(Isolate* isolate, Vector<const char> name,
   return false;
 }
 
-void SourceCodeCache::Add(Isolate* isolate, Vector<const char> name,
+void SourceCodeCache::Add(Isolate* isolate, base::Vector<const char> name,
                           Handle<SharedFunctionInfo> shared) {
   Factory* factory = isolate->factory();
   HandleScope scope(isolate);
@@ -106,7 +106,7 @@ void SourceCodeCache::Add(Isolate* isolate, Vector<const char> name,
   cache_ = *new_array;
   Handle<String> str =
       factory
-          ->NewStringFromOneByte(Vector<const uint8_t>::cast(name),
+          ->NewStringFromOneByte(base::Vector<const uint8_t>::cast(name),
                                  AllocationType::kOld)
           .ToHandleChecked();
   DCHECK(!str.is_null());
@@ -1419,6 +1419,7 @@ static void InstallError(Isolate* isolate, Handle<JSObject> global,
   Handle<JSFunction> error_fun = InstallFunction(
       isolate, global, name, JS_ERROR_TYPE, kErrorObjectSize,
       in_object_properties, factory->the_hole_value(), error_constructor);
+  error_fun->shared().DontAdaptArguments();
   error_fun->shared().set_length(error_function_length);
 
   if (context_index == Context::ERROR_FUNCTION_INDEX) {
@@ -3732,8 +3733,11 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
     Handle<JSObject> prototype(JSObject::cast(cons->instance_prototype()),
                                isolate());
 
-    SimpleInstallFunction(isolate_, prototype, "delete",
-                          Builtin::kWeakMapPrototypeDelete, 1, true);
+    Handle<JSFunction> weakmap_delete =
+        SimpleInstallFunction(isolate_, prototype, "delete",
+                              Builtin::kWeakMapPrototypeDelete, 1, true);
+    native_context()->set_weakmap_delete(*weakmap_delete);
+
     Handle<JSFunction> weakmap_get = SimpleInstallFunction(
         isolate_, prototype, "get", Builtin::kWeakMapGet, 1, true);
     native_context()->set_weakmap_get(*weakmap_get);
@@ -4139,7 +4143,7 @@ bool Genesis::CompileExtension(Isolate* isolate, v8::Extension* extension) {
 
   // If we can't find the function in the cache, we compile a new
   // function and insert it into the cache.
-  Vector<const char> name = CStrVector(extension->name());
+  base::Vector<const char> name = base::CStrVector(extension->name());
   SourceCodeCache* cache = isolate->bootstrapper()->extensions_cache();
   Handle<Context> context(isolate->context(), isolate);
   DCHECK(context->IsNativeContext());

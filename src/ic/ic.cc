@@ -10,7 +10,6 @@
 #include "src/base/bits.h"
 #include "src/base/logging.h"
 #include "src/builtins/accessors.h"
-#include "src/codegen/code-factory.h"
 #include "src/common/assert-scope.h"
 #include "src/common/globals.h"
 #include "src/execution/arguments-inl.h"
@@ -146,8 +145,7 @@ void IC::TraceIC(const char* type, Handle<Object> name, State old_state,
   if (function.ActiveTierIsIgnition()) {
     code_offset = InterpretedFrame::GetBytecodeOffset(frame->fp());
   } else {
-    code_offset =
-        static_cast<int>(frame->pc() - function.code().InstructionStart());
+    code_offset = static_cast<int>(frame->pc() - function.code_entry_point());
   }
   JavaScriptFrame::CollectFunctionAndOffsetForICStats(
       function, function.abstract_code(isolate_), code_offset);
@@ -899,6 +897,10 @@ Handle<Smi> MakeLoadWasmStructFieldHandler(Isolate* isolate,
 
 }  // namespace
 
+Handle<Object> IC::CodeHandler(Builtin builtin) {
+  return MakeCodeHandler(isolate(), builtin);
+}
+
 Handle<Object> LoadIC::ComputeHandler(LookupIterator* lookup) {
   Handle<Object> receiver = lookup->GetReceiver();
   ReadOnlyRoots roots(isolate());
@@ -911,13 +913,13 @@ Handle<Object> LoadIC::ComputeHandler(LookupIterator* lookup) {
     if (lookup_start_object->IsString() &&
         *lookup->name() == roots.length_string()) {
       TRACE_HANDLER_STATS(isolate(), LoadIC_StringLength);
-      return BUILTIN_CODE(isolate(), LoadIC_StringLength);
+      return CodeHandler(Builtin::kLoadIC_StringLength);
     }
 
     if (lookup_start_object->IsStringWrapper() &&
         *lookup->name() == roots.length_string()) {
       TRACE_HANDLER_STATS(isolate(), LoadIC_StringWrapperLength);
-      return BUILTIN_CODE(isolate(), LoadIC_StringWrapperLength);
+      return CodeHandler(Builtin::kLoadIC_StringWrapperLength);
     }
 
     // Use specialized code for getting prototype of functions.
@@ -926,7 +928,7 @@ Handle<Object> LoadIC::ComputeHandler(LookupIterator* lookup) {
         !JSFunction::cast(*lookup_start_object)
              .PrototypeRequiresRuntimeLookup()) {
       TRACE_HANDLER_STATS(isolate(), LoadIC_FunctionPrototypeStub);
-      return BUILTIN_CODE(isolate(), LoadIC_FunctionPrototype);
+      return CodeHandler(Builtin::kLoadIC_FunctionPrototype);
     }
   }
 
@@ -1226,13 +1228,18 @@ void KeyedLoadIC::UpdateLoadElement(Handle<HeapObject> receiver,
   // monomorphic. If this optimistic assumption is not true, the IC will
   // miss again and it will become polymorphic and support both the
   // untransitioned and transitioned maps.
-  if (state() == MONOMORPHIC && !receiver->IsString() &&
-      !receiver->IsJSProxy() &&
-      IsMoreGeneralElementsKindTransition(
-          target_receiver_maps.at(0)->elements_kind(),
-          Handle<JSObject>::cast(receiver)->GetElementsKind())) {
-    Handle<Object> handler = LoadElementHandler(receiver_map, load_mode);
-    return ConfigureVectorState(Handle<Name>(), receiver_map, handler);
+  if (state() == MONOMORPHIC) {
+    if ((receiver->IsJSObject() &&
+         IsMoreGeneralElementsKindTransition(
+             target_receiver_maps.at(0)->elements_kind(),
+             Handle<JSObject>::cast(receiver)->GetElementsKind()))
+#ifdef V8_ENABLE_WEBASSEMBLY
+        || receiver->IsWasmObject()
+#endif
+    ) {
+      Handle<Object> handler = LoadElementHandler(receiver_map, load_mode);
+      return ConfigureVectorState(Handle<Name>(), receiver_map, handler);
+    }
   }
 
   DCHECK(state() != GENERIC);
@@ -1316,8 +1323,8 @@ Handle<Object> KeyedLoadIC::LoadElementHandler(Handle<Map> receiver_map,
       !receiver_map->GetIndexedInterceptor().non_masking()) {
     // TODO(jgruber): Update counter name.
     TRACE_HANDLER_STATS(isolate(), KeyedLoadIC_LoadIndexedInterceptorStub);
-    return IsAnyHas() ? BUILTIN_CODE(isolate(), HasIndexedInterceptorIC)
-                      : BUILTIN_CODE(isolate(), LoadIndexedInterceptorIC);
+    return IsAnyHas() ? CodeHandler(Builtin::kHasIndexedInterceptorIC)
+                      : CodeHandler(Builtin::kLoadIndexedInterceptorIC);
   }
 
   InstanceType instance_type = receiver_map->instance_type();
@@ -1345,8 +1352,8 @@ Handle<Object> KeyedLoadIC::LoadElementHandler(Handle<Map> receiver_map,
   if (IsSloppyArgumentsElementsKind(elements_kind)) {
     // TODO(jgruber): Update counter name.
     TRACE_HANDLER_STATS(isolate(), KeyedLoadIC_KeyedLoadSloppyArgumentsStub);
-    return IsAnyHas() ? BUILTIN_CODE(isolate(), KeyedHasIC_SloppyArguments)
-                      : BUILTIN_CODE(isolate(), KeyedLoadIC_SloppyArguments);
+    return IsAnyHas() ? CodeHandler(Builtin::kKeyedHasIC_SloppyArguments)
+                      : CodeHandler(Builtin::kKeyedLoadIC_SloppyArguments);
   }
   bool is_js_array = instance_type == JS_ARRAY_TYPE;
   if (elements_kind == DICTIONARY_ELEMENTS) {
@@ -1719,7 +1726,8 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
       SetCache(name, StoreHandler::StoreSlow(isolate()));
       TraceIC("StoreIC", name);
     }
-    return TypeError(MessageTemplate::kNonObjectPropertyStore, object, name);
+    return TypeError(MessageTemplate::kNonObjectPropertyStoreWithProperty, name,
+                     object);
   }
 
   JSObject::MakePrototypesFast(object, kStartAtPrototype, isolate());
@@ -2168,14 +2176,13 @@ Handle<Object> KeyedStoreIC::StoreElementHandler(
   if (receiver_map->has_sloppy_arguments_elements()) {
     // TODO(jgruber): Update counter name.
     TRACE_HANDLER_STATS(isolate(), KeyedStoreIC_KeyedStoreSloppyArgumentsStub);
-    code =
-        CodeFactory::KeyedStoreIC_SloppyArguments(isolate(), store_mode).code();
+    code = CodeHandler(StoreHandler::StoreSloppyArgumentsBuiltin(store_mode));
   } else if (receiver_map->has_fast_elements() ||
              receiver_map->has_sealed_elements() ||
              receiver_map->has_nonextensible_elements() ||
              receiver_map->has_typed_array_or_rab_gsab_typed_array_elements()) {
     TRACE_HANDLER_STATS(isolate(), KeyedStoreIC_StoreFastElementStub);
-    code = CodeFactory::StoreFastElementIC(isolate(), store_mode).code();
+    code = CodeHandler(StoreHandler::StoreFastElementBuiltin(store_mode));
     if (receiver_map->has_typed_array_or_rab_gsab_typed_array_elements()) {
       return code;
     }

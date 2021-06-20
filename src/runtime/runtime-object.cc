@@ -525,10 +525,21 @@ MaybeHandle<Object> Runtime::SetObjectProperty(
     Handle<Object> value, StoreOrigin store_origin,
     Maybe<ShouldThrow> should_throw) {
   if (object->IsNullOrUndefined(isolate)) {
-    THROW_NEW_ERROR(
-        isolate,
-        NewTypeError(MessageTemplate::kNonObjectPropertyStore, key, object),
-        Object);
+    MaybeHandle<String> maybe_property =
+        Object::NoSideEffectsToMaybeString(isolate, key);
+    Handle<String> property_name;
+    if (maybe_property.ToHandle(&property_name)) {
+      THROW_NEW_ERROR(
+          isolate,
+          NewTypeError(MessageTemplate::kNonObjectPropertyStoreWithProperty,
+                       object, property_name),
+          Object);
+    } else {
+      THROW_NEW_ERROR(
+          isolate,
+          NewTypeError(MessageTemplate::kNonObjectPropertyStore, object),
+          Object);
+    }
   }
 
   // Check if the given key is an array index.
@@ -1216,7 +1227,7 @@ RUNTIME_FUNCTION(Runtime_CopyDataPropertiesWithExcludedProperties) {
                                                     MaybeHandle<Object>());
   }
 
-  ScopedVector<Handle<Object>> excluded_properties(args.length() - 1);
+  base::ScopedVector<Handle<Object>> excluded_properties(args.length() - 1);
   for (int i = 1; i < args.length(); i++) {
     Handle<Object> property = args.at(i);
     uint32_t property_num;

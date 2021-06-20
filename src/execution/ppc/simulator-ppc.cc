@@ -190,7 +190,7 @@ void PPCDebugger::Debug() {
       disasm::NameConverter converter;
       disasm::Disassembler dasm(converter);
       // use a reasonably large buffer
-      v8::internal::EmbeddedVector<char, 256> buffer;
+      v8::base::EmbeddedVector<char, 256> buffer;
       dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(sim_->get_pc()));
       PrintF("  0x%08" V8PRIxPTR "  %s\n", sim_->get_pc(), buffer.begin());
       last_pc = sim_->get_pc();
@@ -230,7 +230,7 @@ void PPCDebugger::Debug() {
             disasm::NameConverter converter;
             disasm::Disassembler dasm(converter);
             // use a reasonably large buffer
-            v8::internal::EmbeddedVector<char, 256> buffer;
+            v8::base::EmbeddedVector<char, 256> buffer;
             dasm.InstructionDecode(buffer,
                                    reinterpret_cast<byte*>(sim_->get_pc()));
             PrintF("  0x%08" V8PRIxPTR "  %s\n", sim_->get_pc(),
@@ -411,7 +411,7 @@ void PPCDebugger::Debug() {
         disasm::NameConverter converter;
         disasm::Disassembler dasm(converter);
         // use a reasonably large buffer
-        v8::internal::EmbeddedVector<char, 256> buffer;
+        v8::base::EmbeddedVector<char, 256> buffer;
 
         byte* prev = nullptr;
         byte* cur = nullptr;
@@ -2981,6 +2981,16 @@ void Simulator::ExecuteGeneric(Instruction* instr) {
       WriteW(ra_val + rb_val, __builtin_bswap32(rs_val));
       break;
     }
+    case STHBRX: {
+      int rs = instr->RSValue();
+      int ra = instr->RAValue();
+      int rb = instr->RBValue();
+      intptr_t ra_val = ra == 0 ? 0 : get_register(ra);
+      intptr_t rs_val = get_register(rs);
+      intptr_t rb_val = get_register(rb);
+      WriteH(ra_val + rb_val, __builtin_bswap16(rs_val));
+      break;
+    }
     case STDX:
     case STDUX: {
       int rs = instr->RSValue();
@@ -5000,7 +5010,7 @@ void Simulator::Trace(Instruction* instr) {
   disasm::NameConverter converter;
   disasm::Disassembler dasm(converter);
   // use a reasonably large buffer
-  v8::internal::EmbeddedVector<char, 256> buffer;
+  v8::base::EmbeddedVector<char, 256> buffer;
   dasm.InstructionDecode(buffer, reinterpret_cast<byte*>(instr));
   PrintF("%05d  %08" V8PRIxPTR "  %s\n", icount_,
          reinterpret_cast<intptr_t>(instr), buffer.begin());

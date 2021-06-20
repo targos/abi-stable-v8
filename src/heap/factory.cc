@@ -96,10 +96,10 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
       (kind_specific_flags_ == 0 ||
        kind_specific_flags_ == promise_rejection_flag)) {
     const ReadOnlyRoots roots(isolate_);
-    const auto canonical_code_data_container =
+    const auto canonical_code_data_container = Handle<CodeDataContainer>::cast(
         kind_specific_flags_ == 0
             ? roots.trampoline_trivial_code_data_container_handle()
-            : roots.trampoline_promise_rejection_code_data_container_handle();
+            : roots.trampoline_promise_rejection_code_data_container_handle());
     DCHECK_EQ(canonical_code_data_container->kind_specific_flags(),
               kind_specific_flags_);
     data_container = canonical_code_data_container;
@@ -136,7 +136,9 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     CodePageCollectionMemoryModificationScope code_allocation(heap);
     HeapObject result;
     AllocationType allocation_type =
-        is_executable_ ? AllocationType::kCode : AllocationType::kReadOnly;
+        V8_EXTERNAL_CODE_SPACE_BOOL || is_executable_
+            ? AllocationType::kCode
+            : AllocationType::kReadOnly;
     if (retry_allocation_or_fail) {
       result = heap->AllocateRawWith<Heap::kRetryOrFail>(
           object_size, allocation_type, AllocationOrigin::kRuntime);
@@ -218,6 +220,9 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
 
     raw_code.clear_padding();
 
+    if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+      data_container->SetCodeAndEntryPoint(isolate_, raw_code);
+    }
 #ifdef VERIFY_HEAP
     if (FLAG_verify_heap) raw_code.ObjectVerify(isolate_);
 #endif
@@ -404,7 +409,7 @@ MaybeHandle<FixedArray> Factory::TryNewFixedArray(
   AllocationResult allocation = heap->AllocateRaw(size, allocation_type);
   HeapObject result;
   if (!allocation.To(&result)) return MaybeHandle<FixedArray>();
-  if ((size > Heap::MaxRegularHeapObjectSize(allocation_type)) &&
+  if ((size > heap->MaxRegularHeapObjectSize(allocation_type)) &&
       FLAG_use_marking_progress_bar) {
     BasicMemoryChunk* chunk = BasicMemoryChunk::FromHeapObject(result);
     chunk->SetFlag<AccessMode::ATOMIC>(MemoryChunk::HAS_PROGRESS_BAR);
@@ -584,20 +589,21 @@ Handle<SwissNameDictionary> Factory::CreateCanonicalEmptySwissNameDictionary() {
 
 // Internalized strings are created in the old generation (data space).
 Handle<String> Factory::InternalizeUtf8String(
-    const Vector<const char>& string) {
-  Vector<const uint8_t> utf8_data = Vector<const uint8_t>::cast(string);
+    const base::Vector<const char>& string) {
+  base::Vector<const uint8_t> utf8_data =
+      base::Vector<const uint8_t>::cast(string);
   Utf8Decoder decoder(utf8_data);
   if (decoder.is_ascii()) return InternalizeString(utf8_data);
   if (decoder.is_one_byte()) {
     std::unique_ptr<uint8_t[]> buffer(new uint8_t[decoder.utf16_length()]);
     decoder.Decode(buffer.get(), utf8_data);
     return InternalizeString(
-        Vector<const uint8_t>(buffer.get(), decoder.utf16_length()));
+        base::Vector<const uint8_t>(buffer.get(), decoder.utf16_length()));
   }
   std::unique_ptr<uint16_t[]> buffer(new uint16_t[decoder.utf16_length()]);
   decoder.Decode(buffer.get(), utf8_data);
   return InternalizeString(
-      Vector<const uc16>(buffer.get(), decoder.utf16_length()));
+      base::Vector<const uc16>(buffer.get(), decoder.utf16_length()));
 }
 
 template <typename SeqString>
@@ -616,7 +622,7 @@ template Handle<String> Factory::InternalizeString(
     bool convert_encoding);
 
 MaybeHandle<String> Factory::NewStringFromOneByte(
-    const Vector<const uint8_t>& string, AllocationType allocation) {
+    const base::Vector<const uint8_t>& string, AllocationType allocation) {
   DCHECK_NE(allocation, AllocationType::kReadOnly);
   int length = string.length();
   if (length == 0) return empty_string();
@@ -633,9 +639,10 @@ MaybeHandle<String> Factory::NewStringFromOneByte(
   return result;
 }
 
-MaybeHandle<String> Factory::NewStringFromUtf8(const Vector<const char>& string,
-                                               AllocationType allocation) {
-  Vector<const uint8_t> utf8_data = Vector<const uint8_t>::cast(string);
+MaybeHandle<String> Factory::NewStringFromUtf8(
+    const base::Vector<const char>& string, AllocationType allocation) {
+  base::Vector<const uint8_t> utf8_data =
+      base::Vector<const uint8_t>::cast(string);
   Utf8Decoder decoder(utf8_data);
 
   if (decoder.utf16_length() == 0) return empty_string();
@@ -666,10 +673,11 @@ MaybeHandle<String> Factory::NewStringFromUtf8(const Vector<const char>& string,
 MaybeHandle<String> Factory::NewStringFromUtf8SubString(
     Handle<SeqOneByteString> str, int begin, int length,
     AllocationType allocation) {
-  Vector<const uint8_t> utf8_data;
+  base::Vector<const uint8_t> utf8_data;
   {
     DisallowGarbageCollection no_gc;
-    utf8_data = Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
+    utf8_data =
+        base::Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
   }
   Utf8Decoder decoder(utf8_data);
 
@@ -697,7 +705,8 @@ MaybeHandle<String> Factory::NewStringFromUtf8SubString(
     DisallowGarbageCollection no_gc;
     // Update pointer references, since the original string may have moved after
     // allocation.
-    utf8_data = Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
+    utf8_data =
+        base::Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
     decoder.Decode(result->GetChars(no_gc), utf8_data);
     return result;
   }
@@ -711,7 +720,7 @@ MaybeHandle<String> Factory::NewStringFromUtf8SubString(
   DisallowGarbageCollection no_gc;
   // Update pointer references, since the original string may have moved after
   // allocation.
-  utf8_data = Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
+  utf8_data = base::Vector<const uint8_t>(str->GetChars(no_gc) + begin, length);
   decoder.Decode(result->GetChars(no_gc), utf8_data);
   return result;
 }
@@ -740,7 +749,7 @@ MaybeHandle<String> Factory::NewStringFromTwoByte(const uc16* string,
 }
 
 MaybeHandle<String> Factory::NewStringFromTwoByte(
-    const Vector<const uc16>& string, AllocationType allocation) {
+    const base::Vector<const uc16>& string, AllocationType allocation) {
   return NewStringFromTwoByte(string.begin(), string.length(), allocation);
 }
 
@@ -866,12 +875,13 @@ Handle<String> Factory::LookupSingleCharacterStringFromCode(uint16_t code) {
       }
     }
     uint8_t buffer[] = {static_cast<uint8_t>(code)};
-    Handle<String> result = InternalizeString(Vector<const uint8_t>(buffer, 1));
+    Handle<String> result =
+        InternalizeString(base::Vector<const uint8_t>(buffer, 1));
     single_character_string_cache()->set(code, *result);
     return result;
   }
   uint16_t buffer[] = {code};
-  return InternalizeString(Vector<const uint16_t>(buffer, 1));
+  return InternalizeString(base::Vector<const uint16_t>(buffer, 1));
 }
 
 Handle<String> Factory::NewSurrogatePairString(uint16_t lead, uint16_t trail) {
@@ -1432,7 +1442,8 @@ Handle<WasmExportedFunctionData> Factory::NewWasmExportedFunctionData(
   result.set_function_index(func_index);
   result.set_signature(*sig_foreign);
   result.set_wrapper_budget(wrapper_budget);
-  result.set_c_wrapper_code(Smi::zero(), SKIP_WRITE_BARRIER);
+  result.set_c_wrapper_code(ToCodeT(*BUILTIN_CODE(isolate(), Illegal)),
+                            SKIP_WRITE_BARRIER);
   result.set_packed_args_size(0);
   return handle(result, isolate());
 }
@@ -1465,7 +1476,7 @@ Handle<WasmArray> Factory::NewWasmArray(
       AllocateRaw(WasmArray::SizeFor(*map, length), AllocationType::kYoung);
   raw.set_map_after_allocation(*map);
   WasmArray result = WasmArray::cast(raw);
-  result.set_raw_properties_or_hash(*empty_fixed_array());
+  result.set_raw_properties_or_hash(*empty_fixed_array(), kRelaxedStore);
   result.set_length(length);
   for (uint32_t i = 0; i < length; i++) {
     Address address = result.ElementAddress(i);
@@ -1487,7 +1498,7 @@ Handle<WasmStruct> Factory::NewWasmStruct(const wasm::StructType* type,
   HeapObject raw = AllocateRaw(WasmStruct::Size(type), AllocationType::kYoung);
   raw.set_map_after_allocation(*map);
   WasmStruct result = WasmStruct::cast(raw);
-  result.set_raw_properties_or_hash(*empty_fixed_array());
+  result.set_raw_properties_or_hash(*empty_fixed_array(), kRelaxedStore);
   for (uint32_t i = 0; i < type->field_count(); i++) {
     Address address = result.RawFieldAddress(type->field_offset(i));
     if (type->field(i).is_numeric()) {
@@ -1763,7 +1774,7 @@ Handle<JSObject> Factory::CopyJSObjectWithAllocationSite(
       // TODO(gsathya): Do not copy hash code.
       Handle<PropertyArray> prop = CopyArrayWithMap(
           handle(properties, isolate()), handle(properties.map(), isolate()));
-      clone->set_raw_properties_or_hash(*prop);
+      clone->set_raw_properties_or_hash(*prop, kRelaxedStore);
     }
   } else {
     Handle<Object> copied_properties;
@@ -1774,7 +1785,7 @@ Handle<JSObject> Factory::CopyJSObjectWithAllocationSite(
       copied_properties =
           CopyFixedArray(handle(source->property_dictionary(), isolate()));
     }
-    clone->set_raw_properties_or_hash(*copied_properties);
+    clone->set_raw_properties_or_hash(*copied_properties, kRelaxedStore);
   }
   return clone;
 }
@@ -2078,6 +2089,11 @@ Handle<CodeDataContainer> Factory::NewCodeDataContainer(
   DisallowGarbageCollection no_gc;
   data_container.set_next_code_link(*undefined_value(), SKIP_WRITE_BARRIER);
   data_container.set_kind_specific_flags(flags);
+  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+    data_container.AllocateExternalPointerEntries(isolate());
+    data_container.set_raw_code(Smi::zero(), SKIP_WRITE_BARRIER);
+    data_container.set_code_entry_point(isolate(), kNullAddress);
+  }
   data_container.clear_padding();
   return handle(data_container, isolate());
 }
@@ -2137,6 +2153,12 @@ Handle<Code> Factory::NewOffHeapTrampolineFor(Handle<Code> code,
     }
 #endif
     raw_result.set_relocation_info(canonical_reloc_info);
+    if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+      // Updating flags (in particular is_off_heap_trampoline one) might change
+      // the value of the instruction start, so update it here.
+      raw_result.code_data_container(kAcquireLoad)
+          .UpdateCodeEntryPoint(isolate(), raw_result);
+    }
   }
 
   return result;
@@ -2172,6 +2194,9 @@ Handle<Code> Factory::CopyCode(Handle<Code> code) {
 #ifndef V8_DISABLE_WRITE_BARRIERS
     WriteBarrierForCode(*new_code);
 #endif
+  }
+  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+    data_container->SetCodeAndEntryPoint(isolate(), *new_code);
   }
 
 #ifdef VERIFY_HEAP
@@ -2288,7 +2313,7 @@ Handle<JSGlobalObject> Factory::NewJSGlobalObject(
 void Factory::InitializeJSObjectFromMap(JSObject obj, Object properties,
                                         Map map) {
   DisallowGarbageCollection no_gc;
-  obj.set_raw_properties_or_hash(properties);
+  obj.set_raw_properties_or_hash(properties, kRelaxedStore);
   obj.initialize_elements();
   // TODO(1240798): Initialize the object's body using valid initial values
   // according to the object's initial map.  For example, if the map's
@@ -2357,7 +2382,7 @@ Handle<JSObject> Factory::NewSlowJSObjectFromMap(
   }
   Handle<JSObject> js_object =
       NewJSObjectFromMap(map, allocation, allocation_site);
-  js_object->set_raw_properties_or_hash(*object_properties);
+  js_object->set_raw_properties_or_hash(*object_properties, kRelaxedStore);
   return js_object;
 }
 
@@ -2789,7 +2814,7 @@ Handle<JSDataView> Factory::NewJSDataView(Handle<JSArrayBuffer> buffer,
 
 MaybeHandle<JSBoundFunction> Factory::NewJSBoundFunction(
     Handle<JSReceiver> target_function, Handle<Object> bound_this,
-    Vector<Handle<Object>> bound_args) {
+    base::Vector<Handle<Object>> bound_args) {
   DCHECK(target_function->IsCallable());
   STATIC_ASSERT(Code::kMaxArguments <= FixedArray::kMaxLength);
   if (bound_args.length() >= Code::kMaxArguments) {
@@ -3051,7 +3076,7 @@ Handle<String> Factory::HeapNumberToString(Handle<HeapNumber> number,
   }
 
   char arr[kNumberToStringBufferSize];
-  Vector<char> buffer(arr, arraysize(arr));
+  base::Vector<char> buffer(arr, arraysize(arr));
   const char* string = DoubleToCString(value, buffer);
   Handle<String> result = CharToString(this, string, mode);
   if (mode != NumberCacheMode::kIgnore) {
@@ -3068,7 +3093,7 @@ inline Handle<String> Factory::SmiToString(Smi number, NumberCacheMode mode) {
   }
 
   char arr[kNumberToStringBufferSize];
-  Vector<char> buffer(arr, arraysize(arr));
+  base::Vector<char> buffer(arr, arraysize(arr));
   const char* string = IntToCString(number.value(), buffer);
   Handle<String> result = CharToString(this, string, mode);
   if (mode != NumberCacheMode::kIgnore) {
@@ -3105,7 +3130,7 @@ Handle<String> Factory::SizeToString(size_t value, bool check_cache) {
     result = HeapNumberToString(NewHeapNumber(double_value), value, cache_mode);
   } else {
     char arr[kNumberToStringBufferSize];
-    Vector<char> buffer(arr, arraysize(arr));
+    base::Vector<char> buffer(arr, arraysize(arr));
     // Build the string backwards from the least significant digit.
     int i = buffer.length();
     size_t value_copy = value;

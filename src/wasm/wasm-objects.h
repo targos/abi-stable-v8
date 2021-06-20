@@ -171,7 +171,7 @@ class WasmModuleObject : public JSObject {
   // given index.
   // Meant to be used for debugging or frame printing.
   // Does not allocate, hence gc-safe.
-  Vector<const uint8_t> GetRawFunctionName(int func_index);
+  base::Vector<const uint8_t> GetRawFunctionName(int func_index);
 
   // Extract a portion of the wire bytes as UTF-8 string, optionally
   // internalized. (Prefer to internalize early if the string will be used for a
@@ -180,7 +180,7 @@ class WasmModuleObject : public JSObject {
       Isolate*, Handle<WasmModuleObject>, wasm::WireBytesRef,
       InternalizeString);
   static Handle<String> ExtractUtf8StringFromModuleBytes(
-      Isolate*, Vector<const uint8_t> wire_byte, wasm::WireBytesRef,
+      Isolate*, base::Vector<const uint8_t> wire_byte, wasm::WireBytesRef,
       InternalizeString);
 
   OBJECT_CONSTRUCTORS(WasmModuleObject, JSObject);
@@ -765,7 +765,7 @@ class WasmExportedFunctionData : public WasmFunctionData {
   DECL_INT_ACCESSORS(function_index)
   DECL_ACCESSORS(signature, Foreign)
   DECL_INT_ACCESSORS(wrapper_budget)
-  DECL_ACCESSORS(c_wrapper_code, Object)
+  DECL_ACCESSORS(c_wrapper_code, CodeT)
   DECL_INT_ACCESSORS(packed_args_size)
 
   inline wasm::FunctionSig* sig() const;
@@ -807,6 +807,9 @@ class WasmJSFunctionData : public WasmFunctionData {
                                 TORQUE_GENERATED_WASM_JS_FUNCTION_DATA_FIELDS)
 
   class BodyDescriptor;
+
+ private:
+  DECL_ACCESSORS(raw_wasm_to_js_wrapper_code, CodeT)
 
   OBJECT_CONSTRUCTORS(WasmJSFunctionData, WasmFunctionData);
 };

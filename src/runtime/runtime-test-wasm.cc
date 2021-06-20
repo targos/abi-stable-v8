@@ -268,10 +268,9 @@ RUNTIME_FUNCTION(Runtime_IsWasmCode) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_CHECKED(JSFunction, function, 0);
-  bool is_js_to_wasm =
-      function.code().kind() == CodeKind::JS_TO_WASM_FUNCTION ||
-      (function.code().is_builtin() &&
-       function.code().builtin_id() == Builtin::kGenericJSToWasmWrapper);
+  Code code = function.code();
+  bool is_js_to_wasm = code.kind() == CodeKind::JS_TO_WASM_FUNCTION ||
+                       (code.builtin_id() == Builtin::kGenericJSToWasmWrapper);
   return isolate->heap()->ToBoolean(is_js_to_wasm);
 }
 
@@ -356,11 +355,11 @@ RUNTIME_FUNCTION(Runtime_DeserializeWasmModule) {
   CHECK(!wire_bytes->WasDetached());
 
   Handle<JSArrayBuffer> wire_bytes_buffer = wire_bytes->GetBuffer();
-  Vector<const uint8_t> wire_bytes_vec{
+  base::Vector<const uint8_t> wire_bytes_vec{
       reinterpret_cast<const uint8_t*>(wire_bytes_buffer->backing_store()) +
           wire_bytes->byte_offset(),
       wire_bytes->byte_length()};
-  Vector<uint8_t> buffer_vec{
+  base::Vector<uint8_t> buffer_vec{
       reinterpret_cast<uint8_t*>(buffer->backing_store()),
       buffer->byte_length()};
 

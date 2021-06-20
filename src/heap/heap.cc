@@ -35,6 +35,7 @@
 #include "src/heap/array-buffer-sweeper.h"
 #include "src/heap/barrier.h"
 #include "src/heap/base/stack.h"
+#include "src/heap/basic-memory-chunk.h"
 #include "src/heap/code-object-registry.h"
 #include "src/heap/code-range.h"
 #include "src/heap/code-stats.h"
@@ -58,6 +59,7 @@
 #include "src/heap/marking-barrier-inl.h"
 #include "src/heap/marking-barrier.h"
 #include "src/heap/memory-chunk-inl.h"
+#include "src/heap/memory-chunk-layout.h"
 #include "src/heap/memory-measurement.h"
 #include "src/heap/memory-reducer.h"
 #include "src/heap/object-stats.h"
@@ -127,6 +129,14 @@ Isolate* Heap::GetIsolateFromWritableObject(HeapObject object) {
 // in heap-write-barrier-inl.h.
 bool Heap_PageFlagsAreConsistent(HeapObject object) {
   return Heap::PageFlagsAreConsistent(object);
+}
+
+bool Heap_ValueMightRequireGenerationalWriteBarrier(HeapObject value) {
+  if (!value.IsCode()) return true;
+  // Code objects are never in new space and thus don't require generational
+  // write barrier.
+  DCHECK(!ObjectInYoungGeneration(value));
+  return false;
 }
 
 void Heap_GenerationalBarrierSlow(HeapObject object, Address slot,
@@ -208,6 +218,8 @@ Heap::Heap()
       collection_barrier_(new CollectionBarrier(this)) {
   // Ensure old_generation_size_ is a multiple of kPageSize.
   DCHECK_EQ(0, max_old_generation_size() & (Page::kPageSize - 1));
+
+  max_regular_code_object_size_ = MemoryChunkLayout::MaxRegularCodeObjectSize();
 
   set_native_contexts_list(Smi::zero());
   set_allocation_sites_list(Smi::zero());
@@ -2268,9 +2280,19 @@ void Heap::CompleteSweepingYoung(GarbageCollector collector) {
 }
 
 void Heap::EnsureSweepingCompleted(Handle<HeapObject> object) {
-  // TODO(dinfuehr): Only sweep that object's page instead of whole heap.
-  mark_compact_collector()->EnsureSweepingCompleted();
-  USE(object);
+  if (!mark_compact_collector()->sweeping_in_progress()) return;
+
+  BasicMemoryChunk* basic_chunk = BasicMemoryChunk::FromHeapObject(*object);
+  if (basic_chunk->InReadOnlySpace()) return;
+
+  MemoryChunk* chunk = MemoryChunk::cast(basic_chunk);
+  if (chunk->SweepingDone()) return;
+
+  // SweepingDone() is always true for large pages.
+  DCHECK(!chunk->IsLargePage());
+
+  Page* page = Page::cast(chunk);
+  mark_compact_collector()->EnsurePageIsSwept(page);
 }
 
 void Heap::UpdateCurrentEpoch(GarbageCollector collector) {
@@ -2594,7 +2616,6 @@ void Heap::ComputeFastPromotionMode() {
 
 void Heap::UnprotectAndRegisterMemoryChunk(MemoryChunk* chunk) {
   if (unprotected_memory_chunks_registry_enabled_) {
-    base::MutexGuard guard(&unprotected_memory_chunks_mutex_);
     if (unprotected_memory_chunks_.insert(chunk).second) {
       chunk->SetReadAndWritable();
     }
@@ -5041,15 +5062,6 @@ bool Heap::AllocationLimitOvershotByLargeMargin() {
                (max_global_memory_size_ - global_allocation_limit_) / 2);
 
   return v8_overshoot >= v8_margin || global_overshoot >= global_margin;
-}
-
-// static
-int Heap::MaxRegularHeapObjectSize(AllocationType allocation) {
-  if (!V8_ENABLE_THIRD_PARTY_HEAP_BOOL &&
-      (allocation == AllocationType::kCode)) {
-    return MemoryChunkLayout::MaxRegularCodeObjectSize();
-  }
-  return kMaxRegularHeapObjectSize;
 }
 
 bool Heap::ShouldOptimizeForLoadTime() {

@@ -170,8 +170,8 @@ i::Handle<i::String> CcTest::MakeString(const char* str) {
 }
 
 i::Handle<i::String> CcTest::MakeName(const char* str, int suffix) {
-  i::EmbeddedVector<char, 128> buffer;
-  SNPrintF(buffer, "%s%d", str, suffix);
+  v8::base::EmbeddedVector<char, 128> buffer;
+  i::SNPrintF(buffer, "%s%d", str, suffix);
   return CcTest::MakeString(buffer.begin());
 }
 
@@ -341,12 +341,12 @@ int main(int argc, char* argv[]) {
   v8::V8::Initialize();
   v8::V8::InitializeExternalStartupData(argv[0]);
 
-#if V8_ENABLE_WEBASSEMBLY
-  if (V8_TRAP_HANDLER_SUPPORTED && i::FLAG_wasm_trap_handler) {
+#if V8_ENABLE_WEBASSEMBLY && V8_TRAP_HANDLER_SUPPORTED
+  if (i::FLAG_wasm_trap_handler) {
     constexpr bool use_default_signal_handler = true;
     CHECK(v8::V8::EnableWebAssemblyTrapHandler(use_default_signal_handler));
   }
-#endif  // V8_ENABLE_WEBASSEMBLY
+#endif  // V8_TRAP_HANDLER_SUPPORTED && V8_ENABLE_WEBASSEMBLY
 
   CcTest::set_array_buffer_allocator(
       v8::ArrayBuffer::Allocator::NewDefaultAllocator());

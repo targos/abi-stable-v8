@@ -842,8 +842,10 @@ class PromiseBuiltinReducerAssembler : public JSCallReducerAssembler {
         isolate()->factory()->many_closures_cell();
     Callable const callable =
         Builtins::CallableFor(isolate(), shared.builtin_id());
+    Handle<CodeT> code =
+        broker_->CanonicalPersistentHandle(ToCodeT(*callable.code()));
     return AddNode<JSFunction>(graph()->NewNode(
-        javascript()->CreateClosure(shared.object(), callable.code()),
+        javascript()->CreateClosure(shared.object(), code),
         HeapConstant(feedback_cell), context, effect(), control()));
   }
 
@@ -4152,6 +4154,13 @@ Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
     return NoChange();
   }
 
+  // For call/construct with spread, we need to also install a code
+  // dependency on the array iterator lookup protector cell to ensure
+  // that no one messed with the %ArrayIteratorPrototype%.next method.
+  if (IsCallOrConstructWithSpread(node)) {
+    if (!dependencies()->DependOnArrayIteratorProtector()) return NoChange();
+  }
+
   int new_argument_count;
   if (arguments_list->opcode() == IrOpcode::kJSCreateLiteralArray) {
     // Find array length and elements' kind from the feedback's allocation
@@ -4426,13 +4435,6 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
   if (feedback_target.has_value() && feedback_target->map().is_callable()) {
     Node* target_function = jsgraph()->Constant(*feedback_target);
 
-    if (broker()->is_turboprop()) {
-      if (!feedback_target->IsJSFunction()) return NoChange();
-      if (!IsBuiltinOrApiFunction(feedback_target->AsJSFunction())) {
-        return NoChange();
-      }
-    }
-
     // Check that the {target} is still the {target_function}.
     Node* check = graph()->NewNode(simplified()->ReferenceEqual(), target,
                                    target_function);
@@ -4456,11 +4458,6 @@ Reduction JSCallReducer::ReduceJSCall(Node* node) {
       if (!feedback_vector.serialized()) {
         TRACE_BROKER_MISSING(
             broker(), "feedback vector, not serialized: " << feedback_vector);
-        return NoChange();
-      }
-
-      if (broker()->is_turboprop() &&
-          !feedback_vector.shared_function_info().HasBuiltinId()) {
         return NoChange();
       }
 
@@ -5312,10 +5309,6 @@ Reduction JSCallReducer::ReduceForInsufficientFeedback(
   DCHECK(node->opcode() == IrOpcode::kJSCall ||
          node->opcode() == IrOpcode::kJSConstruct);
   if (!(flags() & kBailoutOnUninitialized)) return NoChange();
-  // TODO(mythria): May be add additional flags to specify if we need to deopt
-  // on calls / construct rather than checking for TurboProp here. We may need
-  // it for NativeContextIndependent code too.
-  if (broker()->is_turboprop()) return NoChange();
 
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
@@ -6758,9 +6751,11 @@ Node* JSCallReducer::CreateClosureFromBuiltinSharedFunctionInfo(
       isolate()->factory()->many_closures_cell();
   Callable const callable =
       Builtins::CallableFor(isolate(), shared.builtin_id());
-  return graph()->NewNode(
-      javascript()->CreateClosure(shared.object(), callable.code()),
-      jsgraph()->HeapConstant(feedback_cell), context, effect, control);
+  Handle<CodeT> code =
+      broker()->CanonicalPersistentHandle(ToCodeT(*callable.code()));
+  return graph()->NewNode(javascript()->CreateClosure(shared.object(), code),
+                          jsgraph()->HeapConstant(feedback_cell), context,
+                          effect, control);
 }
 
 // ES section #sec-promise.prototype.finally
@@ -7940,7 +7935,7 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
 
     // Bail out if the exec method is not the original one.
     base::Optional<ObjectRef> constant = holder_ref.GetOwnFastDataProperty(
-        ai_exec.field_representation(), ai_exec.field_index());
+        ai_exec.field_representation(), ai_exec.field_index(), dependencies());
     if (!constant.has_value() ||
         !constant->equals(native_context().regexp_exec_function())) {
       return inference.NoChange();
