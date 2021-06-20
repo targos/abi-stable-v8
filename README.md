@@ -61,3 +61,4 @@ ABI-stable tag: TBD
 DIFF: TBD
 
 - [38690c8058](https://github.com/targos/abi-stable-v8/commit/38690c80588466d71c5e6d6cbb758808c9eb2123) - Reverted [[api] Support PropertyAttribute in v8::Template::Set](https://github.com/v8/v8/commit/22a32f11f7a39e4a73105608a51ebab0ad97960f)
+- [497ca12865](https://github.com/targos/abi-stable-v8/commit/497ca12865434cf30a7dc52de7dfbb67d1aeb649) - Reverted API change from [[API] Allow embedders to assign instance types](https://github.com/v8/v8/commit/5f82dbbe534635a8b1e93f27e8fd7e68c0eaf291)
