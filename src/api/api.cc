@@ -1262,9 +1262,7 @@ static Local<FunctionTemplate> FunctionTemplateNew(
 Local<FunctionTemplate> FunctionTemplate::New(
     Isolate* isolate, FunctionCallback callback, v8::Local<Value> data,
     v8::Local<Signature> signature, int length, ConstructorBehavior behavior,
-    SideEffectType side_effect_type, const CFunction* c_function,
-    uint8_t instance_type, uint8_t allowed_receiver_range_start,
-    uint8_t allowed_receiver_range_end) {
+    SideEffectType side_effect_type, const CFunction* c_function) {
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   // Changes to the environment cannot be captured in the snapshot. Expect no
   // function templates when the isolate is created for serialization.
@@ -1275,7 +1273,7 @@ Local<FunctionTemplate> FunctionTemplate::New(
       Local<Private>(), side_effect_type,
       c_function ? MemorySpan<const CFunction>{c_function, 1}
                  : MemorySpan<const CFunction>{},
-      instance_type, allowed_receiver_range_start, allowed_receiver_range_end);
+      0, 0, 0);
 }
 
 Local<FunctionTemplate> FunctionTemplate::NewWithCFunctionOverloads(

@@ -6751,9 +6751,7 @@ class V8_EXPORT FunctionTemplate : public Template {
       Local<Signature> signature = Local<Signature>(), int length = 0,
       ConstructorBehavior behavior = ConstructorBehavior::kAllow,
       SideEffectType side_effect_type = SideEffectType::kHasSideEffect,
-      const CFunction* c_function = nullptr, uint8_t instance_type = 0,
-      uint8_t allowed_receiver_range_start = 0,
-      uint8_t allowed_receiver_range_end = 0);
+      const CFunction* c_function = nullptr);
 
   /** Creates a function template for multiple overloaded fast API calls.*/
   static Local<FunctionTemplate> NewWithCFunctionOverloads(
