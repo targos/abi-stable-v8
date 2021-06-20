@@ -6,6 +6,7 @@
 #include "src/base/platform/mutex.h"
 #include "src/execution/arguments-inl.h"
 #include "src/execution/frames-inl.h"
+#include "src/heap/heap-inl.h"
 #include "src/logging/counters.h"
 #include "src/objects/smi.h"
 #include "src/runtime/runtime-utils.h"
@@ -270,7 +271,7 @@ RUNTIME_FUNCTION(Runtime_IsWasmCode) {
   bool is_js_to_wasm =
       function.code().kind() == CodeKind::JS_TO_WASM_FUNCTION ||
       (function.code().is_builtin() &&
-       function.code().builtin_index() == Builtin::kGenericJSToWasmWrapper);
+       function.code().builtin_id() == Builtin::kGenericJSToWasmWrapper);
   return isolate->heap()->ToBoolean(is_js_to_wasm);
 }
 

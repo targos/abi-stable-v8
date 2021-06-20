@@ -6,7 +6,7 @@ import {LogReader, parseString, parseVarArgs} from '../logreader.mjs';
 import {Profile} from '../profile.mjs';
 
 import {ApiLogEntry} from './log/api.mjs';
-import {CodeLogEntry, DeoptLogEntry} from './log/code.mjs';
+import {CodeLogEntry, DeoptLogEntry, SharedLibLogEntry} from './log/code.mjs';
 import {IcLogEntry} from './log/ic.mjs';
 import {Edge, MapLogEntry} from './log/map.mjs';
 import {TickLogEntry} from './log/tick.mjs';
@@ -25,9 +25,10 @@ export class Processor extends LogReader {
   _formatPCRegexp = /(.*):[0-9]+:[0-9]+$/;
   _lastTimestamp = 0;
   _lastCodeLogEntry;
+  _chunkRemainder = '';
   MAJOR_VERSION = 7;
   MINOR_VERSION = 6;
-  constructor(logString) {
+  constructor() {
     super();
     const propertyICParser = [
       parseInt, parseInt, parseInt, parseInt, parseString, parseString,
@@ -41,6 +42,10 @@ export class Processor extends LogReader {
           parseInt,
         ],
         processor: this.processV8Version
+      },
+      'shared-library': {
+        parsers: [parseString, parseInt, parseInt, parseInt],
+        processor: this.processSharedLibrary
       },
       'code-creation': {
         parsers: [
@@ -136,7 +141,6 @@ export class Processor extends LogReader {
         processor: this.processApiEvent
       },
     };
-    if (logString) this.processString(logString);
   }
 
   printError(str) {
@@ -144,26 +148,29 @@ export class Processor extends LogReader {
     throw str
   }
 
-  processString(string) {
-    let end = string.length;
+  processChunk(chunk) {
+    let end = chunk.length;
     let current = 0;
     let next = 0;
     let line;
-    let i = 0;
-    let entry;
     try {
       while (current < end) {
-        next = string.indexOf('\n', current);
-        if (next === -1) break;
-        i++;
-        line = string.substring(current, next);
+        next = chunk.indexOf('\n', current);
+        if (next === -1) {
+          this._chunkRemainder = chunk.substring(current);
+          break;
+        }
+        line = chunk.substring(current, next);
+        if (this._chunkRemainder) {
+          line = this._chunkRemainder + line;
+          this._chunkRemainder = '';
+        }
         current = next + 1;
         this.processLogLine(line);
       }
     } catch (e) {
       console.error(`Error occurred during parsing, trying to continue: ${e}`);
     }
-    this.finalize();
   }
 
   processLogFile(fileName) {
@@ -210,6 +217,11 @@ export class Processor extends LogReader {
           `Unsupported version ${majorVersion}.${minorVersion}. \n` +
           `Please use the matching tool for given the V8 version.`);
     }
+  }
+
+  processSharedLibrary(name, start, end, aslr_slide) {
+    const entry = this._profile.addLibrary(name, start, end);
+    entry.logEntry = new SharedLibLogEntry(name);
   }
 
   processCodeCreation(type, kind, timestamp, start, size, name, maybe_func) {

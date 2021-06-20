@@ -9,16 +9,16 @@
 #include "src/base/platform/mutex.h"
 #include "src/handles/handles-inl.h"
 #include "src/heap/heap-write-barrier-inl.h"
-#include "src/heap/local-heap-inl.h"
 #include "src/objects/debug-objects-inl.h"
 #include "src/objects/feedback-vector-inl.h"
-#include "src/objects/scope-info.h"
+#include "src/objects/scope-info-inl.h"
+#include "src/objects/script-inl.h"
 #include "src/objects/shared-function-info.h"
-#include "src/objects/templates.h"
+#include "src/objects/templates-inl.h"
 
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-module.h"
-#include "src/wasm/wasm-objects-inl.h"
+#include "src/wasm/wasm-objects.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
 
 // Has to be the last include (doesn't have include guards):
@@ -313,7 +313,7 @@ bool SharedFunctionInfo::construct_as_builtin() const {
 void SharedFunctionInfo::CalculateConstructAsBuiltin() {
   bool uses_builtins_construct_stub = false;
   if (HasBuiltinId()) {
-    int id = builtin_id();
+    Builtin id = builtin_id();
     if (id != Builtin::kCompileLazy && id != Builtin::kEmptyFunction) {
       uses_builtins_construct_stub = true;
     }
@@ -667,16 +667,16 @@ bool SharedFunctionInfo::HasBuiltinId() const {
   return function_data(kAcquireLoad).IsSmi();
 }
 
-int SharedFunctionInfo::builtin_id() const {
+Builtin SharedFunctionInfo::builtin_id() const {
   DCHECK(HasBuiltinId());
   int id = Smi::ToInt(function_data(kAcquireLoad));
   DCHECK(Builtins::IsBuiltinId(id));
-  return id;
+  return Builtins::FromInt(id);
 }
 
-void SharedFunctionInfo::set_builtin_id(int builtin_id) {
-  DCHECK(Builtins::IsBuiltinId(builtin_id));
-  set_function_data(Smi::FromInt(builtin_id), kReleaseStore,
+void SharedFunctionInfo::set_builtin_id(Builtin builtin) {
+  DCHECK(Builtins::IsBuiltinId(builtin));
+  set_function_data(Smi::FromInt(static_cast<int>(builtin)), kReleaseStore,
                     SKIP_WRITE_BARRIER);
 }
 

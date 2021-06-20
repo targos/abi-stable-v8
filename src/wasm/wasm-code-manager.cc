@@ -2137,6 +2137,11 @@ bool NativeModule::IsTieredDown() {
 }
 
 void NativeModule::RecompileForTiering() {
+  // If baseline compilation is not finished yet, we do not tier down now. This
+  // would be tricky because not all code is guaranteed to be available yet.
+  // Instead, we tier down after streaming compilation finished.
+  if (!compilation_state_->baseline_compilation_finished()) return;
+
   // Read the tiering state under the lock, then trigger recompilation after
   // releasing the lock. If the tiering state was changed when the triggered
   // compilation units finish, code installation will handle that correctly.
@@ -2288,8 +2293,7 @@ WasmCode* WasmCodeManager::LookupCode(Address pc) const {
   return candidate ? candidate->Lookup(pc) : nullptr;
 }
 
-// TODO(v8:7424): Code protection scopes are not yet supported with shared code
-// enabled and need to be revisited.
+#if !(defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64))
 NativeModuleModificationScope::NativeModuleModificationScope(
     NativeModule* native_module)
     : native_module_(native_module) {
@@ -2320,6 +2324,7 @@ NativeModuleModificationScope::~NativeModuleModificationScope() {
     CHECK(success);
   }
 }
+#endif  // !(defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64))
 
 namespace {
 thread_local WasmCodeRefScope* current_code_refs_scope = nullptr;

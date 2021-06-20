@@ -122,8 +122,8 @@ ExecutionTier WasmCompilationUnit::GetBaselineExecutionTier(
 
 WasmCompilationResult WasmCompilationUnit::ExecuteCompilation(
     WasmEngine* engine, CompilationEnv* env,
-    const std::shared_ptr<WireBytesStorage>& wire_bytes_storage,
-    Counters* counters, WasmFeatures* detected) {
+    const WireBytesStorage* wire_bytes_storage, Counters* counters,
+    WasmFeatures* detected) {
   WasmCompilationResult result;
   if (func_index_ < static_cast<int>(env->module->num_imported_functions)) {
     result = ExecuteImportWrapperCompilation(engine, env);
@@ -159,10 +159,11 @@ WasmCompilationResult WasmCompilationUnit::ExecuteImportWrapperCompilation(
 
 WasmCompilationResult WasmCompilationUnit::ExecuteFunctionCompilation(
     WasmEngine* wasm_engine, CompilationEnv* env,
-    const std::shared_ptr<WireBytesStorage>& wire_bytes_storage,
-    Counters* counters, WasmFeatures* detected) {
+    const WireBytesStorage* wire_bytes_storage, Counters* counters,
+    WasmFeatures* detected) {
   auto* func = &env->module->functions[func_index_];
   Vector<const uint8_t> code = wire_bytes_storage->GetCode(func->code);
+  DCHECK_LT(0, code.size());
   wasm::FunctionBody func_body{func->sig, func->code.offset(), code.begin(),
                                code.end()};
 
@@ -267,7 +268,7 @@ void WasmCompilationUnit::CompileWasmFunction(Isolate* isolate,
   CompilationEnv env = native_module->CreateCompilationEnv();
   WasmCompilationResult result = unit.ExecuteCompilation(
       isolate->wasm_engine(), &env,
-      native_module->compilation_state()->GetWireBytesStorage(),
+      native_module->compilation_state()->GetWireBytesStorage().get(),
       isolate->counters(), detected);
   if (result.succeeded()) {
     WasmCodeRefScope code_ref_scope;
@@ -330,8 +331,7 @@ void JSToWasmWrapperCompilationUnit::Execute() {
 Handle<Code> JSToWasmWrapperCompilationUnit::Finalize() {
   Handle<Code> code;
   if (use_generic_wrapper_) {
-    code =
-        isolate_->builtins()->builtin_handle(Builtin::kGenericJSToWasmWrapper);
+    code = isolate_->builtins()->code_handle(Builtin::kGenericJSToWasmWrapper);
   } else {
     CompilationJob::Status status = job_->FinalizeJob(isolate_);
     CHECK_EQ(status, CompilationJob::SUCCEEDED);

@@ -8,6 +8,7 @@ import {State} from './app-model.mjs';
 import {ApiLogEntry} from './log/api.mjs';
 import {CodeLogEntry} from './log/code.mjs';
 import {DeoptLogEntry} from './log/code.mjs';
+import {SharedLibLogEntry} from './log/code.mjs';
 import {IcLogEntry} from './log/ic.mjs';
 import {LogEntry} from './log/log.mjs';
 import {MapLogEntry} from './log/map.mjs';
@@ -50,6 +51,8 @@ class App {
     this._view.logFileReader.addEventListener(
         'fileuploadstart', (e) => this.handleFileUploadStart(e));
     this._view.logFileReader.addEventListener(
+        'fileuploadchunk', (e) => this.handleFileUploadChunk(e));
+    this._view.logFileReader.addEventListener(
         'fileuploadend', (e) => this.handleFileUploadEnd(e));
     this._startupPromise = this.runAsyncInitialize();
     this._view.codeTrack.svg = true;
@@ -58,7 +61,7 @@ class App {
   static get allEventTypes() {
     return new Set([
       SourcePosition, MapLogEntry, IcLogEntry, ApiLogEntry, CodeLogEntry,
-      DeoptLogEntry, TickLogEntry
+      DeoptLogEntry, SharedLibLogEntry, TickLogEntry
     ]);
   }
 
@@ -106,6 +109,8 @@ class App {
       case CodeLogEntry:
         break;
       case TickLogEntry:
+        break;
+      case SharedLibLogEntry:
         break;
       case DeoptLogEntry:
         // TODO select map + code entries
@@ -164,6 +169,8 @@ class App {
         return this.showCodeEntries(entries);
       case DeoptLogEntry:
         return this.showDeoptEntries(entries);
+      case SharedLibLogEntry:
+        return this.showSharedLibEntries(entries);
       case TickLogEntry:
         break;
       default:
@@ -183,6 +190,8 @@ class App {
   showDeoptEntries(entries) {
     this._view.deoptList.selectedLogEntries = entries;
   }
+
+  showSharedLibEntries(entries) {}
 
   showCodeEntries(entries) {
     this._view.codePanel.selectedEntries = entries;
@@ -236,6 +245,8 @@ class App {
         return this.focusCodeLogEntry(entry);
       case DeoptLogEntry:
         return this.focusDeoptLogEntry(entry);
+      case SharedLibLogEntry:
+        return this.focusDeoptLogEntry(entry);
       case TickLogEntry:
         return this.focusTickLogEntry(entry);
       default:
@@ -262,6 +273,10 @@ class App {
 
   focusDeoptLogEntry(entry) {
     this._state.deoptLogEntry = entry;
+  }
+
+  focusSharedLibLogEntry(entry) {
+    // no-op.
   }
 
   focusApiLogEntry(entry) {
@@ -292,6 +307,7 @@ class App {
       case ApiLogEntry:
       case CodeLogEntry:
       case DeoptLogEntry:
+      case SharedLibLogEntry:
       case TickLogEntry:
         content = content.toolTipDict;
         break;
@@ -307,20 +323,28 @@ class App {
     this._view.toolTip.content = content;
   }
 
-  handleFileUploadStart(e) {
-    this.restartApp();
-    $('#container').className = 'initial';
-  }
-
   restartApp() {
     this._state = new State();
     this._navigation = new Navigation(this._state, this._view);
   }
 
+  handleFileUploadStart(e) {
+    this.restartApp();
+    $('#container').className = 'initial';
+    this._processor = new Processor();
+  }
+
+  handleFileUploadChunk(e) {
+    this._processor.processChunk(e.detail);
+  }
+
   async handleFileUploadEnd(e) {
-    await this._startupPromise;
     try {
-      const processor = new Processor(e.detail);
+      const processor = this._processor;
+      processor.finalize();
+
+      await this._startupPromise;
+
       this._state.profile = processor.profile;
       const mapTimeline = processor.mapTimeline;
       const icTimeline = processor.icTimeline;

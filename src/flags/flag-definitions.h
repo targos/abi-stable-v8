@@ -181,8 +181,9 @@ struct MaybeBoolFlag {
 #define ENABLE_CONTROL_FLOW_INTEGRITY_BOOL false
 #endif
 
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || \
-    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64
+#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 ||     \
+    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64 || V8_TARGET_ARCH_MIPS64 || \
+    V8_TARGET_ARCH_MIPS
 #define ENABLE_SPARKPLUG true
 #else
 // TODO(v8:11421): Enable Sparkplug for other architectures
@@ -909,10 +910,12 @@ DEFINE_DEBUG_BOOL(trace_wasm_native_heap, false,
                   "trace wasm native heap events")
 DEFINE_BOOL(wasm_write_protect_code_memory, false,
             "write protect code memory on the wasm native heap with mprotect")
+DEFINE_WEAK_IMPLICATION(future, wasm_write_protect_code_memory)
 DEFINE_BOOL(wasm_memory_protection_keys, false,
             "protect wasm code memory with PKU if available, no protection "
             "without support; fallback to mprotect by adding "
             "--wasm-write-protect-code-memory")
+DEFINE_WEAK_IMPLICATION(future, wasm_memory_protection_keys)
 DEFINE_DEBUG_BOOL(trace_wasm_serialization, false,
                   "trace serialization/deserialization")
 DEFINE_BOOL(wasm_async_compilation, true,
@@ -1017,8 +1020,8 @@ DEFINE_BOOL(wasm_stack_checks, true,
 DEFINE_BOOL(wasm_math_intrinsics, true,
             "intrinsify some Math imports into wasm")
 
-DEFINE_BOOL(wasm_loop_unrolling, false,
-            "enable loop unrolling for wasm functions (experimental)")
+DEFINE_BOOL(wasm_loop_unrolling, true,
+            "enable loop unrolling for wasm functions")
 DEFINE_BOOL(wasm_trap_handler, true,
             "use signal handlers to catch out of bounds memory access in wasm"
             " (currently Linux x86_64 only)")

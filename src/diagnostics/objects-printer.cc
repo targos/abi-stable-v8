@@ -11,6 +11,7 @@
 #include "src/execution/isolate-utils-inl.h"
 #include "src/heap/heap-inl.h"                // For InOldSpace.
 #include "src/heap/heap-write-barrier-inl.h"  // For GetIsolateFromWritableObj.
+#include "src/ic/handler-configuration-inl.h"
 #include "src/init/bootstrapper.h"
 #include "src/interpreter/bytecodes.h"
 #include "src/objects/all-objects-inl.h"
@@ -527,6 +528,10 @@ void JSObject::PrintElements(std::ostream& os) {
     case SLOW_SLOPPY_ARGUMENTS_ELEMENTS:
       PrintSloppyArgumentElements(os, map().elements_kind(),
                                   SloppyArgumentsElements::cast(elements()));
+      break;
+    case WASM_ARRAY_ELEMENTS:
+      // WasmArrayPrint() should be called intead.
+      UNREACHABLE();
       break;
     case NO_ELEMENTS:
       break;
@@ -1496,9 +1501,9 @@ void JSFunction::JSFunctionPrint(std::ostream& os) {
   os << "\n - name: " << Brief(shared().Name());
 
   // Print Builtin name for builtin functions
-  int builtin_index = code().builtin_index();
-  if (Builtins::IsBuiltinId(builtin_index)) {
-    os << "\n - builtin: " << isolate->builtins()->name(builtin_index);
+  Builtin builtin = code().builtin_id();
+  if (Builtins::IsBuiltinId(builtin)) {
+    os << "\n - builtin: " << isolate->builtins()->name(builtin);
   }
 
   os << "\n - formal_parameter_count: "

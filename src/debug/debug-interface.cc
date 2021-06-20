@@ -5,6 +5,7 @@
 #include "src/debug/debug-interface.h"
 
 #include "src/api/api-inl.h"
+#include "src/base/utils/random-number-generator.h"
 #include "src/debug/debug-coverage.h"
 #include "src/debug/debug-evaluate.h"
 #include "src/debug/debug-property-iterator.h"
@@ -13,6 +14,7 @@
 #include "src/execution/vm-state-inl.h"
 #include "src/objects/js-generator-inl.h"
 #include "src/objects/stack-frame-info-inl.h"
+#include "src/profiler/heap-profiler.h"
 #include "src/regexp/regexp-stack.h"
 #include "src/strings/string-builder-inl.h"
 
@@ -841,19 +843,19 @@ Local<String> WasmValueObject::type() const {
 }
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-Local<Function> GetBuiltin(Isolate* v8_isolate, Builtin builtin) {
+Local<Function> GetBuiltin(Isolate* v8_isolate, Builtin requested_builtin) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(v8_isolate);
   ENTER_V8_NO_SCRIPT_NO_EXCEPTION(isolate);
   i::HandleScope handle_scope(isolate);
 
-  CHECK_EQ(builtin, kStringToLowerCase);
-  i::Builtin builtin_id = i::Builtin::kStringPrototypeToLocaleLowerCase;
+  CHECK_EQ(requested_builtin, kStringToLowerCase);
+  i::Builtin builtin = i::Builtin::kStringPrototypeToLocaleLowerCase;
 
   i::Factory* factory = isolate->factory();
   i::Handle<i::String> name = isolate->factory()->empty_string();
   i::Handle<i::NativeContext> context(isolate->native_context());
   i::Handle<i::SharedFunctionInfo> info =
-      factory->NewSharedFunctionInfoForBuiltin(name, builtin_id);
+      factory->NewSharedFunctionInfoForBuiltin(name, builtin);
   info->set_language_mode(i::LanguageMode::kStrict);
   i::Handle<i::JSFunction> fun =
       i::Factory::JSFunctionBuilder{isolate, info, context}

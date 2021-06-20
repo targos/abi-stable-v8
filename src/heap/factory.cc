@@ -168,7 +168,7 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     raw_code.set_relocation_info(*reloc_info);
     raw_code.initialize_flags(kind_, is_turbofanned_, stack_slots_,
                               kIsNotOffHeapTrampoline);
-    raw_code.set_builtin_index(builtin_index_);
+    raw_code.set_builtin_id(builtin_);
     raw_code.set_inlined_bytecode_size(inlined_bytecode_size_);
     raw_code.set_code_data_container(*data_container, kReleaseStore);
     raw_code.set_deoptimization_data(*deoptimization_data_);
@@ -1457,6 +1457,29 @@ Handle<WasmCapiFunctionData> Factory::NewWasmCapiFunctionData(
   return handle(result, isolate());
 }
 
+Handle<WasmArray> Factory::NewWasmArray(
+    const wasm::ArrayType* type, const std::vector<wasm::WasmValue>& elements,
+    Handle<Map> map) {
+  uint32_t length = static_cast<uint32_t>(elements.size());
+  HeapObject raw =
+      AllocateRaw(WasmArray::SizeFor(*map, length), AllocationType::kYoung);
+  raw.set_map_after_allocation(*map);
+  WasmArray result = WasmArray::cast(raw);
+  result.set_raw_properties_or_hash(*empty_fixed_array());
+  result.set_length(length);
+  for (uint32_t i = 0; i < length; i++) {
+    Address address = result.ElementAddress(i);
+    if (type->element_type().is_numeric()) {
+      elements[i]
+          .Packed(type->element_type())
+          .CopyTo(reinterpret_cast<byte*>(address));
+    } else {
+      base::WriteUnalignedValue<Object>(address, *elements[i].to_ref());
+    }
+  }
+  return handle(result, isolate());
+}
+
 Handle<WasmStruct> Factory::NewWasmStruct(const wasm::StructType* type,
                                           wasm::WasmValue* args,
                                           Handle<Map> map) {
@@ -1599,15 +1622,17 @@ Handle<AllocationSite> Factory::NewAllocationSite(bool with_weak_next) {
 }
 
 Handle<Map> Factory::NewMap(InstanceType type, int instance_size,
-                            ElementsKind elements_kind,
-                            int inobject_properties) {
+                            ElementsKind elements_kind, int inobject_properties,
+                            AllocationType allocation_type) {
   STATIC_ASSERT(LAST_JS_OBJECT_TYPE == LAST_TYPE);
   DCHECK_IMPLIES(InstanceTypeChecker::IsJSObject(type) &&
                      !Map::CanHaveFastTransitionableElementsKind(type),
                  IsDictionaryElementsKind(elements_kind) ||
                      IsTerminalElementsKind(elements_kind));
+  DCHECK(allocation_type == AllocationType::kMap ||
+         allocation_type == AllocationType::kSharedMap);
   HeapObject result = isolate()->heap()->AllocateRawWith<Heap::kRetryOrFail>(
-      Map::kSize, AllocationType::kMap);
+      Map::kSize, allocation_type);
   DisallowGarbageCollection no_gc;
   result.set_map_after_allocation(*meta_map(), SKIP_WRITE_BARRIER);
   return handle(InitializeMap(Map::cast(result), type, instance_size,
@@ -2064,7 +2089,7 @@ Handle<Code> Factory::NewOffHeapTrampolineFor(Handle<Code> code,
   CHECK(Builtins::IsIsolateIndependentBuiltin(*code));
 
   bool generate_jump_to_instruction_stream =
-      Builtins::CodeObjectIsExecutable(code->builtin_index());
+      Builtins::CodeObjectIsExecutable(code->builtin_id());
   Handle<Code> result = Builtins::GenerateOffHeapTrampolineFor(
       isolate(), off_heap_entry,
       code->code_data_container(kAcquireLoad).kind_specific_flags(),
@@ -2090,7 +2115,7 @@ Handle<Code> Factory::NewOffHeapTrampolineFor(Handle<Code> code,
         raw_code.has_safepoint_info() ? raw_code.stack_slots() : 0;
     raw_result.initialize_flags(raw_code.kind(), raw_code.is_turbofanned(),
                                 stack_slots, set_is_off_heap_trampoline);
-    raw_result.set_builtin_index(raw_code.builtin_index());
+    raw_result.set_builtin_id(raw_code.builtin_id());
     raw_result.set_handler_table_offset(raw_code.handler_table_offset());
     raw_result.set_constant_pool_offset(raw_code.constant_pool_offset());
     raw_result.set_code_comments_offset(raw_code.code_comments_offset());
@@ -2938,9 +2963,9 @@ Handle<SharedFunctionInfo> Factory::NewSharedFunctionInfoForApiFunction(
 }
 
 Handle<SharedFunctionInfo> Factory::NewSharedFunctionInfoForBuiltin(
-    MaybeHandle<String> maybe_name, int builtin_index, FunctionKind kind) {
-  Handle<SharedFunctionInfo> shared = NewSharedFunctionInfo(
-      maybe_name, MaybeHandle<Code>(), builtin_index, kind);
+    MaybeHandle<String> maybe_name, Builtin builtin, FunctionKind kind) {
+  Handle<SharedFunctionInfo> shared =
+      NewSharedFunctionInfo(maybe_name, MaybeHandle<Code>(), builtin, kind);
   return shared;
 }
 
