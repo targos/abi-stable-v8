@@ -568,9 +568,7 @@ class CopyAndRelocTask : public JobTask {
         publish_handle_(std::move(publish_handle)) {}
 
   void Run(JobDelegate* delegate) override {
-    CODE_SPACE_WRITE_SCOPE
-    NativeModuleModificationScope native_module_modification_scope(
-        deserializer_->native_module_);
+    CodeSpaceWriteScope code_space_write_scope(deserializer_->native_module_);
     do {
       auto batch = from_queue_->Pop();
       if (batch.empty()) break;
@@ -833,7 +831,7 @@ MaybeHandle<WasmModuleObject> DeserializeNativeModule(
   auto owned_wire_bytes = base::OwnedVector<uint8_t>::Of(wire_bytes_vec);
 
   // TODO(titzer): module features should be part of the serialization format.
-  WasmEngine* wasm_engine = isolate->wasm_engine();
+  WasmEngine* wasm_engine = GetWasmEngine();
   WasmFeatures enabled_features = WasmFeatures::FromIsolate(isolate);
   ModuleResult decode_result = DecodeWasmModule(
       enabled_features, owned_wire_bytes.start(), owned_wire_bytes.end(), false,

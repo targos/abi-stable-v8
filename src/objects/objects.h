@@ -410,9 +410,6 @@ class Object : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   V8_WARN_UNUSED_RESULT static inline MaybeHandle<String> ToString(
       Isolate* isolate, Handle<Object> input);
 
-  V8_EXPORT_PRIVATE static MaybeHandle<String> NoSideEffectsToMaybeString(
-      Isolate* isolate, Handle<Object> input);
-
   V8_EXPORT_PRIVATE static Handle<String> NoSideEffectsToString(
       Isolate* isolate, Handle<Object> input);
 
@@ -596,8 +593,12 @@ class Object : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   EXPORT_DECL_VERIFIER(Object)
 
 #ifdef VERIFY_HEAP
-  // Verify a pointer is a valid object pointer.
+  // Verify a pointer is a valid (non-Code) object pointer.
+  // When V8_EXTERNAL_CODE_SPACE is enabled Code objects are not allowed.
   static void VerifyPointer(Isolate* isolate, Object p);
+  // Verify a pointer is a valid object pointer.
+  // Code objects are allowed regardless of the V8_EXTERNAL_CODE_SPACE mode.
+  static void VerifyAnyTagged(Isolate* isolate, Object p);
 #endif
 
   inline void VerifyApiCallResultType();

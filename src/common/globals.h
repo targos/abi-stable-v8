@@ -385,7 +385,7 @@ constexpr uint64_t kQuietNaNMask = static_cast<uint64_t>(0xfff) << 51;
 using uc16 = uint16_t;
 using uc32 = uint32_t;
 constexpr int kOneByteSize = kCharSize;
-constexpr int kUC16Size = sizeof(uc16);  // NOLINT
+constexpr int kUC16Size = sizeof(uc16);
 
 // 128 bit SIMD value size.
 constexpr int kSimd128Size = 16;
@@ -1142,6 +1142,8 @@ constexpr uint64_t kHoleNanInt64 =
 // ES6 section 20.1.2.6 Number.MAX_SAFE_INTEGER
 constexpr uint64_t kMaxSafeIntegerUint64 = 9007199254740991;  // 2^53-1
 constexpr double kMaxSafeInteger = static_cast<double>(kMaxSafeIntegerUint64);
+// ES6 section 21.1.2.8 Number.MIN_SAFE_INTEGER
+constexpr double kMinSafeInteger = -kMaxSafeInteger;
 
 constexpr double kMaxUInt32Double = double{kMaxUInt32};
 

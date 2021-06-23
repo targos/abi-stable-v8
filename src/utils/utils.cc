@@ -14,67 +14,10 @@
 #include "src/base/logging.h"
 #include "src/base/platform/platform.h"
 #include "src/base/platform/wrappers.h"
+#include "src/base/strings.h"
 
 namespace v8 {
 namespace internal {
-
-SimpleStringBuilder::SimpleStringBuilder(int size) {
-  buffer_ = base::Vector<char>::New(size);
-  position_ = 0;
-}
-
-void SimpleStringBuilder::AddString(const char* s) {
-  size_t len = strlen(s);
-  DCHECK_GE(kMaxInt, len);
-  AddSubstring(s, static_cast<int>(len));
-}
-
-void SimpleStringBuilder::AddSubstring(const char* s, int n) {
-  DCHECK(!is_finalized() && position_ + n <= buffer_.length());
-  DCHECK_LE(n, strlen(s));
-  std::memcpy(&buffer_[position_], s, n * kCharSize);
-  position_ += n;
-}
-
-void SimpleStringBuilder::AddPadding(char c, int count) {
-  for (int i = 0; i < count; i++) {
-    AddCharacter(c);
-  }
-}
-
-void SimpleStringBuilder::AddDecimalInteger(int32_t value) {
-  uint32_t number = static_cast<uint32_t>(value);
-  if (value < 0) {
-    AddCharacter('-');
-    number = static_cast<uint32_t>(-value);
-  }
-  int digits = 1;
-  for (uint32_t factor = 10; digits < 10; digits++, factor *= 10) {
-    if (factor > number) break;
-  }
-  position_ += digits;
-  for (int i = 1; i <= digits; i++) {
-    buffer_[position_ - i] = '0' + static_cast<char>(number % 10);
-    number /= 10;
-  }
-}
-
-char* SimpleStringBuilder::Finalize() {
-  DCHECK(!is_finalized() && position_ <= buffer_.length());
-  // If there is no space for null termination, overwrite last character.
-  if (position_ == buffer_.length()) {
-    position_--;
-    // Print ellipsis.
-    for (int i = 3; i > 0 && position_ > i; --i) buffer_[position_ - i] = '.';
-  }
-  buffer_[position_] = '\0';
-  // Make sure nobody managed to add a 0-character to the
-  // buffer while building the string.
-  DCHECK(strlen(buffer_.begin()) == static_cast<size_t>(position_));
-  position_ = -1;
-  DCHECK(is_finalized());
-  return buffer_.begin();
-}
 
 std::ostream& operator<<(std::ostream& os, FeedbackSlot slot) {
   return os << "#" << slot.id_;
@@ -117,22 +60,6 @@ void PrintIsolate(void* isolate, const char* format, ...) {
   va_start(arguments, format);
   base::OS::VPrint(format, arguments);
   va_end(arguments);
-}
-
-int SNPrintF(base::Vector<char> str, const char* format, ...) {
-  va_list args;
-  va_start(args, format);
-  int result = VSNPrintF(str, format, args);
-  va_end(args);
-  return result;
-}
-
-int VSNPrintF(base::Vector<char> str, const char* format, va_list args) {
-  return base::OS::VSNPrintF(str.begin(), str.length(), format, args);
-}
-
-void StrNCpy(base::Vector<char> dest, const char* src, size_t n) {
-  base::OS::StrNCpy(dest.begin(), dest.length(), src, n);
 }
 
 char* ReadLine(const char* prompt) {
@@ -271,23 +198,6 @@ int WriteBytes(const char* filename, const byte* bytes, int size,
                bool verbose) {
   const char* str = reinterpret_cast<const char*>(bytes);
   return WriteChars(filename, str, size, verbose);
-}
-
-void StringBuilder::AddFormatted(const char* format, ...) {
-  va_list arguments;
-  va_start(arguments, format);
-  AddFormattedList(format, arguments);
-  va_end(arguments);
-}
-
-void StringBuilder::AddFormattedList(const char* format, va_list list) {
-  DCHECK(!is_finalized() && position_ <= buffer_.length());
-  int n = VSNPrintF(buffer_ + position_, format, list);
-  if (n < 0 || n >= (buffer_.length() - position_)) {
-    position_ = buffer_.length();
-  } else {
-    position_ += n;
-  }
 }
 
 // Returns false iff d is NaN, +0, or -0.

@@ -657,6 +657,7 @@ DEFINE_INT(interrupt_budget_scale_factor_for_top_tier, 5,
 #endif
 DEFINE_BOOL(sparkplug, false, "enable experimental Sparkplug baseline compiler")
 DEFINE_BOOL(always_sparkplug, false, "directly tier up to Sparkplug code")
+DEFINE_BOOL(sparkplug_on_heap, false, "compile Sparkplug code directly on heap")
 #if ENABLE_SPARKPLUG
 DEFINE_IMPLICATION(always_sparkplug, sparkplug)
 DEFINE_BOOL(baseline_batch_compilation, true, "batch compile Sparkplug code")
@@ -857,7 +858,7 @@ DEFINE_BOOL(
 DEFINE_BOOL(turbo_fast_api_calls, false, "enable fast API calls from TurboFan")
 DEFINE_INT(reuse_opt_code_count, 0,
            "don't discard optimized code for the specified number of deopts.")
-DEFINE_BOOL(turbo_dynamic_map_checks, true,
+DEFINE_BOOL(turbo_dynamic_map_checks, false,
             "use dynamic map checks when generating code for property accesses "
             "if all handlers in an IC are the same for turboprop")
 DEFINE_BOOL(turbo_compress_translation_arrays, false,
@@ -1431,6 +1432,15 @@ DEFINE_BOOL(test_small_max_function_context_stub_size, false,
 
 DEFINE_BOOL(inline_new, true, "use fast inline allocation")
 DEFINE_NEG_NEG_IMPLICATION(inline_new, turbo_allocation_folding)
+
+// bytecode-generator.cc
+DEFINE_INT(switch_table_spread_threshold, 3,
+           "allow the jump table used for switch statements to span a range "
+           "of integers roughly equal to this number times the number of "
+           "clauses in the switch")
+DEFINE_INT(switch_table_min_cases, 6,
+           "the number of Smi integer cases present in the switch statement "
+           "before using the jump table optimization")
 
 // codegen-ia32.cc / codegen-arm.cc
 DEFINE_BOOL(trace, false, "trace javascript function calls")

@@ -463,8 +463,8 @@ Handle<String> NoSideEffectsErrorToString(Isolate* isolate,
 }  // namespace
 
 // static
-MaybeHandle<String> Object::NoSideEffectsToMaybeString(Isolate* isolate,
-                                                       Handle<Object> input) {
+Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
+                                             Handle<Object> input) {
   DisallowJavascriptExecution no_js(isolate);
 
   if (input->IsString() || input->IsNumber() || input->IsOddball()) {
@@ -560,20 +560,6 @@ MaybeHandle<String> Object::NoSideEffectsToMaybeString(Isolate* isolate,
         }
       }
     }
-  }
-  return MaybeHandle<String>(kNullMaybeHandle);
-}
-
-// static
-Handle<String> Object::NoSideEffectsToString(Isolate* isolate,
-                                             Handle<Object> input) {
-  DisallowJavascriptExecution no_js(isolate);
-
-  // Try to convert input to a meaningful string.
-  MaybeHandle<String> maybe_string = NoSideEffectsToMaybeString(isolate, input);
-  Handle<String> string_handle;
-  if (maybe_string.ToHandle(&string_handle)) {
-    return string_handle;
   }
 
   // At this point, input is either none of the above or a JSReceiver.
@@ -1205,7 +1191,7 @@ MaybeHandle<Object> JSProxy::GetProperty(Isolate* isolate,
   // 7. If trap is undefined, then
   if (trap->IsUndefined(isolate)) {
     // 7.a Return target.[[Get]](P, Receiver).
-    LookupIterator::Key key(isolate, name);
+    PropertyKey key(isolate, name);
     LookupIterator it(isolate, receiver, key, target);
     MaybeHandle<Object> result = Object::GetProperty(&it);
     *was_found = it.IsFound();
@@ -3061,7 +3047,7 @@ Maybe<bool> JSProxy::SetProperty(Handle<JSProxy> proxy, Handle<Name> name,
   ASSIGN_RETURN_ON_EXCEPTION_VALUE(
       isolate, trap, Object::GetMethod(handler, trap_name), Nothing<bool>());
   if (trap->IsUndefined(isolate)) {
-    LookupIterator::Key key(isolate, name);
+    PropertyKey key(isolate, name);
     LookupIterator it(isolate, receiver, key, target);
 
     return Object::SetSuperProperty(&it, value, StoreOrigin::kMaybeKeyed,

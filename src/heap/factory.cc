@@ -127,43 +127,30 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
   }
 
   STATIC_ASSERT(Code::kOnHeapBodyIsContiguous);
-  const int object_size = Code::SizeFor(code_desc_.body_size());
+  Heap* heap = isolate_->heap();
+  CodePageCollectionMemoryModificationScope code_allocation(heap);
 
   Handle<Code> code;
-  {
-    Heap* heap = isolate_->heap();
-
-    CodePageCollectionMemoryModificationScope code_allocation(heap);
-    HeapObject result;
-    AllocationType allocation_type =
-        V8_EXTERNAL_CODE_SPACE_BOOL || is_executable_
-            ? AllocationType::kCode
-            : AllocationType::kReadOnly;
-    if (retry_allocation_or_fail) {
-      result = heap->AllocateRawWith<Heap::kRetryOrFail>(
-          object_size, allocation_type, AllocationOrigin::kRuntime);
-    } else {
-      result = heap->AllocateRawWith<Heap::kLightRetry>(
-          object_size, allocation_type, AllocationOrigin::kRuntime);
-      // Return an empty handle if we cannot allocate the code object.
-      if (result.is_null()) return MaybeHandle<Code>();
+  bool code_is_on_heap = code_desc_.origin && code_desc_.origin->IsOnHeap();
+  if (code_is_on_heap) {
+    DCHECK(FLAG_sparkplug_on_heap);
+    DCHECK_EQ(kind_, CodeKind::BASELINE);
+    code = code_desc_.origin->code().ToHandleChecked();
+  } else {
+    if (!AllocateCode(retry_allocation_or_fail).ToHandle(&code)) {
+      return MaybeHandle<Code>();
     }
+  }
 
-    // The code object has not been fully initialized yet.  We rely on the
-    // fact that no allocation will happen from this point on.
+  {
+    Code raw_code = *code;
+    constexpr bool kIsNotOffHeapTrampoline = false;
     DisallowGarbageCollection no_gc;
 
-    result.set_map_after_allocation(*factory->code_map(), SKIP_WRITE_BARRIER);
-    Code raw_code = Code::cast(result);
-    code = handle(raw_code, isolate_);
-    if (is_executable_) {
-      DCHECK(IsAligned(code->address(), kCodeAlignment));
-      DCHECK_IMPLIES(
-          !V8_ENABLE_THIRD_PARTY_HEAP_BOOL && !heap->code_region().is_empty(),
-          heap->code_region().contains(code->address()));
+    if (code_is_on_heap) {
+      // TODO(victorgomes): we must notify the GC that code layout will change.
+      heap->EnsureSweepingCompleted(code);
     }
-
-    constexpr bool kIsNotOffHeapTrampoline = false;
 
     raw_code.set_raw_instruction_size(code_desc_.instruction_size());
     raw_code.set_raw_metadata_size(code_desc_.metadata_size());
@@ -171,6 +158,9 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     raw_code.initialize_flags(kind_, is_turbofanned_, stack_slots_,
                               kIsNotOffHeapTrampoline);
     raw_code.set_builtin_id(builtin_);
+    // This might impact direct concurrent reads from TF if we are resetting
+    // this field. We currently assume it's immutable thus a relaxed read (after
+    // passing IsPendingAllocation).
     raw_code.set_inlined_bytecode_size(inlined_bytecode_size_);
     raw_code.set_code_data_container(*data_container, kReleaseStore);
     raw_code.set_deoptimization_data(*deoptimization_data_);
@@ -193,8 +183,9 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     Handle<Object> self_reference;
     if (self_reference_.ToHandle(&self_reference)) {
       DCHECK(self_reference->IsOddball());
-      DCHECK(Oddball::cast(*self_reference).kind() ==
-             Oddball::kSelfReferenceMarker);
+      DCHECK_EQ(Oddball::cast(*self_reference).kind(),
+                Oddball::kSelfReferenceMarker);
+      DCHECK_NE(kind_, CodeKind::BASELINE);
       if (isolate_->IsGeneratingEmbeddedBuiltins()) {
         isolate_->builtins_constants_table_builder()->PatchSelfReference(
             self_reference, code);
@@ -210,13 +201,17 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
               handle(on_heap_profiler_data->counts(), isolate_));
     }
 
-    // Migrate generated code.
-    // The generated code can contain embedded objects (typically from handles)
-    // in a pointer-to-tagged-value format (i.e. with indirection like a handle)
-    // that are dereferenced during the copy to point directly to the actual
-    // heap objects. These pointers can include references to the code object
-    // itself, through the self_reference parameter.
-    raw_code.CopyFromNoFlush(heap, code_desc_);
+    if (code_is_on_heap) {
+      FinalizeOnHeapCode(code);
+    } else {
+      // Migrate generated code.
+      // The generated code can contain embedded objects (typically from
+      // handles) in a pointer-to-tagged-value format (i.e. with indirection
+      // like a handle) that are dereferenced during the copy to point directly
+      // to the actual heap objects. These pointers can include references to
+      // the code object itself, through the self_reference parameter.
+      raw_code.CopyFromNoFlush(heap, code_desc_);
+    }
 
     raw_code.clear_padding();
 
@@ -249,6 +244,97 @@ MaybeHandle<Code> Factory::CodeBuilder::BuildInternal(
     }
 #endif  // ENABLE_DISASSEMBLER
   }
+
+  return code;
+}
+
+MaybeHandle<Code> Factory::CodeBuilder::AllocateCode(
+    bool retry_allocation_or_fail) {
+  Heap* heap = isolate_->heap();
+  HeapObject result;
+  AllocationType allocation_type = V8_EXTERNAL_CODE_SPACE_BOOL || is_executable_
+                                       ? AllocationType::kCode
+                                       : AllocationType::kReadOnly;
+  const int object_size = Code::SizeFor(code_desc_.body_size());
+  if (retry_allocation_or_fail) {
+    result = heap->AllocateRawWith<Heap::kRetryOrFail>(
+        object_size, allocation_type, AllocationOrigin::kRuntime);
+  } else {
+    result = heap->AllocateRawWith<Heap::kLightRetry>(
+        object_size, allocation_type, AllocationOrigin::kRuntime);
+    // Return an empty handle if we cannot allocate the code object.
+    if (result.is_null()) return MaybeHandle<Code>();
+  }
+
+  // The code object has not been fully initialized yet.  We rely on the
+  // fact that no allocation will happen from this point on.
+  DisallowGarbageCollection no_gc;
+  result.set_map_after_allocation(*isolate_->factory()->code_map(),
+                                  SKIP_WRITE_BARRIER);
+  Handle<Code> code = handle(Code::cast(result), isolate_);
+  if (is_executable_) {
+    DCHECK(IsAligned(code->address(), kCodeAlignment));
+    DCHECK_IMPLIES(
+        !V8_ENABLE_THIRD_PARTY_HEAP_BOOL && !heap->code_region().is_empty(),
+        heap->code_region().contains(code->address()));
+  }
+  return code;
+}
+
+void Factory::CodeBuilder::FinalizeOnHeapCode(Handle<Code> code) {
+  Heap* heap = isolate_->heap();
+
+  code->CopyRelocInfoToByteArray(code->unchecked_relocation_info(), code_desc_);
+  code->RelocateFromDesc(heap, code_desc_);
+
+  int buffer_size = code_desc_.origin->buffer_size();
+  if (heap->code_lo_space()->Contains(*code)) {
+    // We cannot trim the Code object in CODE_LO_SPACE, so we update the
+    // metadata size to contain the extra bits.
+    code->set_raw_metadata_size(buffer_size - code_desc_.instruction_size());
+  } else {
+    // TODO(v8:11883): add a hook to GC to check if the filler is just before
+    // the current LAB, and if it is, immediately give back the memory.
+    int old_object_size = Code::SizeFor(buffer_size);
+    int new_object_size = Code::SizeFor(code_desc_.instruction_size() +
+                                        code_desc_.metadata_size());
+    int size_to_trim = old_object_size - new_object_size;
+    DCHECK_GE(size_to_trim, 0);
+    if (size_to_trim > 0) {
+      heap->CreateFillerObjectAt(code->address() + new_object_size,
+                                 size_to_trim, ClearRecordedSlots::kNo);
+    }
+  }
+}
+
+MaybeHandle<Code> Factory::NewEmptyCode(CodeKind kind, int buffer_size) {
+  STATIC_ASSERT(Code::kOnHeapBodyIsContiguous);
+  const int object_size = Code::SizeFor(buffer_size);
+  Heap* heap = isolate()->heap();
+
+  HeapObject result = heap->AllocateRawWith<Heap::kLightRetry>(
+      object_size, AllocationType::kCode, AllocationOrigin::kRuntime);
+  if (result.is_null()) return MaybeHandle<Code>();
+
+  DisallowGarbageCollection no_gc;
+  result.set_map_after_allocation(*code_map(), SKIP_WRITE_BARRIER);
+
+  Code raw_code = Code::cast(result);
+  constexpr bool kIsNotOffHeapTrampoline = false;
+  raw_code.set_raw_instruction_size(0);
+  raw_code.set_raw_metadata_size(buffer_size);
+  raw_code.set_relocation_info(*empty_byte_array());
+  raw_code.initialize_flags(kind, false, 0, kIsNotOffHeapTrampoline);
+  raw_code.set_handler_table_offset(0);
+  raw_code.set_constant_pool_offset(0);
+  raw_code.set_code_comments_offset(0);
+  raw_code.set_unwinding_info_offset(0);
+
+  Handle<Code> code = handle(raw_code, isolate());
+  DCHECK(IsAligned(code->address(), kCodeAlignment));
+  DCHECK_IMPLIES(
+      !V8_ENABLE_THIRD_PARTY_HEAP_BOOL && !heap->code_region().is_empty(),
+      heap->code_region().contains(code->address()));
 
   return code;
 }
@@ -3471,14 +3557,14 @@ Handle<Map> Factory::CreateSloppyFunctionMap(
       static_cast<PropertyAttributes>(DONT_ENUM | READ_ONLY);
 
   int field_index = 0;
-  STATIC_ASSERT(JSFunction::kLengthDescriptorIndex == 0);
+  STATIC_ASSERT(JSFunctionOrBoundFunction::kLengthDescriptorIndex == 0);
   {  // Add length accessor.
     Descriptor d = Descriptor::AccessorConstant(
         length_string(), function_length_accessor(), roc_attribs);
     map->AppendDescriptor(isolate(), &d);
   }
 
-  STATIC_ASSERT(JSFunction::kNameDescriptorIndex == 1);
+  STATIC_ASSERT(JSFunctionOrBoundFunction::kNameDescriptorIndex == 1);
   if (IsFunctionModeWithName(function_mode)) {
     // Add name field.
     Handle<Name> name = isolate()->factory()->name_string();

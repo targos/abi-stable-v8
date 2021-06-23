@@ -14,8 +14,10 @@
 #include "src/objects/property-descriptor.h"
 #include "src/tracing/trace-event.h"
 #include "src/utils/utils.h"
+#include "src/wasm/code-space-access.h"
 #include "src/wasm/module-compiler.h"
 #include "src/wasm/wasm-constants.h"
+#include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-external-refs.h"
 #include "src/wasm/wasm-import-wrapper-cache.h"
 #include "src/wasm/wasm-module.h"
@@ -44,11 +46,10 @@ using ImportWrapperQueue = WrapperQueue<WasmImportWrapperCache::CacheKey,
 class CompileImportWrapperJob final : public JobTask {
  public:
   CompileImportWrapperJob(
-      WasmEngine* engine, Counters* counters, NativeModule* native_module,
+      Counters* counters, NativeModule* native_module,
       ImportWrapperQueue* queue,
       WasmImportWrapperCache::ModificationScope* cache_scope)
-      : engine_(engine),
-        counters_(counters),
+      : counters_(counters),
         native_module_(native_module),
         queue_(queue),
         cache_scope_(cache_scope) {}
@@ -64,14 +65,13 @@ class CompileImportWrapperJob final : public JobTask {
   void Run(JobDelegate* delegate) override {
     while (base::Optional<WasmImportWrapperCache::CacheKey> key =
                queue_->pop()) {
-      CompileImportWrapper(engine_, native_module_, counters_, key->kind,
-                           key->signature, key->expected_arity, cache_scope_);
+      CompileImportWrapper(native_module_, counters_, key->kind, key->signature,
+                           key->expected_arity, cache_scope_);
       if (delegate->ShouldYield()) return;
     }
   }
 
  private:
-  WasmEngine* const engine_;
   Counters* const counters_;
   NativeModule* const native_module_;
   ImportWrapperQueue* const queue_;
@@ -630,7 +630,7 @@ MaybeHandle<WasmInstanceObject> InstanceBuilder::Build() {
     instance->set_indirect_function_tables(*tables);
   }
 
-  NativeModuleModificationScope native_modification_scope(native_module);
+  CodeSpaceWriteScope native_modification_scope(native_module);
 
   //--------------------------------------------------------------------------
   // Process the imports for the module.
@@ -829,7 +829,7 @@ MaybeHandle<Object> InstanceBuilder::LookupImportAsm(
   // side-effect. We only accept accesses that resolve to data properties,
   // which is indicated by the asm.js spec in section 7 ("Linking") as well.
   Handle<Object> result;
-  LookupIterator::Key key(isolate_, Handle<Name>::cast(import_name));
+  PropertyKey key(isolate_, Handle<Name>::cast(import_name));
   LookupIterator it(isolate_, ffi_.ToHandleChecked(), key);
   switch (it.state()) {
     case LookupIterator::ACCESS_CHECK:
@@ -996,8 +996,8 @@ bool InstanceBuilder::ProcessImportedFunction(
       if (wasm_code == nullptr) {
         WasmCodeRefScope code_ref_scope;
         WasmImportWrapperCache::ModificationScope cache_scope(cache);
-        wasm_code = compiler::CompileWasmCapiCallWrapper(
-            isolate_->wasm_engine(), native_module, expected_sig);
+        wasm_code =
+            compiler::CompileWasmCapiCallWrapper(native_module, expected_sig);
         WasmImportWrapperCache::CacheKey key(kind, expected_sig,
                                              expected_arity);
         cache_scope[key] = wasm_code;
@@ -1437,8 +1437,7 @@ void InstanceBuilder::CompileImportWrappers(
   }
 
   auto compile_job_task = std::make_unique<CompileImportWrapperJob>(
-      isolate_->wasm_engine(), isolate_->counters(), native_module,
-      &import_wrapper_queue, &cache_scope);
+      isolate_->counters(), native_module, &import_wrapper_queue, &cache_scope);
   auto compile_job = V8::GetCurrentPlatform()->PostJob(
       TaskPriority::kUserVisible, std::move(compile_job_task));
 

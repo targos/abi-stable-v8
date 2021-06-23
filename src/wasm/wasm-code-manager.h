@@ -43,7 +43,6 @@ namespace wasm {
 
 class DebugInfo;
 class NativeModule;
-class WasmCodeManager;
 struct WasmCompilationResult;
 class WasmEngine;
 class WasmImportWrapperCache;
@@ -481,7 +480,7 @@ class WasmCodeAllocator {
   static constexpr size_t kMaxCodeSpaceSize = 1024 * MB;
 #endif
 
-  WasmCodeAllocator(WasmCodeManager*, std::shared_ptr<Counters> async_counters);
+  explicit WasmCodeAllocator(std::shared_ptr<Counters> async_counters);
   ~WasmCodeAllocator();
 
   // Call before use, after the {NativeModule} is set up completely.
@@ -531,9 +530,6 @@ class WasmCodeAllocator {
   // restriction on the region to allocate in.
   static constexpr base::AddressRegion kUnrestrictedRegion{
       kNullAddress, std::numeric_limits<size_t>::max()};
-
-  // The engine-wide wasm code manager.
-  WasmCodeManager* const code_manager_;
 
   //////////////////////////////////////////////////////////////////////////////
   // These fields are protected by the mutex in {NativeModule}.
@@ -782,7 +778,7 @@ class V8_EXPORT_PRIVATE NativeModule final {
   friend class WasmCode;
   friend class WasmCodeAllocator;
   friend class WasmCodeManager;
-  friend class NativeModuleModificationScope;
+  friend class CodeSpaceWriteScope;
 
   struct CodeSpaceData {
     base::AddressRegion region;
@@ -884,10 +880,10 @@ class V8_EXPORT_PRIVATE NativeModule final {
 
   // This mutex protects concurrent calls to {AddCode} and friends.
   // TODO(dlehmann): Revert this to a regular {Mutex} again.
-  // This needs to be a {RecursiveMutex} only because of
-  // {NativeModuleModificationScope} usages, which are (1) either at places
-  // that already hold the {allocation_mutex_} or (2) because of multiple open
-  // {NativeModuleModificationScope}s in the call hierarchy. Both are fixable.
+  // This needs to be a {RecursiveMutex} only because of {CodeSpaceWriteScope}
+  // usages, which are (1) either at places that already hold the
+  // {allocation_mutex_} or (2) because of multiple open {CodeSpaceWriteScope}s
+  // in the call hierarchy. Both are fixable.
   mutable base::RecursiveMutex allocation_mutex_;
 
   //////////////////////////////////////////////////////////////////////////////
@@ -938,7 +934,7 @@ class V8_EXPORT_PRIVATE NativeModule final {
 
 class V8_EXPORT_PRIVATE WasmCodeManager final {
  public:
-  explicit WasmCodeManager(size_t max_committed);
+  WasmCodeManager();
   WasmCodeManager(const WasmCodeManager&) = delete;
   WasmCodeManager& operator=(const WasmCodeManager&) = delete;
 
@@ -1010,40 +1006,6 @@ class V8_EXPORT_PRIVATE WasmCodeManager final {
   // End of fields protected by {native_modules_mutex_}.
   //////////////////////////////////////////////////////////////////////////////
 };
-
-#if defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
-// Arm64 on MacOS (M1 hardware) uses CodeSpaceWriteScope to switch permissions.
-// TODO(wasm): Merge NativeModuleModificationScope and CodeSpaceWriteScope.
-class V8_NODISCARD NativeModuleModificationScope final {
- public:
-  explicit NativeModuleModificationScope(NativeModule*) {}
-};
-#else
-// Within the scope, the native_module is writable and not executable.
-// At the scope's destruction, the native_module is executable and not writable.
-// The states inside the scope and at the scope termination are irrespective of
-// native_module's state when entering the scope.
-// We currently mark the entire module's memory W^X:
-//  - for AOT, that's as efficient as it can be.
-//  - for Lazy, we don't have a heuristic for functions that may need patching,
-//    and even if we did, the resulting set of pages may be fragmented.
-//    Currently, we try and keep the number of syscalls low.
-// -  similar argument for debug time.
-class V8_NODISCARD NativeModuleModificationScope final {
- public:
-  explicit NativeModuleModificationScope(NativeModule* native_module);
-  ~NativeModuleModificationScope();
-
-  // Disable copy constructor and copy-assignment operator, since this manages
-  // a resource and implicit copying of the scope can yield surprising errors.
-  NativeModuleModificationScope(const NativeModuleModificationScope&) = delete;
-  NativeModuleModificationScope& operator=(
-      const NativeModuleModificationScope&) = delete;
-
- private:
-  NativeModule* native_module_;
-};
-#endif
 
 // {WasmCodeRefScope}s form a perfect stack. New {WasmCode} pointers generated
 // by e.g. creating new code or looking up code by its address are added to the

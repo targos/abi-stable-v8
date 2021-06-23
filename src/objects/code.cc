@@ -104,6 +104,11 @@ void Code::CopyFromNoFlush(Heap* heap, const CodeDesc& desc) {
   CopyRelocInfoToByteArray(unchecked_relocation_info(), desc);
 
   // Unbox handles and relocate.
+  RelocateFromDesc(heap, desc);
+}
+
+void Code::RelocateFromDesc(Heap* heap, const CodeDesc& desc) {
+  // Unbox handles and relocate.
   Assembler* origin = desc.origin;
   const int mode_mask = RelocInfo::PostCodegenRelocationMask();
   for (RelocIterator it(*this, mode_mask); !it.done(); it.next()) {
@@ -378,7 +383,8 @@ Code Code::OptimizedCodeIterator::Next() {
       // Exhausted contexts.
       return Code();
     }
-    current_code_ = next.IsUndefined(isolate_) ? Code() : Code::cast(next);
+    current_code_ =
+        next.IsUndefined(isolate_) ? Code() : FromCodeT(CodeT::cast(next));
   } while (current_code_.is_null());
   DCHECK(CodeKindCanDeoptimize(current_code_.kind()));
   return current_code_;
@@ -472,7 +478,7 @@ inline void DisassembleCodeRange(Isolate* isolate, std::ostream& os, Code code,
   AllowHandleAllocation allow_handles;
   DisallowGarbageCollection no_gc;
   HandleScope handle_scope(isolate);
-  Disassembler::Decode(isolate, &os, reinterpret_cast<byte*>(begin),
+  Disassembler::Decode(isolate, os, reinterpret_cast<byte*>(begin),
                        reinterpret_cast<byte*>(end),
                        CodeReference(handle(code, isolate)), current_pc);
 }

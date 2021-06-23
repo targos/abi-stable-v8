@@ -283,9 +283,9 @@ class DebugInfoImpl {
     Counters* counters = nullptr;
     WasmFeatures unused_detected;
     WasmCompilationResult result = ExecuteLiftoffCompilation(
-        native_module_->engine()->allocator(), &env, body, func_index,
-        for_debugging, counters, &unused_detected, offsets,
-        generate_debug_sidetable ? &debug_sidetable : nullptr, dead_breakpoint);
+        &env, body, func_index, for_debugging, counters, &unused_detected,
+        offsets, generate_debug_sidetable ? &debug_sidetable : nullptr,
+        dead_breakpoint);
     // Liftoff compilation failure is a FATAL error. We rely on complete Liftoff
     // support for debugging.
     if (!result.succeeded()) FATAL("Liftoff compilation failed");
@@ -529,8 +529,7 @@ class DebugInfoImpl {
  private:
   struct FrameInspectionScope {
     FrameInspectionScope(DebugInfoImpl* debug_info, Address pc)
-        : code(debug_info->native_module_->engine()->code_manager()->LookupCode(
-              pc)),
+        : code(wasm::GetWasmCodeManager()->LookupCode(pc)),
           pc_offset(static_cast<int>(pc - code->instruction_start())),
           debug_side_table(code->is_inspectable()
                                ? debug_info->GetDebugSideTable(code)

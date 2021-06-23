@@ -2972,7 +2972,6 @@ STATIC_ASSERT(IsAligned(ByteArray::kHeaderSize, kDoubleAlignment));
 #endif
 
 #ifdef V8_HOST_ARCH_32_BIT
-// NOLINTNEXTLINE(runtime/references) (false positive)
 STATIC_ASSERT((HeapNumber::kValueOffset & kDoubleAlignmentMask) == kTaggedSize);
 #endif
 
@@ -3164,6 +3163,10 @@ void Heap::CreateFillerObjectAtBackground(
 
 HeapObject Heap::CreateFillerObjectAt(Address addr, int size,
                                       ClearRecordedSlots clear_slots_mode) {
+  // TODO(mlippautz): It would be nice to DCHECK that we never call this
+  // with {addr} pointing into large object space; however we currently
+  // initialize LO allocations with a filler, see
+  // LargeObjectSpace::AllocateLargePage.
   if (size == 0) return HeapObject();
   HeapObject filler = CreateFillerObjectAtImpl(
       ReadOnlyRoots(this), addr, size,

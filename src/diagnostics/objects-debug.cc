@@ -133,6 +133,18 @@ void Object::VerifyPointer(Isolate* isolate, Object p) {
   }
 }
 
+void Object::VerifyAnyTagged(Isolate* isolate, Object p) {
+  if (p.IsHeapObject()) {
+    if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+      CHECK(IsValidHeapObject(isolate->heap(), HeapObject::cast(p)));
+    } else {
+      HeapObject::VerifyHeapPointer(isolate, p);
+    }
+  } else {
+    CHECK(p.IsSmi());
+  }
+}
+
 void MaybeObject::VerifyMaybeObjectPointer(Isolate* isolate, MaybeObject p) {
   HeapObject heap_object;
   if (p->GetHeapObject(&heap_object)) {
@@ -292,6 +304,14 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
 void HeapObject::VerifyHeapPointer(Isolate* isolate, Object p) {
   CHECK(p.IsHeapObject());
   CHECK(IsValidHeapObject(isolate->heap(), HeapObject::cast(p)));
+  CHECK_IMPLIES(V8_EXTERNAL_CODE_SPACE_BOOL, !p.IsCode());
+}
+
+// static
+void HeapObject::VerifyCodePointer(Isolate* isolate, Object p) {
+  CHECK(p.IsHeapObject());
+  CHECK(isolate->heap()->InCodeSpace(HeapObject::cast(p)));
+  CHECK(HeapObject::cast(p).IsCode());
 }
 
 void Symbol::SymbolVerify(Isolate* isolate) {
@@ -968,7 +988,7 @@ void PropertyCell::PropertyCellVerify(Isolate* isolate) {
 void CodeDataContainer::CodeDataContainerVerify(Isolate* isolate) {
   CHECK(IsCodeDataContainer());
   VerifyObjectField(isolate, kNextCodeLinkOffset);
-  CHECK(next_code_link().IsCode() || next_code_link().IsUndefined(isolate));
+  CHECK(next_code_link().IsCodeT() || next_code_link().IsUndefined(isolate));
   if (V8_EXTERNAL_CODE_SPACE_BOOL) {
     if (raw_code() != Smi::zero()) {
       CHECK_EQ(code().InstructionStart(), code_entry_point());

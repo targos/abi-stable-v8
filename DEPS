@@ -41,10 +41,15 @@ vars = {
   'android_url': 'https://android.googlesource.com',
   'download_gcmole': False,
   'download_jsfunfuzz': False,
+  'download_prebuilt_bazel': False,
   'check_v8_header_includes': False,
+  'checkout_reclient': False,
+
+  # reclient CIPD package version
+  'reclient_version': 're_client_version:0.33.0.3e223d5',
 
   # GN CIPD package version.
-  'gn_version': 'git_revision:7d803996740ccd587c54062750cbe04dfbc3c423',
+  'gn_version': 'git_revision:e9b8433248ae2c117644b4e40b33203e7d3da192',
 
   # luci-go CIPD package version.
   'luci_go': 'git_revision:2adc53281f4a72ecb71e84a8af5acc0fced04cc9',
@@ -87,9 +92,9 @@ deps = {
   'base/trace_event/common':
     Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + 'd5bb24e5d9802c8c917fcaa4375d5239a586c168',
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + 'd6115b16f58e7146cfed9838fdae895f1a974025',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + 'e589a8307b2eebca131735b6ba6afe0808d049f7',
   'buildtools':
-    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + '466954eda391b83e90f8b925767e6152318d690b',
+    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + '9c143ace7560797fed136da85e22ea4834e6b147',
   'buildtools/clang_format/script':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/clang/tools/clang-format.git' + '@' + '99803d74e35962f63a775f29477882afd4d57d94',
   'buildtools/linux64': {
@@ -128,6 +133,16 @@ deps = {
     'dep_type': 'cipd',
     'condition': 'host_os == "win"',
   },
+  'buildtools/reclient': {
+    'packages': [
+      {
+        'package': 'infra/rbe/client/${{platform}}',
+        'version': Var('reclient_version'),
+      }
+    ],
+    'dep_type': 'cipd',
+    'condition': '(host_os == "linux" or host_os == "win") and checkout_reclient',
+  },
   'test/benchmarks/data':
     Var('chromium_url') + '/v8/deps/third_party/benchmarks.git' + '@' + '05d7188267b4560491ff9155c5ee13e207ecd65f',
   'test/mozilla/data':
@@ -140,7 +155,7 @@ deps = {
       'packages': [
           {
               'package': 'fuchsia/third_party/aemu/linux-amd64',
-              'version': 'h_kO6UaQmxXGNfG0ofG4wgKw_URVHcderPkx6AlamR0C'
+              'version': 'LieFB6bFq-7RUGMVRhbOR3IXo6WdPE7fCzCMv4PnaScC'
           },
       ],
       'condition': 'host_os == "linux" and checkout_fuchsia',
@@ -203,7 +218,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'third_party/catapult': {
-    'url': Var('chromium_url') + '/catapult.git' + '@' + '893c99ae7113258b38743f1b7dbb3f01069df13e',
+    'url': Var('chromium_url') + '/catapult.git' + '@' + 'a2a4ced865fa56087bf3416d61b5247c60d180ac',
     'condition': 'checkout_android',
   },
   'third_party/colorama/src': {
@@ -211,16 +226,16 @@ deps = {
     'condition': 'checkout_android',
   },
   'third_party/depot_tools':
-    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '473499ba26225c48262ffe29c782817fe64ea9cb',
+    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '09f358bae36c316e3c4c39cd344de964bd0fed7c',
   'third_party/fuchsia-sdk': {
     'url': Var('chromium_url') + '/chromium/src/third_party/fuchsia-sdk.git' + '@' + '1ea7a15f7eb3752f134afaf42c40e5b1aa159c07',
     'condition': 'checkout_fuchsia',
   },
   'third_party/google_benchmark/src': {
-    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '5b7518482c92df72dfdaf257beaf6e7175fefd9a',
+    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '62937f91b5c763a8e119d0c20c67b87bde8eff1c',
   },
   'third_party/googletest/src':
-    Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + '7153098229e88295f9655ff1d3b0e2fa9eada5f8',
+    Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + '355d57d90d9744c41ac7c99f1e960778f1c63040',
   'third_party/icu':
     Var('chromium_url') + '/chromium/deps/icu.git' + '@' + 'a0718d4f121727e30b8d52c7a189ebf5ab52421f',
   'third_party/instrumented_libraries':
@@ -270,7 +285,7 @@ deps = {
   'third_party/zlib':
     Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + '00ade15d946d72f75c786dc2e66c419a9d99e2ad',
   'tools/clang':
-    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + '0e774456f51950adbd2309ebc176eb5e0d74ed41',
+    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + '8dd9dda226104ce5950533b6f217166749590dad',
   'tools/clang/dsymutil': {
     'packages': [
       {
@@ -340,6 +355,17 @@ hooks = [
         'build/landmines.py',
         '--landmine-scripts',
         'tools/get_landmines.py',
+    ],
+  },
+  {
+    'name': 'bazel',
+    'pattern': '.',
+    'condition': 'download_prebuilt_bazel',
+    'action': [ 'download_from_google_storage',
+                '--bucket', 'chromium-v8-prebuilt-bazel/linux',
+                '--no_resume',
+                '-s', 'tools/bazel/bazel.sha1',
+                '--platform=linux*',
     ],
   },
   # Pull clang-format binaries using checked-in hashes.

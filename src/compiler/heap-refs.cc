@@ -737,15 +737,12 @@ class ArrayBoilerplateDescriptionData : public HeapObjectData {
  public:
   ArrayBoilerplateDescriptionData(JSHeapBroker* broker, ObjectData** storage,
                                   Handle<ArrayBoilerplateDescription> object)
-      : HeapObjectData(broker, storage, object),
-        constants_elements_length_(object->constant_elements().length()) {
-    DCHECK(!broker->is_concurrent_inlining());
+      : HeapObjectData(broker, storage, object) {
+    // ArrayBoilerplateDescriptionData is NeverEverSerialize.
+    // TODO(solanes, v8:7790): Remove this class once all kNeverSerialized types
+    // are NeverEverSerialize.
+    UNREACHABLE();
   }
-
-  int constants_elements_length() const { return constants_elements_length_; }
-
- private:
-  int const constants_elements_length_;
 };
 
 class JSDataViewData : public JSObjectData {
@@ -1808,14 +1805,12 @@ class ObjectBoilerplateDescriptionData : public FixedArrayData {
       JSHeapBroker* broker, ObjectData** storage,
       Handle<ObjectBoilerplateDescription> object,
       ObjectDataKind kind = ObjectDataKind::kSerializedHeapObject)
-      : FixedArrayData(broker, storage, object, kind), size_(object->size()) {
-    DCHECK(!broker->is_concurrent_inlining());
+      : FixedArrayData(broker, storage, object, kind) {
+    // ObjectBoilerplateDescriptionData is NeverEverSerialize.
+    // TODO(solanes, v8:7790): Remove this class once all kNeverSerialized types
+    // are NeverEverSerialize.
+    UNREACHABLE();
   }
-
-  int size() const { return size_; }
-
- private:
-  int const size_;
 };
 
 // Only used in JSNativeContextSpecialization.
@@ -2285,7 +2280,10 @@ class TemplateObjectDescriptionData : public HeapObjectData {
   TemplateObjectDescriptionData(JSHeapBroker* broker, ObjectData** storage,
                                 Handle<TemplateObjectDescription> object)
       : HeapObjectData(broker, storage, object) {
-    DCHECK(!broker->is_concurrent_inlining());
+    // TemplateObjectDescriptionData is NeverEverSerialize.
+    // TODO(solanes, v8:7790): Remove this class once all kNeverSerialized types
+    // are NeverEverSerialize.
+    UNREACHABLE();
   }
 };
 
@@ -2826,7 +2824,10 @@ bool NeverEverSerialize() {
     return true;                    \
   }
 
+NEVER_EVER_SERIALIZE(ArrayBoilerplateDescription)
+NEVER_EVER_SERIALIZE(ObjectBoilerplateDescription)
 NEVER_EVER_SERIALIZE(RegExpBoilerplateDescription)
+NEVER_EVER_SERIALIZE(TemplateObjectDescription)
 
 #undef NEVER_EVER_SERIALIZE
 
@@ -3180,6 +3181,7 @@ bool MapRef::IsPrimitiveMap() const {
 
 MapRef MapRef::FindFieldOwner(InternalIndex descriptor_index) const {
   CHECK_LT(descriptor_index.as_int(), NumberOfOwnDescriptors());
+  CHECK(!is_deprecated());
   if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     // TODO(solanes, v8:7790): Consider caching the result of the field owner on
     // the descriptor array. It would be useful for same map as well as any
@@ -3266,10 +3268,7 @@ base::Optional<double> StringRef::ToNumber() {
 }
 
 int ArrayBoilerplateDescriptionRef::constants_elements_length() const {
-  if (data_->should_access_heap()) {
-    return object()->constant_elements().length();
-  }
-  return data()->AsArrayBoilerplateDescription()->constants_elements_length();
+  return object()->constant_elements().length();
 }
 
 ObjectRef FixedArrayRef::get(int i) const { return TryGet(i).value(); }
@@ -3434,7 +3433,7 @@ BIMODAL_ACCESSOR_WITH_FLAG(Map, Object, GetConstructor)
 BIMODAL_ACCESSOR_WITH_FLAG(Map, HeapObject, GetBackPointer)
 BIMODAL_ACCESSOR_C(Map, bool, is_abandoned_prototype_map)
 
-BIMODAL_ACCESSOR_C(ObjectBoilerplateDescription, int, size)
+int ObjectBoilerplateDescriptionRef::size() const { return object()->size(); }
 
 BIMODAL_ACCESSOR(PropertyCell, Object, value)
 BIMODAL_ACCESSOR_C(PropertyCell, PropertyDetails, property_details)
@@ -4560,7 +4559,9 @@ base::Optional<MapRef> JSObjectRef::GetObjectCreateMap() const {
 
 bool MapRef::TrySerializeOwnDescriptor(InternalIndex descriptor_index) {
   CHECK_LT(descriptor_index.as_int(), NumberOfOwnDescriptors());
-  if (data_->should_access_heap()) return true;
+  if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
+    return true;
+  }
   CHECK_IMPLIES(!FLAG_turbo_concurrent_get_property_access_info,
                 broker()->mode() == JSHeapBroker::kSerializing);
   return data()->AsMap()->TrySerializeOwnDescriptor(broker(), descriptor_index);
@@ -4572,7 +4573,9 @@ void MapRef::SerializeOwnDescriptor(InternalIndex descriptor_index) {
 
 bool MapRef::serialized_own_descriptor(InternalIndex descriptor_index) const {
   CHECK_LT(descriptor_index.as_int(), NumberOfOwnDescriptors());
-  if (data_->should_access_heap()) return true;
+  if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
+    return true;
+  }
   ObjectData* maybe_desc_array_data = data()->AsMap()->instance_descriptors();
   if (!maybe_desc_array_data) return false;
   if (maybe_desc_array_data->should_access_heap()) return true;

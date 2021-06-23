@@ -458,7 +458,8 @@ class LiftoffCompiler {
                   DebugSideTableBuilder* debug_sidetable_builder,
                   ForDebugging for_debugging, int func_index,
                   base::Vector<const int> breakpoints = {},
-                  int dead_breakpoint = 0, int* max_steps = nullptr)
+                  int dead_breakpoint = 0, int* max_steps = nullptr,
+                  bool* nondeterminism = nullptr)
       : asm_(std::move(buffer)),
         descriptor_(
             GetLoweredCallDescriptor(compilation_zone, call_descriptor)),
@@ -475,7 +476,8 @@ class LiftoffCompiler {
         next_breakpoint_end_(breakpoints.end()),
         dead_breakpoint_(dead_breakpoint),
         handlers_(compilation_zone),
-        max_steps_(max_steps) {
+        max_steps_(max_steps),
+        nondeterminism_(nondeterminism) {
     if (breakpoints.empty()) {
       next_breakpoint_ptr_ = next_breakpoint_end_ = nullptr;
     }
@@ -487,6 +489,10 @@ class LiftoffCompiler {
   void GetCode(CodeDesc* desc) {
     asm_.GetCode(nullptr, desc, &safepoint_table_builder_,
                  handler_table_offset_);
+  }
+
+  std::unique_ptr<AssemblerBuffer> ReleaseBuffer() {
+    return asm_.ReleaseBuffer();
   }
 
   base::OwnedVector<uint8_t> GetSourcePositionTable() {
@@ -1447,6 +1453,10 @@ class LiftoffCompiler {
                               ? __ GetUnusedRegister(result_rc, {src}, {})
                               : __ GetUnusedRegister(result_rc, {});
     CallEmitFn(fn, dst, src);
+    if (V8_UNLIKELY(nondeterminism_) &&
+        (result_kind == ValueKind::kF32 || result_kind == ValueKind::kF64)) {
+      CheckNan(dst, LiftoffRegList::ForRegs(src, dst), result_kind);
+    }
     __ PushRegister(result_kind, dst);
   }
 
@@ -1668,6 +1678,8 @@ class LiftoffCompiler {
                                 : __ GetUnusedRegister(result_rc, pinned);
 
       CallEmitFn(fnImm, dst, lhs, imm);
+      static_assert(result_kind != kF32 && result_kind != kF64,
+                    "Unhandled nondeterminism for fuzzing.");
       __ PushRegister(result_kind, dst);
     } else {
       // The RHS was not an immediate.
@@ -1689,6 +1701,10 @@ class LiftoffCompiler {
     if (swap_lhs_rhs) std::swap(lhs, rhs);
 
     CallEmitFn(fn, dst, lhs, rhs);
+    if (V8_UNLIKELY(nondeterminism_) &&
+        (result_kind == ValueKind::kF32 || result_kind == ValueKind::kF64)) {
+      CheckNan(dst, LiftoffRegList::ForRegs(rhs, lhs, dst), result_kind);
+    }
     __ PushRegister(result_kind, dst);
   }
 
@@ -3290,6 +3306,11 @@ class LiftoffCompiler {
                                    LiftoffRegList::ForRegs(src1, src2))
             : __ GetUnusedRegister(result_rc, {});
     CallEmitFn(fn, dst, src1, src2, src3);
+    if (V8_UNLIKELY(nondeterminism_) &&
+        (result_kind == ValueKind::kF32 || result_kind == ValueKind::kF64)) {
+      CheckNan(dst, LiftoffRegList::ForRegs(src1, src2, src3, dst),
+               result_kind);
+    }
     __ PushRegister(result_kind, dst);
   }
 
@@ -6071,6 +6092,15 @@ class LiftoffCompiler {
     __ FinishCall(sig, call_descriptor);
   }
 
+  void CheckNan(LiftoffRegister src, LiftoffRegList pinned, ValueKind kind) {
+    DCHECK(kind == ValueKind::kF32 || kind == ValueKind::kF64);
+    auto nondeterminism_addr = __ GetUnusedRegister(kGpReg, pinned);
+    __ LoadConstant(
+        nondeterminism_addr,
+        WasmValue::ForUintPtr(reinterpret_cast<uintptr_t>(nondeterminism_)));
+    __ emit_set_if_nan(nondeterminism_addr.gp(), src.fp(), kind);
+  }
+
   static constexpr WasmOpcode kNoOutstandingOp = kExprUnreachable;
   static constexpr base::EnumSet<ValueKind> kUnconditionallySupported{
       kI32, kI64, kF32, kF64};
@@ -6130,6 +6160,7 @@ class LiftoffCompiler {
   int num_exceptions_ = 0;
 
   int* max_steps_;
+  bool* nondeterminism_;
 
   bool has_outstanding_op() const {
     return outstanding_op_ != kNoOutstandingOp;
@@ -6184,25 +6215,25 @@ constexpr base::EnumSet<ValueKind> LiftoffCompiler::kExternRefSupported;
 }  // namespace
 
 WasmCompilationResult ExecuteLiftoffCompilation(
-    AccountingAllocator* allocator, CompilationEnv* env,
-    const FunctionBody& func_body, int func_index, ForDebugging for_debugging,
-    Counters* counters, WasmFeatures* detected,
+    CompilationEnv* env, const FunctionBody& func_body, int func_index,
+    ForDebugging for_debugging, Counters* counters, WasmFeatures* detected,
     base::Vector<const int> breakpoints,
     std::unique_ptr<DebugSideTable>* debug_sidetable, int dead_breakpoint,
-    int* max_steps) {
+    int* max_steps, bool* nondeterminism) {
   int func_body_size = static_cast<int>(func_body.end - func_body.start);
   TRACE_EVENT2(TRACE_DISABLED_BY_DEFAULT("v8.wasm.detailed"),
                "wasm.CompileBaseline", "funcIndex", func_index, "bodySize",
                func_body_size);
 
-  Zone zone(allocator, "LiftoffCompilationZone");
+  Zone zone(GetWasmEngine()->allocator(), "LiftoffCompilationZone");
   auto call_descriptor = compiler::GetWasmCallDescriptor(&zone, func_body.sig);
   size_t code_size_estimate =
       WasmCodeManager::EstimateLiftoffCodeSize(func_body_size);
   // Allocate the initial buffer a bit bigger to avoid reallocation during code
-  // generation.
-  std::unique_ptr<wasm::WasmInstructionBuffer> instruction_buffer =
-      wasm::WasmInstructionBuffer::New(128 + code_size_estimate * 4 / 3);
+  // generation. Overflows when casting to int are fine, as we will allocate at
+  // least {AssemblerBase::kMinimalBufferSize} anyway, so in the worst case we
+  // have to grow more often.
+  int initial_buffer_size = static_cast<int>(128 + code_size_estimate * 4 / 3);
   std::unique_ptr<DebugSideTableBuilder> debug_sidetable_builder;
   if (debug_sidetable) {
     debug_sidetable_builder = std::make_unique<DebugSideTableBuilder>();
@@ -6210,9 +6241,9 @@ WasmCompilationResult ExecuteLiftoffCompilation(
   DCHECK_IMPLIES(max_steps, for_debugging == kForDebugging);
   WasmFullDecoder<Decoder::kBooleanValidation, LiftoffCompiler> decoder(
       &zone, env->module, env->enabled_features, detected, func_body,
-      call_descriptor, env, &zone, instruction_buffer->CreateView(),
+      call_descriptor, env, &zone, NewAssemblerBuffer(initial_buffer_size),
       debug_sidetable_builder.get(), for_debugging, func_index, breakpoints,
-      dead_breakpoint, max_steps);
+      dead_breakpoint, max_steps, nondeterminism);
   decoder.Decode();
   LiftoffCompiler* compiler = &decoder.interface();
   if (decoder.failed()) compiler->OnFirstError(&decoder);
@@ -6233,7 +6264,7 @@ WasmCompilationResult ExecuteLiftoffCompilation(
 
   WasmCompilationResult result;
   compiler->GetCode(&result.code_desc);
-  result.instr_buffer = instruction_buffer->ReleaseBuffer();
+  result.instr_buffer = compiler->ReleaseBuffer();
   result.source_positions = compiler->GetSourcePositionTable();
   result.protected_instructions_data = compiler->GetProtectedInstructionsData();
   result.frame_slot_count = compiler->GetTotalFrameSlotCountForGC();

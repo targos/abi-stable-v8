@@ -4129,7 +4129,7 @@ Maybe<bool> v8::Object::CreateDataProperty(v8::Local<v8::Context> context,
   i::Handle<i::Name> key_obj = Utils::OpenHandle(*key);
   i::Handle<i::Object> value_obj = Utils::OpenHandle(*value);
 
-  i::LookupIterator::Key lookup_key(isolate, key_obj);
+  i::PropertyKey lookup_key(isolate, key_obj);
   i::LookupIterator it(isolate, self, lookup_key, i::LookupIterator::OWN);
   if (self->IsJSProxy()) {
     ENTER_V8(isolate, context, Object, CreateDataProperty, Nothing<bool>(),
@@ -4805,7 +4805,7 @@ MaybeLocal<Value> v8::Object::GetRealNamedPropertyInPrototypeChain(
   if (iter.IsAtEnd()) return MaybeLocal<Value>();
   i::Handle<i::JSReceiver> proto =
       i::PrototypeIterator::GetCurrent<i::JSReceiver>(iter);
-  i::LookupIterator::Key lookup_key(isolate, key_obj);
+  i::PropertyKey lookup_key(isolate, key_obj);
   i::LookupIterator it(isolate, self, lookup_key, proto,
                        i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Local<Value> result;
@@ -4829,7 +4829,7 @@ v8::Object::GetRealNamedPropertyAttributesInPrototypeChain(
   if (iter.IsAtEnd()) return Nothing<PropertyAttribute>();
   i::Handle<i::JSReceiver> proto =
       i::PrototypeIterator::GetCurrent<i::JSReceiver>(iter);
-  i::LookupIterator::Key lookup_key(isolate, key_obj);
+  i::PropertyKey lookup_key(isolate, key_obj);
   i::LookupIterator it(isolate, self, lookup_key, proto,
                        i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Maybe<i::PropertyAttributes> result =
@@ -4846,7 +4846,7 @@ MaybeLocal<Value> v8::Object::GetRealNamedProperty(Local<Context> context,
   PREPARE_FOR_EXECUTION(context, Object, GetRealNamedProperty, Value);
   i::Handle<i::JSReceiver> self = Utils::OpenHandle(this);
   i::Handle<i::Name> key_obj = Utils::OpenHandle(*key);
-  i::LookupIterator::Key lookup_key(isolate, key_obj);
+  i::PropertyKey lookup_key(isolate, key_obj);
   i::LookupIterator it(isolate, self, lookup_key, self,
                        i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Local<Value> result;
@@ -4863,7 +4863,7 @@ Maybe<PropertyAttribute> v8::Object::GetRealNamedPropertyAttributes(
            Nothing<PropertyAttribute>(), i::HandleScope);
   i::Handle<i::JSReceiver> self = Utils::OpenHandle(this);
   i::Handle<i::Name> key_obj = Utils::OpenHandle(*key);
-  i::LookupIterator::Key lookup_key(isolate, key_obj);
+  i::PropertyKey lookup_key(isolate, key_obj);
   i::LookupIterator it(isolate, self, lookup_key, self,
                        i::LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   auto result = i::JSReceiver::GetPropertyAttributes(&it);
@@ -7614,7 +7614,7 @@ MaybeLocal<WasmModuleObject> WasmModuleObject::FromCompiledModule(
 #if V8_ENABLE_WEBASSEMBLY
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   i::Handle<i::WasmModuleObject> module_object =
-      i_isolate->wasm_engine()->ImportNativeModule(
+      i::wasm::GetWasmEngine()->ImportNativeModule(
           i_isolate, compiled_module.native_module_,
           base::VectorOf(compiled_module.source_url()));
   return Local<WasmModuleObject>::Cast(
@@ -8577,7 +8577,7 @@ void Isolate::RequestInterrupt(InterruptCallback callback, void* data) {
 bool Isolate::HasPendingBackgroundTasks() {
 #if V8_ENABLE_WEBASSEMBLY
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(this);
-  return isolate->wasm_engine()->HasRunningCompileJob(isolate);
+  return i::wasm::GetWasmEngine()->HasRunningCompileJob(isolate);
 #else
   return false;
 #endif  // V8_ENABLE_WEBASSEMBLY
@@ -8918,9 +8918,9 @@ void Isolate::GetHeapStatistics(HeapStatistics* heap_statistics) {
 
 #if V8_ENABLE_WEBASSEMBLY
   heap_statistics->malloced_memory_ +=
-      isolate->wasm_engine()->allocator()->GetCurrentMemoryUsage();
+      i::wasm::GetWasmEngine()->allocator()->GetCurrentMemoryUsage();
   heap_statistics->peak_malloced_memory_ +=
-      isolate->wasm_engine()->allocator()->GetMaxMemoryUsage();
+      i::wasm::GetWasmEngine()->allocator()->GetMaxMemoryUsage();
 #endif  // V8_ENABLE_WEBASSEMBLY
 }
 
@@ -9234,7 +9234,7 @@ int Isolate::ContextDisposedNotification(bool dependant_context) {
       // of that context.
       // A handle scope for the native context.
       i::HandleScope handle_scope(isolate);
-      isolate->wasm_engine()->DeleteCompileJobsOnContext(
+      i::wasm::GetWasmEngine()->DeleteCompileJobsOnContext(
           isolate->native_context());
     }
   }
@@ -10319,6 +10319,14 @@ void EmbedderHeapTracer::ResetHandleInNonTracingGC(
   UNREACHABLE();
 }
 
+void TracedReferenceBase::CheckValue() const {
+#ifdef V8_HOST_ARCH_64_BIT
+  if (!val_) return;
+
+  CHECK_NE(internal::kGlobalHandleZapValue, *reinterpret_cast<uint64_t*>(val_));
+#endif  // V8_HOST_ARCH_64_BIT
+}
+
 CFunction::CFunction(const void* address, const CFunctionInfo* type_info)
     : address_(address), type_info_(type_info) {
   CHECK_NOT_NULL(address_);
@@ -10577,6 +10585,49 @@ void InvokeFinalizationRegistryCleanupFromTask(
           .is_null()) {
     call_depth_scope.Escape();
   }
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+int32_t ConvertDouble(double d) {
+  return internal::DoubleToInt32(d);
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+uint32_t ConvertDouble(double d) {
+  return internal::DoubleToUint32(d);
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+float ConvertDouble(double d) {
+  return internal::DoubleToFloat32(d);
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+double ConvertDouble(double d) {
+  return d;
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+int64_t ConvertDouble(double d) {
+  return internal::DoubleToWebIDLInt64(d);
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+uint64_t ConvertDouble(double d) {
+  return internal::DoubleToWebIDLUint64(d);
+}
+
+template <>
+EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
+bool ConvertDouble(double d) {
+  // Implements https://tc39.es/ecma262/#sec-toboolean.
+  return !std::isnan(d) && d != 0;
 }
 
 // Undefine macros for jumbo build.

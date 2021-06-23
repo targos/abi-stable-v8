@@ -333,7 +333,7 @@ void LiftoffAssembler::PatchPrepareStackFrame(int offset) {
 #endif
   PatchingAssembler patching_assembler(AssemblerOptions{},
                                        buffer_start_ + offset, 1);
-#if V8_OS_WIN
+#if V8_TARGET_OS_WIN
   if (frame_size > kStackPageSize) {
     // Generate OOL code (at the end of the function, where the current
     // assembler is pointing) to do the explicit stack limit check (see
@@ -3230,6 +3230,11 @@ void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
 }
 
 void LiftoffAssembler::MaybeOSR() {}
+
+void LiftoffAssembler::emit_set_if_nan(Register dst, DoubleRegister src,
+                                       ValueKind kind) {
+  UNIMPLEMENTED();
+}
 
 void LiftoffStackSlots::Construct(int param_slots) {
   DCHECK_LT(0, slots_.size());

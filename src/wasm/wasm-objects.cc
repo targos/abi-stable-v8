@@ -624,8 +624,7 @@ void WasmTableObject::UpdateDispatchTables(
     if (wasm_code == nullptr) {
       wasm::WasmCodeRefScope code_ref_scope;
       wasm::WasmImportWrapperCache::ModificationScope cache_scope(cache);
-      wasm_code = compiler::CompileWasmCapiCallWrapper(isolate->wasm_engine(),
-                                                       native_module, &sig);
+      wasm_code = compiler::CompileWasmCapiCallWrapper(native_module, &sig);
       wasm::WasmImportWrapperCache::CacheKey key(kind, &sig, param_count);
       cache_scope[key] = wasm_code;
       wasm_code->IncRef();
@@ -1544,7 +1543,7 @@ void WasmInstanceObject::ImportWasmJSFunctionIntoTable(
                            .internal_formal_parameter_count();
     }
     wasm::WasmCompilationResult result = compiler::CompileWasmImportCallWrapper(
-        isolate->wasm_engine(), &env, kind, sig, false, expected_arity);
+        &env, kind, sig, false, expected_arity);
     std::unique_ptr<wasm::WasmCode> wasm_code = native_module->AddCode(
         result.func_index, result.code_desc, result.frame_slot_count,
         result.tagged_parameter_slots,
