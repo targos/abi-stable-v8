@@ -838,9 +838,7 @@ static void ReplaceClosureCodeWithOptimizedCode(MacroAssembler* masm,
   DCHECK(!AreAliased(optimized_code, closure, scratch1, slot_address));
   DCHECK_EQ(closure, kJSFunctionRegister);
   // Store the optimized code in the closure.
-  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
-    __ AssertCodeDataContainer(optimized_code);
-  }
+  __ AssertCodeT(optimized_code);
   __ StoreTaggedField(FieldOperand(closure, JSFunction::kCodeOffset),
                       optimized_code);
   // Write barrier clobbers scratch1 below.
@@ -957,8 +955,8 @@ static void TailCallOptimizedCodeSlot(MacroAssembler* masm,
 
   // Check if the optimized code is marked for deopt. If it is, call the
   // runtime to clear it.
+  __ AssertCodeT(optimized_code_entry);
   if (V8_EXTERNAL_CODE_SPACE_BOOL) {
-    __ AssertCodeDataContainer(optimized_code_entry);
     __ testl(FieldOperand(optimized_code_entry,
                           CodeDataContainer::kKindSpecificFlagsOffset),
              Immediate(1 << Code::kMarkedForDeoptimizationBit));
@@ -1361,10 +1359,9 @@ void Builtins::Generate_InterpreterEntryTrampoline(MacroAssembler* masm) {
   __ int3();  // Should not return.
 }
 
-static void Generate_InterpreterPushArgs(MacroAssembler* masm,
-                                         Register num_args,
-                                         Register start_address,
-                                         Register scratch) {
+static void GenerateInterpreterPushArgs(MacroAssembler* masm, Register num_args,
+                                        Register start_address,
+                                        Register scratch) {
   ASM_CODE_COMMENT(masm);
   // Find the argument with lowest address.
   __ movq(scratch, num_args);
@@ -1410,7 +1407,7 @@ void Builtins::Generate_InterpreterPushArgsThenCallImpl(
   }
 
   // rbx and rdx will be modified.
-  Generate_InterpreterPushArgs(masm, rcx, rbx, rdx);
+  GenerateInterpreterPushArgs(masm, rcx, rbx, rdx);
 
   // Push "undefined" as the receiver arg if we need to.
   if (receiver_mode == ConvertReceiverMode::kNullOrUndefined) {
@@ -1471,7 +1468,7 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
   }
 
   // rcx and r8 will be modified.
-  Generate_InterpreterPushArgs(masm, rax, rcx, r8);
+  GenerateInterpreterPushArgs(masm, rax, rcx, r8);
 
   // Push slot for the receiver to be constructed.
   __ Push(Immediate(0));
@@ -1534,11 +1531,7 @@ static void Generate_InterpreterEnterBytecode(MacroAssembler* masm) {
 
   __ LoadTaggedPointerField(
       rbx, FieldOperand(rbx, InterpreterData::kInterpreterTrampolineOffset));
-  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
-    __ LoadCodeDataContainerEntry(rbx, rbx);
-  } else {
-    __ addq(rbx, Immediate(Code::kHeaderSize - kHeapObjectTag));
-  }
+  __ LoadCodeTEntry(rbx, rbx);
   __ jmp(&trampoline_loaded, Label::kNear);
 
   __ bind(&builtin_trampoline);
@@ -1681,46 +1674,47 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
   __ incl(
       FieldOperand(feedback_vector, FeedbackVector::kInvocationCountOffset));
 
-  {
-    ASM_CODE_COMMENT_STRING(masm, "Frame Setup");
     // Save the return address, so that we can push it to the end of the newly
     // set-up frame once we're done setting it up.
     __ PopReturnAddressTo(return_address);
     FrameScope frame_scope(masm, StackFrame::MANUAL);
-    __ EnterFrame(StackFrame::BASELINE);
+    {
+      ASM_CODE_COMMENT_STRING(masm, "Frame Setup");
+      __ EnterFrame(StackFrame::BASELINE);
 
-    __ Push(descriptor.GetRegisterParameter(
-        BaselineOutOfLinePrologueDescriptor::kCalleeContext));  // Callee's
-                                                                // context.
-    Register callee_js_function = descriptor.GetRegisterParameter(
-        BaselineOutOfLinePrologueDescriptor::kClosure);
-    DCHECK_EQ(callee_js_function, kJavaScriptCallTargetRegister);
-    DCHECK_EQ(callee_js_function, kJSFunctionRegister);
-    __ Push(callee_js_function);  // Callee's JS function.
-    __ Push(descriptor.GetRegisterParameter(
-        BaselineOutOfLinePrologueDescriptor::
-            kJavaScriptCallArgCount));  // Actual argument
-                                        // count.
+      __ Push(descriptor.GetRegisterParameter(
+          BaselineOutOfLinePrologueDescriptor::kCalleeContext));  // Callee's
+                                                                  // context.
+      Register callee_js_function = descriptor.GetRegisterParameter(
+          BaselineOutOfLinePrologueDescriptor::kClosure);
+      DCHECK_EQ(callee_js_function, kJavaScriptCallTargetRegister);
+      DCHECK_EQ(callee_js_function, kJSFunctionRegister);
+      __ Push(callee_js_function);  // Callee's JS function.
+      __ Push(descriptor.GetRegisterParameter(
+          BaselineOutOfLinePrologueDescriptor::
+              kJavaScriptCallArgCount));  // Actual argument
+                                          // count.
 
-    // We'll use the bytecode for both code age/OSR resetting, and pushing onto
-    // the frame, so load it into a register.
-    Register bytecode_array = descriptor.GetRegisterParameter(
-        BaselineOutOfLinePrologueDescriptor::kInterpreterBytecodeArray);
+      // We'll use the bytecode for both code age/OSR resetting, and pushing
+      // onto the frame, so load it into a register.
+      Register bytecode_array = descriptor.GetRegisterParameter(
+          BaselineOutOfLinePrologueDescriptor::kInterpreterBytecodeArray);
 
-    // Reset code age and the OSR arming. The OSR field and BytecodeAgeOffset
-    // are 8-bit fields next to each other, so we could just optimize by writing
-    // a 16-bit. These static asserts guard our assumption is valid.
-    STATIC_ASSERT(BytecodeArray::kBytecodeAgeOffset ==
-                  BytecodeArray::kOsrNestingLevelOffset + kCharSize);
-    STATIC_ASSERT(BytecodeArray::kNoAgeBytecodeAge == 0);
-    __ movw(FieldOperand(bytecode_array, BytecodeArray::kOsrNestingLevelOffset),
-            Immediate(0));
-    __ Push(bytecode_array);
+      // Reset code age and the OSR arming. The OSR field and BytecodeAgeOffset
+      // are 8-bit fields next to each other, so we could just optimize by
+      // writing a 16-bit. These static asserts guard our assumption is valid.
+      STATIC_ASSERT(BytecodeArray::kBytecodeAgeOffset ==
+                    BytecodeArray::kOsrNestingLevelOffset + kCharSize);
+      STATIC_ASSERT(BytecodeArray::kNoAgeBytecodeAge == 0);
+      __ movw(
+          FieldOperand(bytecode_array, BytecodeArray::kOsrNestingLevelOffset),
+          Immediate(0));
+      __ Push(bytecode_array);
 
-    // Baseline code frames store the feedback vector where interpreter would
-    // store the bytecode offset.
-    __ Push(feedback_vector);
-  }
+      // Baseline code frames store the feedback vector where interpreter would
+      // store the bytecode offset.
+      __ Push(feedback_vector);
+    }
 
   Register new_target = descriptor.GetRegisterParameter(
       BaselineOutOfLinePrologueDescriptor::kJavaScriptCallNewTarget);
@@ -1744,7 +1738,6 @@ void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
     __ cmpq(kScratchRegister,
             __ StackLimitAsOperand(StackLimitKind::kInterruptStackLimit));
     __ j(below, &call_stack_guard);
-    __ RecordComment("]");
   }
 
   // Push the return address back onto the stack for return.
@@ -3773,7 +3766,8 @@ void Builtins::Generate_DoubleToI(MacroAssembler* masm) {
   __ j(below, &process_64_bits, Label::kNear);
 
   // Result is entirely in lower 32-bits of mantissa
-  int delta = HeapNumber::kExponentBias + Double::kPhysicalSignificandSize;
+  int delta =
+      HeapNumber::kExponentBias + base::Double::kPhysicalSignificandSize;
   __ subl(rcx, Immediate(delta));
   __ xorl(result_reg, result_reg);
   __ cmpl(rcx, Immediate(31));

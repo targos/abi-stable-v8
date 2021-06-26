@@ -298,11 +298,11 @@ bool String::IsOneByteRepresentationUnderneath(String string) {
   }
 }
 
-uc32 FlatStringReader::Get(int index) {
+base::uc32 FlatStringReader::Get(int index) {
   if (is_one_byte_) {
     return Get<uint8_t>(index);
   } else {
-    return Get<uc16>(index);
+    return Get<base::uc16>(index);
   }
 }
 
@@ -313,7 +313,7 @@ Char FlatStringReader::Get(int index) {
   if (sizeof(Char) == 1) {
     return static_cast<Char>(static_cast<const uint8_t*>(start_)[index]);
   } else {
-    return static_cast<Char>(static_cast<const uc16*>(start_)[index]);
+    return static_cast<Char>(static_cast<const base::uc16*>(start_)[index]);
   }
 }
 
@@ -763,7 +763,7 @@ inline base::Vector<const uint8_t> String::GetCharVector(
 }
 
 template <>
-inline base::Vector<const uc16> String::GetCharVector(
+inline base::Vector<const base::uc16> String::GetCharVector(
     const DisallowGarbageCollection& no_gc) {
   String::FlatContent flat = GetFlatContent(no_gc);
   DCHECK(flat.IsTwoByte());
@@ -809,18 +809,19 @@ Address SeqTwoByteString::GetCharsAddress() {
   return field_address(kHeaderSize);
 }
 
-uc16* SeqTwoByteString::GetChars(const DisallowGarbageCollection& no_gc) {
+base::uc16* SeqTwoByteString::GetChars(
+    const DisallowGarbageCollection& no_gc) {
   USE(no_gc);
   DCHECK(!SharedStringAccessGuardIfNeeded::IsNeeded(*this));
-  return reinterpret_cast<uc16*>(GetCharsAddress());
+  return reinterpret_cast<base::uc16*>(GetCharsAddress());
 }
 
-uc16* SeqTwoByteString::GetChars(
+base::uc16* SeqTwoByteString::GetChars(
     const DisallowGarbageCollection& no_gc,
     const SharedStringAccessGuardIfNeeded& access_guard) {
   USE(no_gc);
   USE(access_guard);
-  return reinterpret_cast<uc16*>(GetCharsAddress());
+  return reinterpret_cast<base::uc16*>(GetCharsAddress());
 }
 
 uint16_t SeqTwoByteString::Get(
@@ -1189,13 +1190,13 @@ class SubStringRange::iterator final {
  public:
   using iterator_category = std::forward_iterator_tag;
   using difference_type = int;
-  using value_type = uc16;
-  using pointer = uc16*;
-  using reference = uc16&;
+  using value_type = base::uc16;
+  using pointer = base::uc16*;
+  using reference = base::uc16&;
 
   iterator(const iterator& other) = default;
 
-  uc16 operator*() { return content_.Get(offset_); }
+  base::uc16 operator*() { return content_.Get(offset_); }
   bool operator==(const iterator& other) const {
     return content_.UsesSameString(other.content_) && offset_ == other.offset_;
   }

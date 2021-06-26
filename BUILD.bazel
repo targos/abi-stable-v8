@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load(
     "@v8//:bazel/defs.bzl",
     "v8_binary",
@@ -12,6 +13,92 @@ load(
     "v8_library",
     "v8_torque",
     "v8_mksnapshot",
+)
+
+# =================================================
+# Configuration settings
+# =================================================
+
+config_setting(
+    name = "is_k8",
+    values = {"cpu": "k8"},
+)
+
+config_setting(
+    name = "is_darwin",
+    values = {"cpu": "darwin"},
+)
+
+selects.config_setting_group(
+    name = "is_x64",
+    match_any = [":is_k8", ":is_darwin"],
+)
+
+config_setting(
+    name = "is_arm64",
+    values = {
+        "host_cpu": "k8",
+        "cpu": "arm",
+    },
+)
+
+config_setting(
+    name = "is_ia32",
+    values = {
+        "host_cpu": "k8",
+        "cpu": "x86",
+    },
+)
+
+config_setting(
+    name = "is_arm",
+    values = {
+        "host_cpu": "k8",
+        "cpu": "armeabi-v7a",
+    },
+)
+
+config_setting(
+    name = "is_linux",
+    constraint_values = ["@platforms//os:linux"],
+)
+
+config_setting(
+    name = "is_android",
+    constraint_values = ["@platforms//os:android"],
+)
+
+config_setting(
+    name = "is_macos",
+    constraint_values = ["@platforms//os:macos"],
+)
+
+selects.config_setting_group(
+    name = "is_posix",
+    match_any = [":is_linux", ":is_android", ":is_macos"],
+)
+
+config_setting(
+    name = "is_linux_x64",
+    constraint_values = ["@platforms//os:linux"],
+    values = {"cpu": "k8"},
+)
+
+config_setting(
+    name = "is_macos_x64",
+    constraint_values = ["@platforms//os:macos"],
+    values = {"cpu": "darwin"},
+)
+
+selects.config_setting_group(
+    name = "is_linux_x64_or_macos_x64",
+    match_any = [":is_linux_x64", ":is_macos_x64"],
+)
+
+config_setting(
+    name = "is_android_x86",
+    constraint_values = ["@platforms//os:android"],
+    values = {"cpu": "x86"},
 )
 
 # =================================================
@@ -41,29 +128,32 @@ v8_config(
         "CHROMIUM_ZLIB_NO_CHROMECONF",
         "V8_CONCURRENT_MARKING",
     ] + select({
+        ":is_ia32": [ "V8_TARGET_ARCH_IA32" ],
         ":is_x64": [ "V8_TARGET_ARCH_X64" ],
+        ":is_arm": [
+            "V8_TARGET_ARCH_ARM",
+            "CAN_USE_ARMV7_INSTRUCTIONS",
+            "CAN_USE_VFP3_INSTRUCTIONS",
+        ],
+        ":is_arm64": [ "V8_TARGET_ARCH_ARM64" ],
+    }) + select({
+        ":is_android": [
+            "V8_HAVE_TARGET_OS",
+            "V8_TARGET_OS_ANDROID",
+        ],
+        ":is_linux": [
+            "V8_HAVE_TARGET_OS",
+            "V8_TARGET_OS_LINUX",
+        ],
+        ":is_macos": [
+            "V8_HAVE_TARGET_OS",
+            "V8_TARGET_OS_MACOSX",
+        ],
+    }) + select({
+        "is_android_x86": [ "DISABLE_UNTRUSTED_CODE_MITIGATIONS" ],
+        "//conditions:default": [],
     }),
     deps = [ ":default" ],
-)
-
-# =================================================
-# Configuration settings
-# =================================================
-
-config_setting(
-    name = "is_linux",
-    constraint_values = ["@platforms//os:linux"],
-)
-
-config_setting(
-    name = "is_x64",
-    values = {"cpu": "k8"},
-)
-
-config_setting(
-    name = "is_linux_x64",
-    constraint_values = ["@platforms//os:linux"],
-    values = {"cpu": "k8"},
 )
 
 # =================================================
@@ -214,6 +304,23 @@ filegroup(
         "src/base/logging.h",
         "src/base/macros.h",
         "src/base/memory.h",
+        "src/base/numbers/bignum-dtoa.cc",
+        "src/base/numbers/bignum-dtoa.h",
+        "src/base/numbers/bignum.cc",
+        "src/base/numbers/bignum.h",
+        "src/base/numbers/cached-powers.cc",
+        "src/base/numbers/cached-powers.h",
+        "src/base/numbers/diy-fp.cc",
+        "src/base/numbers/diy-fp.h",
+        "src/base/numbers/double.h",
+        "src/base/numbers/dtoa.cc",
+        "src/base/numbers/dtoa.h",
+        "src/base/numbers/fast-dtoa.cc",
+        "src/base/numbers/fast-dtoa.h",
+        "src/base/numbers/fixed-dtoa.cc",
+        "src/base/numbers/fixed-dtoa.h",
+        "src/base/numbers/strtod.cc",
+        "src/base/numbers/strtod.h",
         "src/base/once.cc",
         "src/base/once.h",
         "src/base/optional.h",
@@ -253,13 +360,25 @@ filegroup(
         "src/base/vlq-base64.cc",
         "src/base/vlq-base64.h",
     ] + select({
-        ":is_linux": [
+        ":is_posix": [
             "src/base/platform/platform-posix.cc",
             "src/base/platform/platform-posix.h",
             "src/base/platform/platform-posix-time.cc",
             "src/base/platform/platform-posix-time.h",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":is_linux": [
             "src/base/debug/stack_trace_posix.cc",
             "src/base/platform/platform-linux.cc",
+        ],
+        "is_android": [
+            "src/base/debug/stack_trace_android.cc",
+            "src/base/platform/platform-linux.cc",
+        ],
+        "is_macos": [
+            "src/base/debug/stack_trace_posix.cc",
+            "src/base/platform/platform-macos.cc",
         ],
     }),
 )
@@ -601,7 +720,6 @@ filegroup(
         "src/ast/source-range-ast-visitor.h",
         "src/ast/variables.cc",
         "src/ast/variables.h",
-        "src/baseline/baseline-osr-inl.h",
         "src/baseline/baseline-assembler-inl.h",
         "src/baseline/baseline-assembler.h",
         "src/baseline/baseline-compiler.cc",
@@ -1104,29 +1222,12 @@ filegroup(
         "src/logging/tracing-flags.h",
         "src/logging/runtime-call-stats.h",
         "src/logging/runtime-call-stats-scope.h",
-        "src/numbers/bignum-dtoa.cc",
-        "src/numbers/bignum-dtoa.h",
-        "src/numbers/bignum.cc",
-        "src/numbers/bignum.h",
-        "src/numbers/cached-powers.cc",
-        "src/numbers/cached-powers.h",
         "src/numbers/conversions-inl.h",
         "src/numbers/conversions.cc",
         "src/numbers/conversions.h",
-        "src/numbers/diy-fp.cc",
-        "src/numbers/diy-fp.h",
-        "src/numbers/double.h",
-        "src/numbers/dtoa.cc",
-        "src/numbers/dtoa.h",
-        "src/numbers/fast-dtoa.cc",
-        "src/numbers/fast-dtoa.h",
-        "src/numbers/fixed-dtoa.cc",
-        "src/numbers/fixed-dtoa.h",
         "src/numbers/hash-seed-inl.h",
         "src/numbers/math-random.cc",
         "src/numbers/math-random.h",
-        "src/numbers/strtod.cc",
-        "src/numbers/strtod.h",
         "src/objects/all-objects-inl.h",
         "src/objects/allocation-site-inl.h",
         "src/objects/allocation-site-scopes-inl.h",
@@ -1630,6 +1731,35 @@ filegroup(
         "src/heap/third-party/heap-api.h",
         "src/heap/third-party/heap-api-stub.cc",
     ] + select({
+        ":is_ia32": [
+            "src/baseline/ia32/baseline-assembler-ia32-inl.h",
+            "src/baseline/ia32/baseline-compiler-ia32-inl.h",
+            "src/codegen/shared-ia32-x64/macro-assembler-shared-ia32-x64.h",
+            "src/codegen/shared-ia32-x64/macro-assembler-shared-ia32-x64.cc",
+            "src/codegen/ia32/cpu-ia32.cc",
+            "src/codegen/ia32/assembler-ia32-inl.h",
+            "src/codegen/ia32/assembler-ia32.cc",
+            "src/codegen/ia32/assembler-ia32.h",
+            "src/codegen/ia32/constants-ia32.h",
+            "src/codegen/ia32/interface-descriptors-ia32-inl.h",
+            "src/codegen/ia32/sse-instr.h",
+            "src/codegen/ia32/macro-assembler-ia32.cc",
+            "src/codegen/ia32/macro-assembler-ia32.h",
+            "src/codegen/ia32/register-ia32.h",
+            "src/compiler/backend/ia32/code-generator-ia32.cc",
+            "src/compiler/backend/ia32/instruction-codes-ia32.h",
+            "src/compiler/backend/ia32/instruction-scheduler-ia32.cc",
+            "src/compiler/backend/ia32/instruction-selector-ia32.cc",
+            "src/deoptimizer/ia32/deoptimizer-ia32.cc",
+            "src/diagnostics/ia32/disasm-ia32.cc",
+            "src/diagnostics/ia32/unwinder-ia32.cc",
+            "src/execution/ia32/frame-constants-ia32.cc",
+            "src/execution/ia32/frame-constants-ia32.h",
+            "src/regexp/ia32/regexp-macro-assembler-ia32.cc",
+            "src/regexp/ia32/regexp-macro-assembler-ia32.h",
+            "src/third_party/valgrind/valgrind.h",
+            "src/wasm/baseline/ia32/liftoff-assembler-ia32.h",
+        ],
         ":is_x64": [
             "src/baseline/x64/baseline-assembler-x64-inl.h",
             "src/baseline/x64/baseline-compiler-x64-inl.h",
@@ -1663,11 +1793,86 @@ filegroup(
             "src/third_party/valgrind/valgrind.h",
             "src/wasm/baseline/x64/liftoff-assembler-x64.h",
         ],
+        "is_arm": [
+            "src/baseline/arm/baseline-assembler-arm-inl.h",
+            "src/baseline/arm/baseline-compiler-arm-inl.h",
+            "src/codegen/arm/assembler-arm-inl.h",
+            "src/codegen/arm/assembler-arm.cc",
+            "src/codegen/arm/assembler-arm.h",
+            "src/codegen/arm/constants-arm.cc",
+            "src/codegen/arm/constants-arm.h",
+            "src/codegen/arm/cpu-arm.cc",
+            "src/codegen/arm/interface-descriptors-arm-inl.h",
+            "src/codegen/arm/macro-assembler-arm.cc",
+            "src/codegen/arm/macro-assembler-arm.h",
+            "src/codegen/arm/register-arm.h",
+            "src/compiler/backend/arm/code-generator-arm.cc",
+            "src/compiler/backend/arm/instruction-codes-arm.h",
+            "src/compiler/backend/arm/instruction-scheduler-arm.cc",
+            "src/compiler/backend/arm/instruction-selector-arm.cc",
+            "src/compiler/backend/arm/unwinding-info-writer-arm.cc",
+            "src/compiler/backend/arm/unwinding-info-writer-arm.h",
+            "src/deoptimizer/arm/deoptimizer-arm.cc",
+            "src/diagnostics/arm/disasm-arm.cc",
+            "src/diagnostics/arm/eh-frame-arm.cc",
+            "src/diagnostics/arm/unwinder-arm.cc",
+            "src/execution/arm/frame-constants-arm.cc",
+            "src/execution/arm/frame-constants-arm.h",
+            "src/execution/arm/simulator-arm.cc",
+            "src/execution/arm/simulator-arm.h",
+            "src/regexp/arm/regexp-macro-assembler-arm.cc",
+            "src/regexp/arm/regexp-macro-assembler-arm.h",
+            "src/wasm/baseline/arm/liftoff-assembler-arm.h",
+        ],
+        ":is_arm64": [
+            "src/baseline/arm64/baseline-assembler-arm64-inl.h",
+            "src/baseline/arm64/baseline-compiler-arm64-inl.h",
+            "src/codegen/arm64/assembler-arm64-inl.h",
+            "src/codegen/arm64/assembler-arm64.cc",
+            "src/codegen/arm64/assembler-arm64.h",
+            "src/codegen/arm64/constants-arm64.h",
+            "src/codegen/arm64/cpu-arm64.cc",
+            "src/codegen/arm64/decoder-arm64-inl.h",
+            "src/codegen/arm64/decoder-arm64.cc",
+            "src/codegen/arm64/decoder-arm64.h",
+            "src/codegen/arm64/interface-descriptors-arm64-inl.h",
+            "src/codegen/arm64/instructions-arm64-constants.cc",
+            "src/codegen/arm64/instructions-arm64.cc",
+            "src/codegen/arm64/instructions-arm64.h",
+            "src/codegen/arm64/macro-assembler-arm64-inl.h",
+            "src/codegen/arm64/macro-assembler-arm64.cc",
+            "src/codegen/arm64/macro-assembler-arm64.h",
+            "src/codegen/arm64/register-arm64.cc",
+            "src/codegen/arm64/register-arm64.h",
+            "src/codegen/arm64/utils-arm64.cc",
+            "src/codegen/arm64/utils-arm64.h",
+            "src/compiler/backend/arm64/code-generator-arm64.cc",
+            "src/compiler/backend/arm64/instruction-codes-arm64.h",
+            "src/compiler/backend/arm64/instruction-scheduler-arm64.cc",
+            "src/compiler/backend/arm64/instruction-selector-arm64.cc",
+            "src/compiler/backend/arm64/unwinding-info-writer-arm64.cc",
+            "src/compiler/backend/arm64/unwinding-info-writer-arm64.h",
+            "src/deoptimizer/arm64/deoptimizer-arm64.cc",
+            "src/diagnostics/arm64/disasm-arm64.cc",
+            "src/diagnostics/arm64/disasm-arm64.h",
+            "src/diagnostics/arm64/eh-frame-arm64.cc",
+            "src/diagnostics/arm64/unwinder-arm64.cc",
+            "src/execution/arm64/frame-constants-arm64.cc",
+            "src/execution/arm64/frame-constants-arm64.h",
+            "src/execution/arm64/pointer-auth-arm64.cc",
+            "src/execution/arm64/simulator-arm64.cc",
+            "src/execution/arm64/simulator-arm64.h",
+            "src/execution/arm64/simulator-logic-arm64.cc",
+            "src/regexp/arm64/regexp-macro-assembler-arm64.cc",
+            "src/regexp/arm64/regexp-macro-assembler-arm64.h",
+            "src/wasm/baseline/arm64/liftoff-assembler-arm64.h",
+        ],
     }) + select({
-        ":is_linux": [
+        ":is_linux_x64_or_macos_x64": [
             "src/trap-handler/handler-inside-posix.cc",
             "src/trap-handler/handler-outside-posix.cc",
         ],
+        "//conditions:default": [],
     }) + select({
         ":is_v8_enable_webassembly": [
             "src/asmjs/asm-js.cc",
@@ -2095,7 +2300,10 @@ filegroup(
         "src/interpreter/interpreter-intrinsics-generator.cc",
         "src/interpreter/interpreter-intrinsics-generator.h",
     ] + select({
+        ":is_ia32": ["src/builtins/ia32/builtins-ia32.cc"],
         ":is_x64": ["src/builtins/x64/builtins-x64.cc"],
+        ":is_arm" :  ["src/builtins/arm/builtins-arm.cc"],
+        ":is_arm64": ["src/builtins/arm64/builtins-arm64.cc"],
     }) + select({
         ":is_v8_enable_webassembly": [
             "src/builtins/builtins-wasm-gen.cc",
@@ -2205,7 +2413,10 @@ filegroup(
         "src/heap/base/worklist.h",
         "src/heap/cppgc/globals.h",
     ] + select({
+        ":is_ia32": ["src/heap/base/asm/ia32/push_registers_asm.cc"],
         ":is_x64": ["src/heap/base/asm/x64/push_registers_asm.cc"],
+        ":is_arm" : ["src/heap/base/asm/arm/push_registers_asm.cc"],
+        ":is_arm64": ["src/heap/base/asm/arm64/push_registers_asm.cc"],
     }),
 )
 
@@ -2222,6 +2433,7 @@ filegroup(
         "src/bigint/div-schoolbook.cc",
         "src/bigint/mul-karatsuba.cc",
         "src/bigint/mul-schoolbook.cc",
+        "src/bigint/tostring.cc",
         "src/bigint/util.h",
         "src/bigint/vector-arithmetic.cc",
         "src/bigint/vector-arithmetic.h",
@@ -2351,8 +2563,9 @@ filegroup(
 filegroup(
     name = "snapshot_files",
     srcs = [
-        ":generated_snapshot_files",
         "src/init/setup-isolate-deserialize.cc",
+        # TODO(victorgomes): Create a flag to select pregenerated snapshots.
+        ":generated_snapshot_files",
     ]
 )
 
@@ -2520,6 +2733,8 @@ v8_binary(
         "src/torque/torque.cc",
     ],
     deps = [ ":gtest_prod" ],
+    copts = [ "-fexceptions" ],
+    features = ["-use_header_modules"],
 )
 
 v8_binary(
@@ -2542,6 +2757,10 @@ v8_binary(
         ":gtest_prod",
         ":third_party_zlib"
     ],
+    linkopts = select({
+        "is_android": [ "-llog" ],
+        "//conditions:default": [],
+    }),
 )
 
 v8_binary(

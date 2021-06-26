@@ -2025,16 +2025,19 @@ void SerializerForBackgroundCompilation::ProcessCalleeForCallOrConstruct(
   Handle<SharedFunctionInfo> shared = callee.shared(broker()->isolate());
   if (shared->IsApiFunction()) {
     ProcessApiCall(shared, arguments);
-    DCHECK_NE(shared->GetInlineability(broker()->isolate()),
-              SharedFunctionInfo::kIsInlineable);
+    DCHECK_NE(
+        shared->GetInlineability(broker()->isolate(), broker()->is_turboprop()),
+        SharedFunctionInfo::kIsInlineable);
   } else if (shared->HasBuiltinId()) {
     ProcessBuiltinCall(shared, new_target, arguments, speculation_mode, padding,
                        result_hints);
-    DCHECK_NE(shared->GetInlineability(broker()->isolate()),
-              SharedFunctionInfo::kIsInlineable);
+    DCHECK_NE(
+        shared->GetInlineability(broker()->isolate(), broker()->is_turboprop()),
+        SharedFunctionInfo::kIsInlineable);
   } else if ((flags() &
               SerializerForBackgroundCompilationFlag::kEnableTurboInlining) &&
-             shared->GetInlineability(broker()->isolate()) ==
+             shared->GetInlineability(broker()->isolate(),
+                                      broker()->is_turboprop()) ==
                  SharedFunctionInfo::kIsInlineable &&
              callee.HasFeedbackVector()) {
     CompilationSubject subject =
@@ -2798,7 +2801,7 @@ void SerializerForBackgroundCompilation::VisitSwitchOnSmiNoFeedback(
     interpreter::BytecodeArrayIterator* iterator) {
   interpreter::JumpTableTargetOffsets targets =
       iterator->GetJumpTableTargetOffsets();
-  for (const auto& target : targets) {
+  for (interpreter::JumpTableTargetOffset target : targets) {
     ContributeToJumpTargetEnvironment(target.target_offset);
   }
 }

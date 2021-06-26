@@ -1866,6 +1866,7 @@ void TurboAssembler::JumpCodeObject(Register code_object, JumpMode jump_mode) {
 
 void TurboAssembler::LoadCodeDataContainerEntry(
     Register destination, Register code_data_container_object) {
+  ASM_CODE_COMMENT(this);
   CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
   LoadExternalPointerField(
       destination,
@@ -1876,6 +1877,7 @@ void TurboAssembler::LoadCodeDataContainerEntry(
 
 void TurboAssembler::LoadCodeDataContainerCodeNonBuiltin(
     Register destination, Register code_data_container_object) {
+  ASM_CODE_COMMENT(this);
   LoadTaggedPointerField(
       destination,
       FieldOperand(code_data_container_object, CodeDataContainer::kCodeOffset));
@@ -1900,6 +1902,15 @@ void TurboAssembler::JumpCodeDataContainerObject(
       pushq(code_data_container_object);
       Ret();
       return;
+  }
+}
+
+void TurboAssembler::LoadCodeTEntry(Register destination, Register code) {
+  ASM_CODE_COMMENT(this);
+  if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+    LoadCodeDataContainerEntry(destination, code);
+  } else {
+    leaq(destination, Operand(code, Code::kHeaderSize - kHeapObjectTag));
   }
 }
 
@@ -2713,6 +2724,19 @@ void TurboAssembler::AssertZeroExtended(Register int32_register) {
   Check(above, AbortReason::k32BitValueInRegisterIsNotZeroExtended);
 }
 
+void MacroAssembler::AssertCodeT(Register object) {
+  if (!FLAG_debug_code) return;
+  ASM_CODE_COMMENT(this);
+  testb(object, Immediate(kSmiTagMask));
+  Check(not_equal, AbortReason::kOperandIsNotACodeT);
+  Push(object);
+  LoadMap(object, object);
+  CmpInstanceType(object, V8_EXTERNAL_CODE_SPACE_BOOL ? CODE_DATA_CONTAINER_TYPE
+                                                      : CODE_TYPE);
+  Pop(object);
+  Check(equal, AbortReason::kOperandIsNotACodeT);
+}
+
 void MacroAssembler::AssertConstructor(Register object) {
   if (!FLAG_debug_code) return;
   ASM_CODE_COMMENT(this);
@@ -2724,19 +2748,6 @@ void MacroAssembler::AssertConstructor(Register object) {
         Immediate(Map::Bits1::IsConstructorBit::kMask));
   Pop(object);
   Check(not_zero, AbortReason::kOperandIsNotAConstructor);
-}
-
-void MacroAssembler::AssertCodeDataContainer(Register object) {
-  if (FLAG_debug_code) {
-    RecordComment("AssertCodeDataContainer");
-    testb(object, Immediate(kSmiTagMask));
-    Check(not_equal, AbortReason::kOperandIsNotACodeDataContainer);
-    Push(object);
-    LoadMap(object, object);
-    CmpInstanceType(object, CODE_DATA_CONTAINER_TYPE);
-    Pop(object);
-    Check(equal, AbortReason::kOperandIsNotACodeDataContainer);
-  }
 }
 
 void MacroAssembler::AssertFunction(Register object) {
@@ -3015,8 +3026,11 @@ void MacroAssembler::StackOverflowCheck(
 void MacroAssembler::InvokePrologue(Register expected_parameter_count,
                                     Register actual_parameter_count,
                                     Label* done, InvokeType type) {
-  if (expected_parameter_count != actual_parameter_count) {
     ASM_CODE_COMMENT(this);
+    if (expected_parameter_count == actual_parameter_count) {
+      Move(rax, actual_parameter_count);
+      return;
+    }
     Label regular_invoke;
     // If the expected parameter count is equal to the adaptor sentinel, no need
     // to push undefined value as arguments.
@@ -3076,9 +3090,6 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
       int3();  // This should be unreachable.
     }
     bind(&regular_invoke);
-  } else {
-    Move(rax, actual_parameter_count);
-  }
 }
 
 void MacroAssembler::CallDebugOnFunctionCall(Register fun, Register new_target,

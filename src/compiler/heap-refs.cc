@@ -1893,25 +1893,15 @@ class FixedDoubleArrayData : public FixedArrayBaseData {
 
 class BytecodeArrayData : public FixedArrayBaseData {
  public:
-  int register_count() const { return register_count_; }
-  int parameter_count() const { return parameter_count_; }
-  interpreter::Register incoming_new_target_or_generator_register() const {
-    return incoming_new_target_or_generator_register_;
-  }
-
   BytecodeArrayData(JSHeapBroker* broker, ObjectData** storage,
                     Handle<BytecodeArray> object)
       : FixedArrayBaseData(broker, storage, object,
-                           ObjectDataKind::kNeverSerializedHeapObject),
-        register_count_(object->register_count()),
-        parameter_count_(object->parameter_count()),
-        incoming_new_target_or_generator_register_(
-            object->incoming_new_target_or_generator_register()) {}
-
- private:
-  int const register_count_;
-  int const parameter_count_;
-  interpreter::Register const incoming_new_target_or_generator_register_;
+                           ObjectDataKind::kNeverSerializedHeapObject) {
+    // BytecodeArrayData is NeverEverSerialize.
+    // TODO(solanes, v8:7790): Remove this class once all kNeverSerialized types
+    // are NeverEverSerialize.
+    UNREACHABLE();
+  }
 };
 
 class JSArrayData : public JSObjectData {
@@ -2076,7 +2066,8 @@ SharedFunctionInfoData::SharedFunctionInfoData(
           BROKER_SFI_FIELDS(INIT_MEMBER)
 #undef INIT_MEMBER
       ,
-      inlineability_(object->GetInlineability(broker->isolate())),
+      inlineability_(
+          object->GetInlineability(broker->isolate(), broker->is_turboprop())),
       function_template_info_(nullptr),
       template_objects_(broker->zone()),
       scope_info_(nullptr) {
@@ -2189,7 +2180,10 @@ class CellData : public HeapObjectData {
  public:
   CellData(JSHeapBroker* broker, ObjectData** storage, Handle<Cell> object)
       : HeapObjectData(broker, storage, object) {
-    DCHECK(!broker->is_concurrent_inlining());
+    // CellData is NeverEverSerialize.
+    // TODO(solanes, v8:7790): Remove this class once all kNeverSerialized types
+    // are NeverEverSerialize.
+    UNREACHABLE();
   }
 };
 
@@ -2825,6 +2819,8 @@ bool NeverEverSerialize() {
   }
 
 NEVER_EVER_SERIALIZE(ArrayBoilerplateDescription)
+NEVER_EVER_SERIALIZE(BytecodeArray)
+NEVER_EVER_SERIALIZE(Cell)
 NEVER_EVER_SERIALIZE(ObjectBoilerplateDescription)
 NEVER_EVER_SERIALIZE(RegExpBoilerplateDescription)
 NEVER_EVER_SERIALIZE(TemplateObjectDescription)
@@ -3367,10 +3363,16 @@ BIMODAL_ACCESSOR_C(AllocationSite, AllocationType, GetAllocationType)
 
 BIMODAL_ACCESSOR_C(BigInt, uint64_t, AsUint64)
 
-BIMODAL_ACCESSOR_C(BytecodeArray, int, register_count)
-BIMODAL_ACCESSOR_C(BytecodeArray, int, parameter_count)
-BIMODAL_ACCESSOR_C(BytecodeArray, interpreter::Register,
-                   incoming_new_target_or_generator_register)
+int BytecodeArrayRef::register_count() const {
+  return object()->register_count();
+}
+int BytecodeArrayRef::parameter_count() const {
+  return object()->parameter_count();
+}
+interpreter::Register
+BytecodeArrayRef::incoming_new_target_or_generator_register() const {
+  return object()->incoming_new_target_or_generator_register();
+}
 
 BIMODAL_ACCESSOR_C(FeedbackVector, double, invocation_count)
 
@@ -3476,11 +3478,11 @@ bool FunctionTemplateInfoRef::has_call_code() const {
   return data()->AsFunctionTemplateInfo()->has_call_code();
 }
 
-bool FunctionTemplateInfoRef ::accept_any_receiver() const {
+bool FunctionTemplateInfoRef::accept_any_receiver() const {
   if (data_->should_access_heap()) {
     return object()->accept_any_receiver();
   }
-  return ObjectRef ::data()->AsFunctionTemplateInfo()->accept_any_receiver();
+  return ObjectRef::data()->AsFunctionTemplateInfo()->accept_any_receiver();
 }
 
 HolderLookupResult FunctionTemplateInfoRef::LookupHolderOfExpectedType(
@@ -3589,7 +3591,7 @@ BytecodeArrayRef SharedFunctionInfoRef::GetBytecodeArray() const {
     return MakeRef(broker(), bytecode_array);
   }
   return BytecodeArrayRef(
-      broker(), ObjectRef ::data()->AsSharedFunctionInfo()->GetBytecodeArray());
+      broker(), ObjectRef::data()->AsSharedFunctionInfo()->GetBytecodeArray());
 }
 #define DEF_SFI_ACCESSOR(type, name) \
   BIMODAL_ACCESSOR_WITH_FLAG_C(SharedFunctionInfo, type, name)
@@ -3599,12 +3601,14 @@ SharedFunctionInfo::Inlineability SharedFunctionInfoRef::GetInlineability()
     const {
   if (data_->should_access_heap()) {
     if (!broker()->IsMainThread()) {
-      return object()->GetInlineability(broker()->local_isolate());
+      return object()->GetInlineability(broker()->local_isolate(),
+                                        broker()->is_turboprop());
     } else {
-      return object()->GetInlineability(broker()->isolate());
+      return object()->GetInlineability(broker()->isolate(),
+                                        broker()->is_turboprop());
     }
   }
-  return ObjectRef ::data()->AsSharedFunctionInfo()->GetInlineability();
+  return ObjectRef::data()->AsSharedFunctionInfo()->GetInlineability();
 }
 
 base::Optional<FeedbackVectorRef> FeedbackCellRef::value() const {

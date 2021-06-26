@@ -643,6 +643,9 @@ DEFINE_BOOL(
 DEFINE_IMPLICATION(turboprop_as_toptier, turboprop)
 DEFINE_UINT_READONLY(max_minimorphic_map_checks, 4,
                      "max number of map checks to perform in minimorphic state")
+DEFINE_INT(turboprop_inline_scaling_factor, 4,
+           "scale factor for reduction in bytecode that can be inline for "
+           "TurboProp compared to TurboFan")
 // The scale factor determines the interrupt budget when tiering up from
 // Turboprop to TurboFan.
 DEFINE_INT(interrupt_budget_scale_factor_for_top_tier, 5,
@@ -665,6 +668,9 @@ DEFINE_BOOL(baseline_batch_compilation, true, "batch compile Sparkplug code")
 DEFINE_BOOL(baseline_batch_compilation, false, "batch compile Sparkplug code")
 #endif
 DEFINE_STRING(sparkplug_filter, "*", "filter for Sparkplug baseline compiler")
+DEFINE_BOOL(sparkplug_needs_short_builtins, false,
+            "only enable Sparkplug baseline compiler when "
+            "--short-builtin-calls are also enabled")
 DEFINE_INT(baseline_batch_compilation_threshold, 4 * KB,
            "the estimated instruction size of a batch to trigger compilation")
 DEFINE_BOOL(trace_baseline, false, "trace baseline compilation")
@@ -835,12 +841,12 @@ DEFINE_BOOL(turbo_verify_allocation, DEBUG_BOOL,
             "verify register allocation in TurboFan")
 DEFINE_BOOL(turbo_move_optimization, true, "optimize gap moves in TurboFan")
 DEFINE_BOOL(turbo_jt, true, "enable jump threading in TurboFan")
-DEFINE_BOOL(turbo_loop_peeling, true, "Turbofan loop peeling")
-DEFINE_BOOL(turbo_loop_variable, true, "Turbofan loop variable optimization")
-DEFINE_BOOL(turbo_loop_rotation, true, "Turbofan loop rotation")
+DEFINE_BOOL(turbo_loop_peeling, true, "TurboFan loop peeling")
+DEFINE_BOOL(turbo_loop_variable, true, "TurboFan loop variable optimization")
+DEFINE_BOOL(turbo_loop_rotation, true, "TurboFan loop rotation")
 DEFINE_BOOL(turbo_cf_optimization, true, "optimize control flow in TurboFan")
 DEFINE_BOOL(turbo_escape, true, "enable escape analysis")
-DEFINE_BOOL(turbo_allocation_folding, true, "Turbofan allocation folding")
+DEFINE_BOOL(turbo_allocation_folding, true, "TurboFan allocation folding")
 DEFINE_BOOL(turbo_instruction_scheduling, false,
             "enable instruction scheduling in TurboFan")
 DEFINE_BOOL(turbo_stress_instruction_scheduling, false,
@@ -944,7 +950,7 @@ DEFINE_INT(trace_wasm_ast_end, 0, "end function for wasm AST trace (exclusive)")
 DEFINE_BOOL(liftoff, true,
             "enable Liftoff, the baseline compiler for WebAssembly")
 DEFINE_BOOL(liftoff_only, false,
-            "disallow Turbofan compilation for WebAssembly (for testing)")
+            "disallow TurboFan compilation for WebAssembly (for testing)")
 DEFINE_IMPLICATION(liftoff_only, liftoff)
 DEFINE_NEG_IMPLICATION(liftoff_only, wasm_tier_up)
 DEFINE_NEG_IMPLICATION(fuzzing, liftoff_only)
@@ -962,7 +968,7 @@ DEFINE_BOOL(trace_wasm_memory, false,
             "print all memory updates performed in wasm code")
 // Fuzzers use {wasm_tier_mask_for_testing} and {wasm_debug_mask_for_testing}
 // together with {liftoff} and {no_wasm_tier_up} to force some functions to be
-// compiled with Turbofan or for debug.
+// compiled with TurboFan or for debug.
 DEFINE_INT(wasm_tier_mask_for_testing, 0,
            "bitmask of functions to compile with TurboFan instead of Liftoff")
 DEFINE_INT(wasm_debug_mask_for_testing, 0,

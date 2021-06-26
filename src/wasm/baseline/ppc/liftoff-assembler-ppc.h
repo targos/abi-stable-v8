@@ -446,13 +446,78 @@ void LiftoffAssembler::AtomicFence() { sync(); }
 void LiftoffAssembler::LoadCallerFrameSlot(LiftoffRegister dst,
                                            uint32_t caller_slot_idx,
                                            ValueKind kind) {
-  bailout(kUnsupportedArchitecture, "LoadCallerFrameSlot");
+  int32_t offset = (caller_slot_idx + 1) * kSystemPointerSize;
+  switch (kind) {
+    case kI32: {
+#if defined(V8_TARGET_BIG_ENDIAN)
+      LoadS32(dst.gp(), MemOperand(fp, offset + 4), r0);
+      break;
+#else
+      LoadS32(dst.gp(), MemOperand(fp, offset), r0);
+      break;
+#endif
+    }
+    case kRef:
+    case kRtt:
+    case kOptRef:
+    case kRttWithDepth:
+    case kI64: {
+      LoadU64(dst.gp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kF32: {
+      LoadF32(dst.fp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kF64: {
+      LoadF64(dst.fp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kS128: {
+      bailout(kSimd, "simd load");
+      break;
+    }
+    default:
+      UNREACHABLE();
+  }
 }
 
 void LiftoffAssembler::StoreCallerFrameSlot(LiftoffRegister src,
                                             uint32_t caller_slot_idx,
                                             ValueKind kind) {
-  bailout(kUnsupportedArchitecture, "StoreCallerFrameSlot");
+  int32_t offset = (caller_slot_idx + 1) * kSystemPointerSize;
+  switch (kind) {
+    case kI32: {
+#if defined(V8_TARGET_BIG_ENDIAN)
+      StoreU32(src.gp(), MemOperand(fp, offset + 4), r0);
+      break;
+#else
+      StoreU32(src.gp(), MemOperand(fp, offset), r0);
+      break;
+#endif
+    }
+    case kRef:
+    case kRtt:
+    case kOptRef:
+    case kI64: {
+      StoreU64(src.gp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kF32: {
+      StoreF32(src.fp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kF64: {
+      StoreF64(src.fp(), MemOperand(fp, offset), r0);
+      break;
+    }
+    case kS128: {
+      bailout(kSimd, "simd load");
+      break;
+    }
+    default:
+      UNREACHABLE();
+  }
 }
 
 void LiftoffAssembler::LoadReturnStackSlot(LiftoffRegister dst, int offset,
@@ -2106,6 +2171,11 @@ void LiftoffAssembler::DeallocateStackSlot(uint32_t size) {
 }
 
 void LiftoffAssembler::MaybeOSR() {}
+
+void LiftoffAssembler::emit_set_if_nan(Register dst, DoubleRegister src,
+                                       ValueKind kind) {
+  UNIMPLEMENTED();
+}
 
 void LiftoffStackSlots::Construct(int param_slots) {
   asm_->bailout(kUnsupportedArchitecture, "LiftoffStackSlots::Construct");

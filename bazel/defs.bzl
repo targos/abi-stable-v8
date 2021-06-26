@@ -43,7 +43,7 @@ v8_custom_config = rule(
     implementation = _custom_config_impl,
     attrs = {
         "_v8_typed_array_max_size_in_heap":
-            attr.label(default = "//:v8_typed_array_max_size_in_heap"),
+            attr.label(default = ":v8_typed_array_max_size_in_heap"),
     }
 )
 
@@ -84,7 +84,7 @@ v8_config = rule(
 
 def _default_args(configs):
     return struct(
-        deps = configs + ["//:define_flags"],
+        deps = configs + [":define_flags"],
         copts = [
             "-fPIC",
             "-Werror",
@@ -92,18 +92,17 @@ def _default_args(configs):
             "-Wno-unused-parameter",
             "-Wno-implicit-int-float-conversion",
             "-Wno-deprecated-copy",
+            "-Wno-non-virtual-dtor",
             "-std=c++14",
             "-isystem .",
-            # TODO(victorgomes): these should be passed only if x64:
-            "-m64",
-            "-march=x86-64",
-            "-msse3",
         ],
         includes = ["include"],
         linkopts = [
-            "-pthread",
-            "-Wl,--no-as-needed -ldl",
-        ],
+            "-pthread"
+        ] + select({
+            ":is_macos": [],
+            "//conditions:default": [ "-Wl,--no-as-needed -ldl" ],
+        }),
     )
 
 def v8_binary(
@@ -185,12 +184,12 @@ v8_torque = rule(
         "srcs": attr.label_list(allow_files = True, mandatory = True),
         "extras": attr.string_list(),
         "tool": attr.label(
-            default = "//:torque",
+            default = ":torque",
             allow_files = True,
             executable = True,
-            cfg = "target",
+            cfg = "host",
         ),
-        "_v8_annotate_torque_ir": attr.label(default = "//:v8_annotate_torque_ir"),
+        "_v8_annotate_torque_ir": attr.label(default = ":v8_annotate_torque_ir"),
     },
 )
 
@@ -217,10 +216,10 @@ v8_mksnapshot = rule(
     implementation = _mksnapshot,
     attrs = {
         "tool": attr.label(
-            default = "//:mksnapshot",
+            default = ":mksnapshot",
             allow_files = True,
             executable = True,
-            cfg = "target",
+            cfg = "host",
         ),
     }
 )
