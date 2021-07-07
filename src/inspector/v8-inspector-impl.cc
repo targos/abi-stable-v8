@@ -512,6 +512,7 @@ bool V8InspectorImpl::associateExceptionData(v8::Local<v8::Context>,
   }
   v8::Local<v8::Context> context;
   if (!exceptionMetaDataContext().ToLocal(&context)) return false;
+  v8::TryCatch tryCatch(m_isolate);
   v8::Context::Scope contextScope(context);
   v8::HandleScope handles(m_isolate);
   if (m_exceptionMetaData.IsEmpty())
@@ -550,7 +551,8 @@ v8::MaybeLocal<v8::Object> V8InspectorImpl::getAssociatedExceptionData(
   v8::Local<v8::debug::WeakMap> map = m_exceptionMetaData.Get(m_isolate);
   auto entry = map->Get(context, exception);
   v8::Local<v8::Value> object;
-  if (!entry.ToLocal(&object)) return v8::MaybeLocal<v8::Object>();
+  if (!entry.ToLocal(&object) || !object->IsObject())
+    return v8::MaybeLocal<v8::Object>();
   return scope.Escape(object.As<v8::Object>());
 }
 }  // namespace v8_inspector

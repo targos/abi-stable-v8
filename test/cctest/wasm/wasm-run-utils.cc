@@ -302,7 +302,8 @@ uint32_t TestingModuleBuilder::AddPassiveElementSegment(
   test_module_->elem_segments.emplace_back(kWasmFuncRef, false);
   auto& elem_segment = test_module_->elem_segments.back();
   for (uint32_t entry : entries) {
-    elem_segment.entries.push_back(WasmInitExpr::RefFuncConst(entry));
+    elem_segment.entries.push_back(
+        WasmElemSegment::Entry(WasmElemSegment::Entry::kRefFuncEntry, entry));
   }
 
   // The vector pointers may have moved, so update the instance object.
@@ -314,10 +315,10 @@ uint32_t TestingModuleBuilder::AddPassiveElementSegment(
 CompilationEnv TestingModuleBuilder::CreateCompilationEnv() {
   // This is a hack so we don't need to call
   // trap_handler::IsTrapHandlerEnabled().
-  const bool is_trap_handler_enabled =
-      V8_TRAP_HANDLER_SUPPORTED && i::FLAG_wasm_trap_handler;
+  const bool use_trap_handler =
+      V8_TRAP_HANDLER_SUPPORTED && !i::FLAG_wasm_enforce_bounds_checks;
   return {test_module_.get(),
-          is_trap_handler_enabled ? kUseTrapHandler : kNoTrapHandler,
+          use_trap_handler ? kTrapHandler : kExplicitBoundsChecks,
           runtime_exception_support_, enabled_features_};
 }
 
@@ -325,7 +326,7 @@ const WasmGlobal* TestingModuleBuilder::AddGlobal(ValueType type) {
   byte size = type.element_size_bytes();
   global_offset = (global_offset + size - 1) & ~(size - 1);  // align
   test_module_->globals.push_back(
-      {type, true, WasmInitExpr(), {global_offset}, false, false});
+      {type, true, {}, {global_offset}, false, false});
   global_offset += size;
   // limit number of globals.
   CHECK_LT(global_offset, kMaxGlobalsSize);

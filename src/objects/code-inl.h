@@ -11,9 +11,12 @@
 #include "src/common/assert-scope.h"
 #include "src/execution/isolate.h"
 #include "src/heap/heap-inl.h"
+#include "src/heap/heap-write-barrier-inl.h"
 #include "src/interpreter/bytecode-register.h"
 #include "src/objects/code.h"
 #include "src/objects/dictionary.h"
+#include "src/objects/fixed-array.h"
+#include "src/objects/heap-object.h"
 #include "src/objects/instance-type-inl.h"
 #include "src/objects/map-inl.h"
 #include "src/objects/maybe-object-inl.h"
@@ -181,14 +184,26 @@ INT_ACCESSORS(Code, raw_metadata_size, kMetadataSizeOffset)
 INT_ACCESSORS(Code, handler_table_offset, kHandlerTableOffsetOffset)
 INT_ACCESSORS(Code, code_comments_offset, kCodeCommentsOffsetOffset)
 INT32_ACCESSORS(Code, unwinding_info_offset, kUnwindingInfoOffsetOffset)
-#define CODE_ACCESSORS(name, type, offset)           \
-  ACCESSORS_CHECKED2(Code, name, type, offset, true, \
+#define CODE_ACCESSORS(name, type, offset)            \
+  ACCESSORS_CHECKED2(Code, name, type, offset,        \
+                     !ObjectInYoungGeneration(value), \
                      !ObjectInYoungGeneration(value))
-#define RELEASE_ACQUIRE_CODE_ACCESSORS(name, type, offset)           \
-  RELEASE_ACQUIRE_ACCESSORS_CHECKED2(Code, name, type, offset, true, \
+#define CODE_ACCESSORS_CHECKED(name, type, offset, condition)        \
+  ACCESSORS_CHECKED2(Code, name, type, offset,                       \
+                     !ObjectInYoungGeneration(value) && (condition), \
+                     !ObjectInYoungGeneration(value) && (condition))
+#define RELEASE_ACQUIRE_CODE_ACCESSORS(name, type, offset)            \
+  RELEASE_ACQUIRE_ACCESSORS_CHECKED2(Code, name, type, offset,        \
+                                     !ObjectInYoungGeneration(value), \
                                      !ObjectInYoungGeneration(value))
 
 CODE_ACCESSORS(relocation_info, ByteArray, kRelocationInfoOffset)
+RELEASE_ACQUIRE_CODE_ACCESSORS(relocation_info, ByteArray,
+                               kRelocationInfoOffset)
+CODE_ACCESSORS_CHECKED(relocation_info_or_undefined, HeapObject,
+                       kRelocationInfoOffset,
+                       value.IsUndefined() || value.IsByteArray())
+
 CODE_ACCESSORS(deoptimization_data, FixedArray, kDeoptimizationDataOffset)
 #define IS_BASELINE() (kind() == CodeKind::BASELINE)
 ACCESSORS_CHECKED2(Code, source_position_table, ByteArray, kPositionTableOffset,
@@ -202,6 +217,7 @@ ACCESSORS_CHECKED2(Code, bytecode_offset_table, ByteArray, kPositionTableOffset,
 RELEASE_ACQUIRE_CODE_ACCESSORS(code_data_container, CodeDataContainer,
                                kCodeDataContainerOffset)
 #undef CODE_ACCESSORS
+#undef CODE_ACCESSORS_CHECKED
 #undef RELEASE_ACQUIRE_CODE_ACCESSORS
 
 CodeDataContainer Code::GCSafeCodeDataContainer(AcquireLoadTag) const {
@@ -228,6 +244,14 @@ inline CodeT ToCodeT(Code code) {
 inline Code FromCodeT(CodeT code) {
 #if V8_EXTERNAL_CODE_SPACE
   return code.code();
+#else
+  return code;
+#endif
+}
+
+inline Code FromCodeT(CodeT code, RelaxedLoadTag) {
+#if V8_EXTERNAL_CODE_SPACE
+  return code.code(kRelaxedLoad);
 #else
   return code;
 #endif
@@ -364,6 +388,12 @@ ByteArray Code::unchecked_relocation_info() const {
   PtrComprCageBase cage_base = GetPtrComprCageBase(*this);
   return ByteArray::unchecked_cast(
       TaggedField<HeapObject, kRelocationInfoOffset>::load(cage_base, *this));
+}
+
+HeapObject Code::synchronized_unchecked_relocation_info_or_undefined() const {
+  PtrComprCageBase cage_base = GetPtrComprCageBase(*this);
+  return TaggedField<HeapObject, kRelocationInfoOffset>::Acquire_Load(cage_base,
+                                                                      *this);
 }
 
 byte* Code::relocation_start() const {
@@ -773,6 +803,8 @@ RELAXED_INT32_ACCESSORS(CodeDataContainer, kind_specific_flags,
                         kKindSpecificFlagsOffset)
 ACCESSORS_CHECKED(CodeDataContainer, raw_code, Object, kCodeOffset,
                   V8_EXTERNAL_CODE_SPACE_BOOL)
+RELAXED_ACCESSORS_CHECKED(CodeDataContainer, raw_code, Object, kCodeOffset,
+                          V8_EXTERNAL_CODE_SPACE_BOOL)
 ACCESSORS(CodeDataContainer, next_code_link, Object, kNextCodeLinkOffset)
 
 void CodeDataContainer::AllocateExternalPointerEntries(Isolate* isolate) {
@@ -783,6 +815,11 @@ void CodeDataContainer::AllocateExternalPointerEntries(Isolate* isolate) {
 DEF_GETTER(CodeDataContainer, code, Code) {
   CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
   return Code::cast(raw_code(cage_base));
+}
+
+DEF_RELAXED_GETTER(CodeDataContainer, code, Code) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  return Code::cast(raw_code(cage_base, kRelaxedLoad));
 }
 
 DEF_GETTER(CodeDataContainer, code_entry_point, Address) {

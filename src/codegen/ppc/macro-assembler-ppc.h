@@ -61,6 +61,8 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
  public:
   using TurboAssemblerBase::TurboAssemblerBase;
 
+  void Popcnt32(Register dst, Register src);
+  void Popcnt64(Register dst, Register src);
   // Converts the integer (untagged smi) in |src| to a double, storing
   // the result to |dst|
   void ConvertIntToDouble(Register src, DoubleRegister dst);
@@ -112,7 +114,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void AllocateStackSpace(int bytes) {
     DCHECK_GE(bytes, 0);
     if (bytes == 0) return;
-    Add(sp, sp, -bytes, r0);
+    AddS64(sp, sp, Operand(-bytes), r0);
   }
 
   // Push a fixed frame, consisting of lr, fp, constant pool.
@@ -169,7 +171,10 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
 
   // reset rounding mode to default (kRoundToNearest)
   void ResetRoundingMode();
-  void Add(Register dst, Register src, intptr_t value, Register scratch);
+
+  void AddS64(Register dst, Register src, const Operand& value,
+              Register scratch = r0);
+  void AddS64(Register dst, Register src, Register value);
 
   void Push(Register src) { push(src); }
   // Push a handle.

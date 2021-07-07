@@ -53,6 +53,7 @@ class TestMemoryAllocatorScope;
 
 namespace third_party_heap {
 class Heap;
+class Impl;
 }  // namespace third_party_heap
 
 class IncrementalMarking;
@@ -575,6 +576,8 @@ class Heap {
   V8_EXPORT_PRIVATE void RightTrimFixedArray(FixedArrayBase obj,
                                              int elements_to_trim);
   void RightTrimWeakFixedArray(WeakFixedArray obj, int elements_to_trim);
+
+  void UndoLastAllocationAt(Address addr, int size);
 
   // Converts the given boolean condition to JavaScript boolean value.
   inline Oddball ToBoolean(bool condition);
@@ -1125,7 +1128,7 @@ class Heap {
   void CompleteSweepingYoung(GarbageCollector collector);
 
   // Ensures that sweeping is finished for that object's page.
-  void EnsureSweepingCompleted(Handle<HeapObject> object);
+  void EnsureSweepingCompleted(HeapObject object);
 
   IncrementalMarking* incremental_marking() const {
     return incremental_marking_.get();
@@ -1151,6 +1154,9 @@ class Heap {
       HeapObject object, const DisallowGarbageCollection&,
       InvalidateRecordedSlots invalidate_recorded_slots =
           InvalidateRecordedSlots::kYes);
+
+  void NotifyCodeObjectChangeStart(Code code, const DisallowGarbageCollection&);
+  void NotifyCodeObjectChangeEnd(Code code, const DisallowGarbageCollection&);
 
 #ifdef VERIFY_HEAP
   // This function checks that either
@@ -1548,6 +1554,7 @@ class Heap {
   // as uninitialized to background threads.
   // This predicate may be invoked from a background thread.
   inline bool IsPendingAllocation(HeapObject object);
+  inline bool IsPendingAllocation(Object object);
 
   // Notifies that all previously allocated objects are properly initialized
   // and ensures that IsPendingAllocation returns false for them. This function
@@ -2496,6 +2503,8 @@ class Heap {
   friend class Space;
   friend class Sweeper;
   friend class heap::TestMemoryAllocatorScope;
+  friend class third_party_heap::Heap;
+  friend class third_party_heap::Impl;
 
   // The allocator interface.
   friend class Factory;

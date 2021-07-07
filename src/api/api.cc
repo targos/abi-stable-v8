@@ -9996,8 +9996,6 @@ const char* CodeEvent::GetCodeEventTypeName(CodeEventType code_event_type) {
   }
   // The execution should never pass here
   UNREACHABLE();
-  // NOTE(mmarchini): Workaround to fix a compiler failure on GCC 4.9
-  return "Unknown";
 }
 
 CodeEventHandler::CodeEventHandler(Isolate* isolate) {
@@ -10046,7 +10044,6 @@ Local<Value> HeapGraphEdge::GetName() const {
     default:
       UNREACHABLE();
   }
-  return v8::Undefined(reinterpret_cast<v8::Isolate*>(isolate));
 }
 
 const HeapGraphNode* HeapGraphEdge::GetFromNode() const {

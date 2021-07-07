@@ -752,16 +752,14 @@ size_t InstructionSelector::AddInputsToFrameStateDescriptor(
     FrameStateDescriptor* descriptor, FrameState state, OperandGenerator* g,
     StateObjectDeduplicator* deduplicator, InstructionOperandVector* inputs,
     FrameStateInputKind kind, Zone* zone) {
-  DCHECK_EQ(IrOpcode::kFrameState, state->op()->opcode());
-
   size_t entries = 0;
   size_t initial_size = inputs->size();
   USE(initial_size);  // initial_size is only used for debug.
 
   if (descriptor->outer_state()) {
     entries += AddInputsToFrameStateDescriptor(
-        descriptor->outer_state(), state.outer_frame_state(), g, deduplicator,
-        inputs, kind, zone);
+        descriptor->outer_state(), FrameState{state.outer_frame_state()}, g,
+        deduplicator, inputs, kind, zone);
   }
 
   Node* parameters = state.parameters();
@@ -1154,9 +1152,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
       // This can insert empty slots before stack_index and will insert enough
       // slots after stack_index to store the parameter.
       if (static_cast<size_t>(stack_index) >= buffer->pushed_nodes.size()) {
-        int num_slots = std::max(
-            1, (ElementSizeInBytes(location.GetType().representation()) /
-                kSystemPointerSize));
+        int num_slots = location.GetSizeInPointers();
         buffer->pushed_nodes.resize(stack_index + num_slots);
       }
       PushParameter param = {*iter, location};
@@ -2390,7 +2386,6 @@ void InstructionSelector::VisitNode(Node* node) {
     default:
       FATAL("Unexpected operator #%d:%s @ node #%d", node->opcode(),
             node->op()->mnemonic(), node->id());
-      break;
   }
 }
 
@@ -3022,13 +3017,12 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
 
 void InstructionSelector::VisitTailCall(Node* node) {
   OperandGenerator g(this);
-  auto call_descriptor = CallDescriptorOf(node->op());
 
-  CallDescriptor* caller = linkage()->GetIncomingDescriptor();
-  const CallDescriptor* callee = CallDescriptorOf(node->op());
+  auto caller = linkage()->GetIncomingDescriptor();
+  auto callee = CallDescriptorOf(node->op());
   DCHECK(caller->CanTailCall(callee));
   const int stack_param_delta = callee->GetStackParameterDelta(caller);
-  CallBuffer buffer(zone(), call_descriptor, nullptr);
+  CallBuffer buffer(zone(), callee, nullptr);
 
   // Compute InstructionOperands for inputs and outputs.
   CallBufferFlags flags(kCallCodeImmediate | kCallTail);
@@ -3044,7 +3038,7 @@ void InstructionSelector::VisitTailCall(Node* node) {
   // Select the appropriate opcode based on the call type.
   InstructionCode opcode;
   InstructionOperandVector temps(zone());
-  switch (call_descriptor->kind()) {
+  switch (callee->kind()) {
     case CallDescriptor::kCallCodeObject:
       opcode = kArchTailCallCodeObject;
       break;
@@ -3061,7 +3055,7 @@ void InstructionSelector::VisitTailCall(Node* node) {
     default:
       UNREACHABLE();
   }
-  opcode = EncodeCallDescriptorFlags(opcode, call_descriptor->flags());
+  opcode = EncodeCallDescriptorFlags(opcode, callee->flags());
 
   Emit(kArchPrepareTailCall, g.NoOutput());
 
@@ -3159,26 +3153,44 @@ void InstructionSelector::VisitDynamicCheckMapsWithDeoptUnless(Node* node) {
   DynamicCheckMapsWithDeoptUnlessNode n(node);
   DeoptimizeParameters p = DeoptimizeParametersOf(node->op());
 
-  DynamicCheckMapsDescriptor descriptor;
-  // Note: We use Operator::kNoDeopt here because this builtin does not lazy
-  // deoptimize (which is the meaning of Operator::kNoDeopt), even though it can
-  // eagerly deoptimize.
-  CallDescriptor* call_descriptor = Linkage::GetStubCallDescriptor(
-      zone(), descriptor, descriptor.GetStackParameterCount(),
-      CallDescriptor::kNoFlags, Operator::kNoDeopt | Operator::kNoThrow);
-  InstructionOperand dynamic_check_args[] = {
-      g.UseLocation(n.map(), call_descriptor->GetInputLocation(1)),
-      g.UseImmediate(n.slot()), g.UseImmediate(n.handler())};
+  CallDescriptor* call_descriptor;
+  ZoneVector<InstructionOperand> dynamic_check_args(zone());
+
+  if (p.reason() == DeoptimizeReason::kDynamicCheckMaps) {
+    DynamicCheckMapsDescriptor descriptor;
+    // Note: We use Operator::kNoDeopt here because this builtin does not lazy
+    // deoptimize (which is the meaning of Operator::kNoDeopt), even though it
+    // can eagerly deoptimize.
+    call_descriptor = Linkage::GetStubCallDescriptor(
+        zone(), descriptor, descriptor.GetStackParameterCount(),
+        CallDescriptor::kNoFlags, Operator::kNoDeopt | Operator::kNoThrow);
+    dynamic_check_args.insert(
+        dynamic_check_args.end(),
+        {g.UseLocation(n.map(), call_descriptor->GetInputLocation(1)),
+         g.UseImmediate(n.slot()), g.UseImmediate(n.handler())});
+  } else {
+    DCHECK_EQ(p.reason(), DeoptimizeReason::kDynamicCheckMapsInlined);
+    DynamicCheckMapsWithFeedbackVectorDescriptor descriptor;
+    call_descriptor = Linkage::GetStubCallDescriptor(
+        zone(), descriptor, descriptor.GetStackParameterCount(),
+        CallDescriptor::kNoFlags, Operator::kNoDeopt | Operator::kNoThrow);
+    dynamic_check_args.insert(
+        dynamic_check_args.end(),
+        {g.UseLocation(n.map(), call_descriptor->GetInputLocation(1)),
+         g.UseLocation(n.feedback_vector(),
+                       call_descriptor->GetInputLocation(2)),
+         g.UseImmediate(n.slot()), g.UseImmediate(n.handler())});
+  }
 
   if (NeedsPoisoning(IsSafetyCheck::kCriticalSafetyCheck)) {
     FlagsContinuation cont = FlagsContinuation::ForDeoptimizeAndPoison(
         kEqual, p.kind(), p.reason(), p.feedback(), n.frame_state(),
-        dynamic_check_args, 3);
+        dynamic_check_args.data(), static_cast<int>(dynamic_check_args.size()));
     VisitWordCompareZero(node, n.condition(), &cont);
   } else {
     FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
         kEqual, p.kind(), p.reason(), p.feedback(), n.frame_state(),
-        dynamic_check_args, 3);
+        dynamic_check_args.data(), static_cast<int>(dynamic_check_args.size()));
     VisitWordCompareZero(node, n.condition(), &cont);
   }
 }
@@ -3329,9 +3341,9 @@ FrameStateDescriptor* GetFrameStateDescriptorInternal(Zone* zone,
   int stack = state_info.type() == FrameStateType::kUnoptimizedFunction ? 1 : 0;
 
   FrameStateDescriptor* outer_state = nullptr;
-  if (state.has_outer_frame_state()) {
-    outer_state =
-        GetFrameStateDescriptorInternal(zone, state.outer_frame_state());
+  if (state.outer_frame_state()->opcode() == IrOpcode::kFrameState) {
+    outer_state = GetFrameStateDescriptorInternal(
+        zone, FrameState{state.outer_frame_state()});
   }
 
 #if V8_ENABLE_WEBASSEMBLY

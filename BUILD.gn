@@ -414,6 +414,7 @@ if (v8_enable_third_party_heap) {
   v8_enable_shared_ro_heap = false
   v8_enable_pointer_compression = false
   v8_enable_pointer_compression_shared_cage = false
+  v8_enable_allocation_folding = false
 }
 if (v8_enable_single_generation) {
   v8_allocation_site_tracking = false
@@ -3166,6 +3167,7 @@ v8_header_set("v8_internal_headers") {
       "src/wasm/function-body-decoder.h",
       "src/wasm/function-compiler.h",
       "src/wasm/graph-builder-interface.h",
+      "src/wasm/init-expr-interface.h",
       "src/wasm/jump-table-assembler.h",
       "src/wasm/leb-helper.h",
       "src/wasm/local-decl-encoder.h",
@@ -3203,6 +3205,12 @@ v8_header_set("v8_internal_headers") {
       "src/wasm/wasm-tier.h",
       "src/wasm/wasm-value.h",
     ]
+  }
+
+  if (!v8_enable_third_party_heap) {
+    sources += filter_include(v8_third_party_heap_files, [ "*.h" ])
+  } else {
+    sources += [ "src/heap/third-party/heap-api.h" ]
   }
 
   if (v8_enable_i18n_support) {
@@ -4102,6 +4110,7 @@ v8_source_set("v8_base_without_compiler") {
       "src/wasm/function-body-decoder.cc",
       "src/wasm/function-compiler.cc",
       "src/wasm/graph-builder-interface.cc",
+      "src/wasm/init-expr-interface.cc",
       "src/wasm/jump-table-assembler.cc",
       "src/wasm/local-decl-encoder.cc",
       "src/wasm/memory-protection-key.cc",
@@ -4135,12 +4144,9 @@ v8_source_set("v8_base_without_compiler") {
   }
 
   if (v8_enable_third_party_heap) {
-    sources += v8_third_party_heap_files
+    sources += filter_exclude(v8_third_party_heap_files, [ "*.h" ])
   } else {
-    sources += [
-      "src/heap/third-party/heap-api-stub.cc",
-      "src/heap/third-party/heap-api.h",
-    ]
+    sources += [ "src/heap/third-party/heap-api-stub.cc" ]
   }
 
   if (v8_enable_conservative_stack_scanning) {
@@ -5043,6 +5049,10 @@ v8_header_set("cppgc_headers") {
     "include/cppgc/process-heap-statistics.h",
     "include/cppgc/sentinel-pointer.h",
     "include/cppgc/source-location.h",
+
+    # TODO(v8:11952): Remove the testing header here once depending on both,
+    # //v8:v8 and //v8:v8_for_testing does not result in ODR violations.
+    "include/cppgc/testing.h",
     "include/cppgc/trace-trait.h",
     "include/cppgc/type-traits.h",
     "include/cppgc/visitor.h",
@@ -5139,6 +5149,10 @@ v8_source_set("cppgc_base") {
     "src/heap/cppgc/sweeper.cc",
     "src/heap/cppgc/sweeper.h",
     "src/heap/cppgc/task-handle.h",
+
+    # TODO(v8:11952): Remove the testing header here once depending on both,
+    # //v8:v8 and //v8:v8_for_testing does not result in ODR violations.
+    "src/heap/cppgc/testing.cc",
     "src/heap/cppgc/trace-event.h",
     "src/heap/cppgc/trace-trait.cc",
     "src/heap/cppgc/virtual-memory.cc",
@@ -5173,22 +5187,6 @@ v8_source_set("cppgc_base") {
   } else {
     public_deps += [ ":v8_tracing" ]
   }
-}
-
-v8_source_set("cppgc_base_for_testing") {
-  visibility = [ ":*" ]
-
-  sources = [
-    "include/cppgc/testing.h",
-    "src/heap/cppgc/testing.cc",
-  ]
-
-  configs = [
-    ":internal_config",
-    ":cppgc_base_config",
-  ]
-
-  public_deps = [ ":cppgc_base" ]
 }
 
 if (v8_check_header_includes) {
@@ -5572,7 +5570,6 @@ if (is_component_build) {
     sources = [ "src/utils/v8dll-main.cc" ]
 
     public_deps = [
-      ":cppgc_base_for_testing",
       ":torque_base",
       ":torque_ls_base",
       ":v8_base",
@@ -5601,10 +5598,7 @@ if (is_component_build) {
     v8_component("cppgc_for_testing") {
       testonly = true
 
-      public_deps = [
-        ":cppgc_base",
-        ":cppgc_base_for_testing",
-      ]
+      public_deps = [ ":cppgc_base" ]
 
       configs = []
       public_configs = [ ":external_config" ]
@@ -5633,7 +5627,6 @@ if (is_component_build) {
     testonly = true
 
     public_deps = [
-      ":cppgc_base_for_testing",
       ":torque_base",
       ":torque_ls_base",
       ":v8_base",
@@ -5658,10 +5651,7 @@ if (is_component_build) {
     group("cppgc_for_testing") {
       testonly = true
 
-      public_deps = [
-        ":cppgc_base",
-        ":cppgc_base_for_testing",
-      ]
+      public_deps = [ ":cppgc_base" ]
 
       public_configs = [ ":external_config" ]
     }

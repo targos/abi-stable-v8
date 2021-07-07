@@ -159,40 +159,62 @@ std::ostream& operator<<(std::ostream& os, const PrintName& name) {
   return os.write(name.name.begin(), name.name.size());
 }
 
-std::ostream& operator<<(std::ostream& os, const WasmInitExpr& expr) {
+std::ostream& operator<<(std::ostream& os, WasmElemSegment::Entry entry) {
   os << "WasmInitExpr.";
-  switch (expr.kind()) {
-    case WasmInitExpr::kNone:
-      UNREACHABLE();
-    case WasmInitExpr::kS128Const:
-    case WasmInitExpr::kRttCanon:
-    case WasmInitExpr::kRttSub:
-    case WasmInitExpr::kRttFreshSub:
-    case WasmInitExpr::kRefNullConst:
-    case WasmInitExpr::kStructNewWithRtt:
-    case WasmInitExpr::kArrayInit:
-      // TODO(manoskouk): Implement these.
-      UNIMPLEMENTED();
-    case WasmInitExpr::kGlobalGet:
-      os << "GlobalGet(" << expr.immediate().index;
+  switch (entry.kind) {
+    case WasmElemSegment::Entry::kGlobalGetEntry:
+      os << "GlobalGet(" << entry.index;
       break;
-    case WasmInitExpr::kI32Const:
-      os << "I32Const(" << expr.immediate().i32_const;
+    case WasmElemSegment::Entry::kRefFuncEntry:
+      os << "RefFunc(" << entry.index;
       break;
-    case WasmInitExpr::kI64Const:
-      os << "I64Const(" << expr.immediate().i64_const;
-      break;
-    case WasmInitExpr::kF32Const:
-      os << "F32Const(" << expr.immediate().f32_const;
-      break;
-    case WasmInitExpr::kF64Const:
-      os << "F64Const(" << expr.immediate().f64_const;
-      break;
-    case WasmInitExpr::kRefFuncConst:
-      os << "RefFunc(" << expr.immediate().index;
+    case WasmElemSegment::Entry::kRefNullEntry:
+      os << "RefNull(" << HeapType(entry.index).name().c_str();
       break;
   }
   return os << ")";
+}
+
+// Appends an initializer expression encoded in {wire_bytes}, in the offset
+// contained in {expr}.
+// TODO(7748): Find a way to implement other expressions here.
+void AppendInitExpr(std::ostream& os, ModuleWireBytes wire_bytes,
+                    WireBytesRef expr) {
+  Decoder decoder(wire_bytes.module_bytes());
+  const byte* pc = wire_bytes.module_bytes().begin() + expr.offset();
+  uint32_t length;
+  os << "WasmInitExpr.";
+  switch (static_cast<WasmOpcode>(pc[0])) {
+    case kExprGlobalGet:
+      os << "GlobalGet("
+         << decoder.read_u32v<Decoder::kNoValidation>(pc + 1, &length);
+      break;
+    case kExprI32Const:
+      os << "I32Const("
+         << decoder.read_i32v<Decoder::kNoValidation>(pc + 1, &length);
+      break;
+    case kExprI64Const:
+      os << "I64Const("
+         << decoder.read_i64v<Decoder::kNoValidation>(pc + 1, &length);
+      break;
+    case kExprF32Const: {
+      uint32_t result = decoder.read_u32<Decoder::kNoValidation>(pc + 1);
+      os << "F32Const(" << bit_cast<float>(result);
+      break;
+    }
+    case kExprF64Const: {
+      uint64_t result = decoder.read_u64<Decoder::kNoValidation>(pc + 1);
+      os << "F64Const(" << bit_cast<double>(result);
+      break;
+    }
+    case kExprRefFunc:
+      os << "RefFunc("
+         << decoder.read_u32v<Decoder::kNoValidation>(pc + 1, &length);
+      break;
+    default:
+      UNREACHABLE();
+  }
+  os << ")";
 }
 }  // namespace
 
@@ -249,7 +271,9 @@ void GenerateTestCase(Isolate* isolate, ModuleWireBytes wire_bytes,
 
   for (WasmGlobal& glob : module->globals) {
     os << "builder.addGlobal(" << ValueTypeToConstantName(glob.type) << ", "
-       << glob.mutability << ", " << glob.init << ");\n";
+       << glob.mutability << ", ";
+    AppendInitExpr(os, wire_bytes, glob.init);
+    os << ");\n";
   }
 
   // TODO(7748): Support array/struct types.
@@ -287,7 +311,9 @@ void GenerateTestCase(Isolate* isolate, ModuleWireBytes wire_bytes,
                   : "Declarative";
     os << "builder.add" << status_str << "ElementSegment(";
     if (elem_segment.status == WasmElemSegment::kStatusActive) {
-      os << elem_segment.table_index << ", " << elem_segment.offset << ", ";
+      os << elem_segment.table_index << ", ";
+      AppendInitExpr(os, wire_bytes, elem_segment.offset);
+      os << ", ";
     }
     os << "[";
     for (uint32_t i = 0; i < elem_segment.entries.size(); i++) {
@@ -393,17 +419,13 @@ void WasmExecutionFuzzer::FuzzWasmModule(base::Vector<const uint8_t> data,
   Zone zone(&allocator, ZONE_NAME);
 
   ZoneBuffer buffer(&zone);
-  int32_t num_args = 0;
-  std::unique_ptr<WasmValue[]> interpreter_args;
-  std::unique_ptr<Handle<Object>[]> compiler_args;
   // The first byte builds the bitmask to control which function will be
   // compiled with Turbofan and which one with Liftoff.
   uint8_t tier_mask = data.empty() ? 0 : data[0];
   if (!data.empty()) data += 1;
   uint8_t debug_mask = data.empty() ? 0 : data[0];
   if (!data.empty()) data += 1;
-  if (!GenerateModule(i_isolate, &zone, data, &buffer, &num_args,
-                      &interpreter_args, &compiler_args)) {
+  if (!GenerateModule(i_isolate, &zone, data, &buffer)) {
     return;
   }
 

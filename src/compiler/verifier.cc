@@ -123,7 +123,6 @@ void Verifier::Visitor::CheckSwitch(Node* node, const AllNodes& all) {
       default: {
         FATAL("Switch #%d illegally used by #%d:%s", node->id(), use->id(),
               use->op()->mnemonic());
-        break;
       }
     }
   }
@@ -951,6 +950,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kSpeculativeNumberAdd:
     case IrOpcode::kSpeculativeNumberSubtract:
     case IrOpcode::kSpeculativeNumberMultiply:
+    case IrOpcode::kSpeculativeNumberPow:
     case IrOpcode::kSpeculativeNumberDivide:
     case IrOpcode::kSpeculativeNumberModulus:
       CheckTypeIs(node, Type::Number());

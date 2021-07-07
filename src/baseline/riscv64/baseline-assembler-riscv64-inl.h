@@ -449,19 +449,15 @@ void BaselineAssembler::Pop(T... registers) {
 
 void BaselineAssembler::LoadTaggedPointerField(Register output, Register source,
                                                int offset) {
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
-  // __ LoadTaggedPointerField(output, FieldMemOperand(source, offset));
-  __ Ld(output, FieldMemOperand(source, offset));
+  __ LoadTaggedPointerField(output, FieldMemOperand(source, offset));
 }
 void BaselineAssembler::LoadTaggedSignedField(Register output, Register source,
                                               int offset) {
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
-  __ Ld(output, FieldMemOperand(source, offset));
+  __ LoadTaggedSignedField(output, FieldMemOperand(source, offset));
 }
 void BaselineAssembler::LoadTaggedAnyField(Register output, Register source,
                                            int offset) {
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
-  __ Ld(output, FieldMemOperand(source, offset));
+  __ LoadAnyTaggedField(output, FieldMemOperand(source, offset));
 }
 void BaselineAssembler::LoadByteField(Register output, Register source,
                                       int offset) {
@@ -473,23 +469,20 @@ void BaselineAssembler::StoreTaggedSignedField(Register target, int offset,
   ScratchRegisterScope temps(this);
   Register tmp = temps.AcquireScratch();
   __ li(tmp, Operand(value));
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
-  __ Sd(tmp, FieldMemOperand(target, offset));
+  __ StoreTaggedField(tmp, FieldMemOperand(target, offset));
 }
 void BaselineAssembler::StoreTaggedFieldWithWriteBarrier(Register target,
                                                          int offset,
                                                          Register value) {
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
   ASM_CODE_COMMENT(masm_);
-  __ Sd(value, FieldMemOperand(target, offset));
+  __ StoreTaggedField(value, FieldMemOperand(target, offset));
   __ RecordWriteField(target, offset, value, kRAHasNotBeenSaved,
                       SaveFPRegsMode::kIgnore);
 }
 void BaselineAssembler::StoreTaggedFieldNoWriteBarrier(Register target,
                                                        int offset,
                                                        Register value) {
-  // FIXME(riscv64): riscv64 don't implement pointer compressed
-  __ Sd(value, FieldMemOperand(target, offset));
+  __ StoreTaggedField(value, FieldMemOperand(target, offset));
 }
 
 void BaselineAssembler::AddToInterruptBudgetAndJumpIfNotExceeded(
@@ -535,7 +528,7 @@ void BaselineAssembler::AddToInterruptBudgetAndJumpIfNotExceeded(
 }
 
 void BaselineAssembler::AddSmi(Register lhs, Smi rhs) {
-  ASM_CODE_COMMENT(&masm_);
+  ASM_CODE_COMMENT(masm_);
   if (SmiValuesAre31Bits()) {
     __ Add32(lhs, lhs, Operand(rhs));
   } else {
@@ -621,7 +614,7 @@ void BaselineAssembler::EmitReturn(MacroAssembler* masm) {
   // arguments.
   Label corrected_args_count;
   __ masm()->Branch(&corrected_args_count, ge, params_size,
-                    Operand(actual_params_size));
+                    Operand(actual_params_size), Label::Distance::kNear);
   __ masm()->Move(params_size, actual_params_size);
   __ Bind(&corrected_args_count);
 

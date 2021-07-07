@@ -308,8 +308,9 @@ size_t Heap::AllocatorLimitOnMaxOldGenerationSize() {
   return kPtrComprCageReservationSize -
          YoungGenerationSizeFromSemiSpaceSize(kMaxSemiSpaceSize) -
          RoundUp(sizeof(Isolate), size_t{1} << kPageSizeBits);
-#endif
+#else
   return std::numeric_limits<size_t>::max();
+#endif
 }
 
 size_t Heap::MaxOldGenerationSize(uint64_t physical_memory) {
@@ -2279,10 +2280,10 @@ void Heap::CompleteSweepingYoung(GarbageCollector collector) {
   array_buffer_sweeper()->EnsureFinished();
 }
 
-void Heap::EnsureSweepingCompleted(Handle<HeapObject> object) {
+void Heap::EnsureSweepingCompleted(HeapObject object) {
   if (!mark_compact_collector()->sweeping_in_progress()) return;
 
-  BasicMemoryChunk* basic_chunk = BasicMemoryChunk::FromHeapObject(*object);
+  BasicMemoryChunk* basic_chunk = BasicMemoryChunk::FromHeapObject(object);
   if (basic_chunk->InReadOnlySpace()) return;
 
   MemoryChunk* chunk = MemoryChunk::cast(basic_chunk);
@@ -2985,7 +2986,6 @@ int Heap::GetMaximumFillToAlign(AllocationAlignment alignment) {
     default:
       UNREACHABLE();
   }
-  return 0;
 }
 
 // static
@@ -3202,11 +3202,8 @@ bool Heap::CanMoveObjectStart(HeapObject object) {
 }
 
 bool Heap::IsImmovable(HeapObject object) {
-  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL) {
-    // TODO(steveblackburn): For now all objects are immovable.
-    // Will need to revisit once moving is supported.
-    return true;
-  }
+  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL)
+    return third_party_heap::Heap::IsImmovable(object);
 
   BasicMemoryChunk* chunk = BasicMemoryChunk::FromHeapObject(object);
   return chunk->NeverEvacuate() || IsLargeObject(object);
@@ -3409,6 +3406,19 @@ void Heap::RightTrimWeakFixedArray(WeakFixedArray object,
   DCHECK_EQ(gc_state(), MARK_COMPACT);
   CreateFillerForArray<WeakFixedArray>(object, elements_to_trim,
                                        elements_to_trim * kTaggedSize);
+}
+
+void Heap::UndoLastAllocationAt(Address addr, int size) {
+  DCHECK_LE(0, size);
+  if (size == 0) return;
+  if (code_space_->Contains(addr)) {
+    Address* top = code_space_->allocation_top_address();
+    if (addr + size == *top && code_space_->original_top() <= addr) {
+      *top = addr;
+      return;
+    }
+  }
+  CreateFillerObjectAt(addr, size, ClearRecordedSlots::kNo);
 }
 
 template <typename T>
@@ -3734,6 +3744,27 @@ void Heap::NotifyObjectLayoutChange(
     pending_layout_change_object_ = object;
   }
 #endif
+}
+
+void Heap::NotifyCodeObjectChangeStart(Code code,
+                                       const DisallowGarbageCollection&) {
+  // Updating the code object will also trim the object size, this results in
+  // free memory which we want to give back to the LAB. Sweeping that object's
+  // page will ensure that we don't add that memory to the free list as well.
+  EnsureSweepingCompleted(code);
+}
+
+void Heap::NotifyCodeObjectChangeEnd(Code code,
+                                     const DisallowGarbageCollection&) {
+  // Ensure relocation_info is already initialized.
+  DCHECK(code.relocation_info_or_undefined().IsByteArray());
+
+  if (incremental_marking()->IsMarking()) {
+    // Object might have been marked already without relocation_info. Force
+    // revisitation of the object such that we find all pointers in the
+    // instruction stream.
+    incremental_marking()->MarkBlackAndRevisitObject(code);
+  }
 }
 
 #ifdef VERIFY_HEAP
@@ -5337,7 +5368,6 @@ HeapObject Heap::AllocateRawWithRetryOrFailSlowPath(
   }
   // TODO(1181417): Fix this.
   FatalProcessOutOfMemory("CALL_AND_RETRY_LAST");
-  return HeapObject();
 }
 
 namespace {
@@ -5963,7 +5993,7 @@ void Heap::CompactWeakArrayLists() {
 
   // Find known WeakArrayLists and compact them.
   Handle<WeakArrayList> scripts(script_list(), isolate());
-  DCHECK(InOldSpace(*scripts));
+  DCHECK_IMPLIES(!V8_ENABLE_THIRD_PARTY_HEAP_BOOL, InOldSpace(*scripts));
   scripts = CompactWeakArrayList(this, scripts, AllocationType::kOld);
   set_script_list(*scripts);
 }
@@ -6397,7 +6427,7 @@ void Heap::ExternalStringTable::CleanUpAll() {
   }
   old_strings_.resize(last);
 #ifdef VERIFY_HEAP
-  if (FLAG_verify_heap) {
+  if (FLAG_verify_heap && !FLAG_enable_third_party_heap) {
     Verify();
   }
 #endif

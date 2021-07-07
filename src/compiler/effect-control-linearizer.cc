@@ -198,6 +198,10 @@ class EffectControlLinearizer {
   Node* LowerLoadMessage(Node* node);
   Node* AdaptFastCallArgument(Node* node, CTypeInfo arg_type,
                               GraphAssemblerLabel<0>* if_error);
+  Node* WrapFastCall(const CallDescriptor* call_descriptor, int inputs_size,
+                     Node** inputs, Node* target,
+                     const CFunctionInfo* c_signature, int c_arg_count,
+                     Node* stack_slot);
   Node* LowerFastApiCall(Node* node);
   Node* LowerLoadTypedElement(Node* node);
   Node* LowerLoadDataViewElement(Node* node);
@@ -1921,12 +1925,14 @@ void EffectControlLinearizer::TryMigrateInstance(Node* value, Node* value_map) {
 }
 
 void EffectControlLinearizer::LowerDynamicCheckMaps(Node* node,
-                                                    Node* frame_state) {
+                                                    Node* frame_state_node) {
   DynamicCheckMapsParameters const& p =
       DynamicCheckMapsParametersOf(node->op());
+  FrameState frame_state(frame_state_node);
   Node* value = node->InputAt(0);
 
   FeedbackSource const& feedback = p.feedback();
+  Node* feedback_vector = __ HeapConstant(feedback.vector);
   Node* slot_index = __ IntPtrConstant(feedback.index());
   Node* value_map = __ LoadField(AccessBuilder::ForMap(), value);
   Node* actual_handler =
@@ -1955,7 +1961,8 @@ void EffectControlLinearizer::LowerDynamicCheckMaps(Node* node,
       }
 
       __ DynamicCheckMapsWithDeoptUnless(check, slot_index, value_map,
-                                         actual_handler, frame_state);
+                                         actual_handler, feedback_vector,
+                                         frame_state);
       __ Goto(&done);
     } else {
       auto next_map = __ MakeLabel();
@@ -5039,6 +5046,60 @@ Node* EffectControlLinearizer::AdaptFastCallArgument(
   }
 }
 
+Node* EffectControlLinearizer::WrapFastCall(
+    const CallDescriptor* call_descriptor, int inputs_size, Node** inputs,
+    Node* target, const CFunctionInfo* c_signature, int c_arg_count,
+    Node* stack_slot) {
+  // CPU profiler support
+  Node* target_address = __ ExternalConstant(
+      ExternalReference::fast_api_call_target_address(isolate()));
+  __ Store(StoreRepresentation(MachineType::PointerRepresentation(),
+                               kNoWriteBarrier),
+           target_address, 0, target);
+
+  // Disable JS execution
+  Node* javascript_execution_assert = __ ExternalConstant(
+      ExternalReference::javascript_execution_assert(isolate()));
+  static_assert(sizeof(bool) == 1, "Wrong assumption about boolean size.");
+
+  if (FLAG_debug_code) {
+    auto do_store = __ MakeLabel();
+    Node* old_scope_value =
+        __ Load(MachineType::Int8(), javascript_execution_assert, 0);
+    __ GotoIf(__ Word32Equal(old_scope_value, __ Int32Constant(1)), &do_store);
+
+    // We expect that JS execution is enabled, otherwise assert.
+    __ Unreachable(&do_store);
+    __ Bind(&do_store);
+  }
+  __ Store(StoreRepresentation(MachineRepresentation::kWord8, kNoWriteBarrier),
+           javascript_execution_assert, 0, __ Int32Constant(0));
+
+  // Update effect and control
+  if (c_signature->HasOptions()) {
+    inputs[c_arg_count + 1] = stack_slot;
+    inputs[c_arg_count + 2] = __ effect();
+    inputs[c_arg_count + 3] = __ control();
+  } else {
+    inputs[c_arg_count + 1] = __ effect();
+    inputs[c_arg_count + 2] = __ control();
+  }
+
+  // Create the fast call
+  Node* call = __ Call(call_descriptor, inputs_size, inputs);
+
+  // Reenable JS execution
+  __ Store(StoreRepresentation(MachineRepresentation::kWord8, kNoWriteBarrier),
+           javascript_execution_assert, 0, __ Int32Constant(1));
+
+  // Reset the CPU profiler target address.
+  __ Store(StoreRepresentation(MachineType::PointerRepresentation(),
+                               kNoWriteBarrier),
+           target_address, 0, __ IntPtrConstant(0));
+
+  return call;
+}
+
 Node* EffectControlLinearizer::LowerFastApiCall(Node* node) {
   FastApiCallNode n(node);
   FastApiCallParameters const& params = n.Parameters();
@@ -5090,13 +5151,6 @@ Node* EffectControlLinearizer::LowerFastApiCall(Node* node) {
 
   call_descriptor->SetCFunctionInfo(c_signature);
 
-  // CPU profiler support
-  Node* target_address = __ ExternalConstant(
-      ExternalReference::fast_api_call_target_address(isolate()));
-  __ Store(StoreRepresentation(MachineType::PointerRepresentation(),
-                               kNoWriteBarrier),
-           target_address, 0, n.target());
-
   Node** const inputs = graph()->zone()->NewArray<Node*>(
       c_arg_count + n.FastCallExtraInputCount());
   inputs[0] = n.target();
@@ -5111,21 +5165,10 @@ Node* EffectControlLinearizer::LowerFastApiCall(Node* node) {
     CTypeInfo type = c_signature->ArgumentInfo(i - 1);
     inputs[i] = AdaptFastCallArgument(value, type, &if_error);
   }
-  if (c_signature->HasOptions()) {
-    inputs[c_arg_count + 1] = stack_slot;
-    inputs[c_arg_count + 2] = __ effect();
-    inputs[c_arg_count + 3] = __ control();
-  } else {
-    inputs[c_arg_count + 1] = __ effect();
-    inputs[c_arg_count + 2] = __ control();
-  }
 
-  Node* c_call_result = __ Call(
-      call_descriptor, c_arg_count + n.FastCallExtraInputCount(), inputs);
-
-  __ Store(StoreRepresentation(MachineType::PointerRepresentation(),
-                               kNoWriteBarrier),
-           target_address, 0, __ IntPtrConstant(0));
+  Node* c_call_result =
+      WrapFastCall(call_descriptor, c_arg_count + n.FastCallExtraInputCount(),
+                   inputs, n.target(), c_signature, c_arg_count, stack_slot);
 
   Node* fast_call_result;
   switch (c_signature->ReturnInfo().GetType()) {
@@ -6003,7 +6046,6 @@ Node* EffectControlLinearizer::LowerConvertReceiver(Node* node) {
   }
 
   UNREACHABLE();
-  return nullptr;
 }
 
 Maybe<Node*> EffectControlLinearizer::LowerFloat64RoundUp(Node* node) {

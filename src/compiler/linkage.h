@@ -127,13 +127,8 @@ class LinkageLocation {
 
   MachineType GetType() const { return machine_type_; }
 
-  int GetSize() const {
-    return 1 << ElementSizeLog2Of(GetType().representation());
-  }
-
   int GetSizeInPointers() const {
-    // Round up
-    return (GetSize() + kSystemPointerSize - 1) / kSystemPointerSize;
+    return ElementSizeInPointers(GetType().representation());
   }
 
   int32_t GetLocation() const {
@@ -395,6 +390,8 @@ class V8_EXPORT_PRIVATE CallDescriptor final
 
   const char* debug_name() const { return debug_name_; }
 
+  // Difference between the number of parameter slots of *this* and
+  // *tail_caller* (callee minus caller).
   int GetStackParameterDelta(const CallDescriptor* tail_caller) const;
 
   // Returns the offset to the area below the parameter slots on the stack,

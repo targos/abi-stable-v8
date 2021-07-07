@@ -131,7 +131,7 @@ class S390OperandConverter final : public InstructionOperandConverter {
 #if V8_TARGET_ARCH_S390X && !V8_TARGET_LITTLE_ENDIAN
     // We want to read the 32-bits directly from memory
     MemOperand mem = InputStackSlot(index);
-    return MemOperand(mem.rb(), mem.rx(), mem.offset() + 4);
+    return MemOperand(mem.rx(), mem.rb(), mem.offset() + 4);
 #else
     return InputStackSlot(index);
 #endif
@@ -1794,6 +1794,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ FloatMin(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
                   i.InputDoubleRegister(1));
       break;
+    case kS390_FloatNearestInt:
+      __ NearestIntF32(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
+      break;
     case kS390_MinDouble:
       __ DoubleMin(i.OutputDoubleRegister(), i.InputDoubleRegister(0),
                    i.InputDoubleRegister(1));
@@ -1813,6 +1816,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kS390_RoundDouble:
       __ fidbra(ROUND_TO_NEAREST_AWAY_FROM_0, i.OutputDoubleRegister(),
                 i.InputDoubleRegister(0));
+      break;
+    case kS390_DoubleNearestInt:
+      __ NearestIntF64(i.OutputDoubleRegister(), i.InputDoubleRegister(0));
       break;
     case kS390_NegFloat:
       ASSEMBLE_UNARY_OP(D_DInstr(lcebr), nullInstr, nullInstr);

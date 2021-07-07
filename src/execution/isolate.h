@@ -935,7 +935,6 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     NOT_CAUGHT,
     CAUGHT_BY_JAVASCRIPT,
     CAUGHT_BY_EXTERNAL,
-    CAUGHT_BY_DESUGARING,
     CAUGHT_BY_PROMISE,
     CAUGHT_BY_ASYNC_AWAIT
   };
@@ -1514,6 +1513,10 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   Address async_event_delegate_address() {
     return reinterpret_cast<Address>(&async_event_delegate_);
+  }
+
+  Address javascript_execution_assert_address() {
+    return reinterpret_cast<Address>(&javascript_execution_assert_);
   }
 
   Address handle_scope_implementer_address() {
