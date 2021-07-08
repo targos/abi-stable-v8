@@ -537,7 +537,7 @@ base::Optional<ObjectRef> GetOwnElementFromHeap(JSHeapBroker* broker,
 base::Optional<ObjectRef> GetOwnFastDataPropertyFromHeap(
     JSHeapBroker* broker, JSObjectRef holder, Representation representation,
     FieldIndex field_index) {
-  base::Optional<ObjectRef> value;
+  base::Optional<Object> constant;
   {
     DisallowGarbageCollection no_gc;
 
@@ -552,7 +552,6 @@ base::Optional<ObjectRef> GetOwnFastDataPropertyFromHeap(
       return {};
     }
 
-    base::Optional<Object> constant;
     if (field_index.is_inobject()) {
       constant = holder.object()->RawInobjectPropertyAt(map, field_index);
       if (!constant.has_value()) {
@@ -585,27 +584,29 @@ base::Optional<ObjectRef> GetOwnFastDataPropertyFromHeap(
     }
 
     // {constant} needs to pass the gc predicate before we can introspect on it.
-    value = TryMakeRef(broker, constant.value());
-    if (!value.has_value()) {
-      return {};
-    }
-    // Since we don't have a guarantee that {value} is the correct value of the
-    // property, we use the expected {representation} to weed out the most
+    if (broker->ObjectMayBeUninitialized(constant.value())) return {};
+
+    // Since we don't have a guarantee that {constant} is the correct value of
+    // the property, we use the expected {representation} to weed out the most
     // egregious types of wrong values.
-    if (!value->object()->FitsRepresentation(representation)) {
-      TRACE_BROKER_MISSING(
-          broker, "Mismatch between representation and value in " << holder);
+    Representation constant_representation =
+        constant->OptimalRepresentation(broker->isolate());
+    if (!constant_representation.CanBeInPlaceChangedTo(representation)) {
+      TRACE_BROKER_MISSING(broker,
+                           "Mismatched representation for "
+                               << holder << ". Expected " << representation
+                               << ", have: " << constant_representation);
       return {};
     }
   }
 
-  // Now that we can safely inspect the property, it may need to be wrapped.
+  // Now that we can safely inspect the constant, it may need to be wrapped.
+  Handle<Object> value = broker->CanonicalPersistentHandle(constant.value());
   Handle<Object> possibly_wrapped = Object::WrapForRead<AllocationType::kOld>(
-      broker->local_isolate_or_isolate(), value->object(), representation);
-  // MakeRef will always succeed, because all that happened was we either got
-  // back a handle identical to {constant} above, or we allocated a handle
-  // on the local isolate, and objects allocated on the background thread
-  // are guaranteed to pass the gc predicate.
+      broker->local_isolate_or_isolate(), value, representation);
+  // MakeRef will always succeed, because either {possibly_wrapped} is {value}
+  // or we allocated a HeapNumber via the local isolate, which is thus
+  // guaranteed to pass the gc predicate.
   return MakeRef(broker, *possibly_wrapped);
 }
 
@@ -3688,8 +3689,9 @@ base::Optional<ObjectRef> JSObjectRef::GetOwnConstantElement(
 
     base::Optional<ObjectRef> result =
         TryMakeRef(broker(), maybe_element.value());
-    if (dependencies != nullptr && result.has_value()) {
-      dependencies->DependOnOwnConstantElement(*this, index, result.value());
+    if (policy == SerializationPolicy::kAssumeSerialized &&
+        result.has_value()) {
+      dependencies->DependOnOwnConstantElement(*this, index, *result);
     }
     return result;
   } else {
@@ -3749,7 +3751,8 @@ base::Optional<ObjectRef> JSObjectRef::GetOwnFastDataProperty(
   if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     base::Optional<ObjectRef> result = GetOwnFastDataPropertyFromHeap(
         broker(), *this, field_representation, index);
-    if (dependencies != nullptr && result.has_value()) {
+    if (policy == SerializationPolicy::kAssumeSerialized &&
+        result.has_value()) {
       dependencies->DependOnOwnConstantDataProperty(
           *this, map(), field_representation, index, *result);
     }
@@ -3767,7 +3770,8 @@ base::Optional<ObjectRef> JSObjectRef::GetOwnDictionaryProperty(
   if (data_->should_access_heap() || broker()->is_concurrent_inlining()) {
     base::Optional<ObjectRef> result =
         GetOwnDictionaryPropertyFromHeap(broker(), object(), index);
-    if (dependencies != nullptr && result.has_value()) {
+    if (policy == SerializationPolicy::kAssumeSerialized &&
+        result.has_value()) {
       dependencies->DependOnOwnConstantDictionaryProperty(*this, index,
                                                           *result);
     }

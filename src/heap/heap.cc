@@ -2172,9 +2172,6 @@ size_t Heap::PerformGarbageCollection(
 
   SafepointScope safepoint_scope(this);
 
-  // Shared isolates cannot have any clients when running GC at the moment.
-  DCHECK_IMPLIES(IsShared(), !isolate()->HasClientIsolates());
-
   collection_barrier_->StopTimeToCollectionTimer();
 
 #ifdef VERIFY_HEAP
@@ -2260,6 +2257,50 @@ size_t Heap::PerformGarbageCollection(
   tracer()->StopInSafepoint();
 
   return freed_global_handles;
+}
+
+void Heap::CollectSharedGarbage(GarbageCollectionReason gc_reason) {
+  DCHECK(!IsShared());
+  DCHECK_NOT_NULL(isolate()->shared_isolate());
+
+  isolate()->shared_isolate()->heap()->PerformSharedGarbageCollection(
+      isolate(), gc_reason);
+}
+
+void Heap::PerformSharedGarbageCollection(Isolate* initiator,
+                                          GarbageCollectionReason gc_reason) {
+  DCHECK(IsShared());
+  base::MutexGuard guard(isolate()->client_isolate_mutex());
+
+  const char* collector_reason = nullptr;
+  GarbageCollector collector = MARK_COMPACTOR;
+
+  tracer()->Start(collector, gc_reason, collector_reason);
+
+  isolate()->IterateClientIsolates([initiator](Isolate* client) {
+    DCHECK_NOT_NULL(client->shared_isolate());
+    Heap* client_heap = client->heap();
+
+    GlobalSafepoint::StopMainThread stop_main_thread =
+        initiator == client ? GlobalSafepoint::StopMainThread::kNo
+                            : GlobalSafepoint::StopMainThread::kYes;
+
+    client_heap->safepoint()->EnterSafepointScope(stop_main_thread);
+
+    client_heap->shared_old_allocator_->FreeLinearAllocationArea();
+    client_heap->shared_map_allocator_->FreeLinearAllocationArea();
+  });
+
+  PerformGarbageCollection(MARK_COMPACTOR);
+
+  isolate()->IterateClientIsolates([initiator](Isolate* client) {
+    GlobalSafepoint::StopMainThread stop_main_thread =
+        initiator == client ? GlobalSafepoint::StopMainThread::kNo
+                            : GlobalSafepoint::StopMainThread::kYes;
+    client->heap()->safepoint()->LeaveSafepointScope(stop_main_thread);
+  });
+
+  tracer()->Stop(collector);
 }
 
 void Heap::CompleteSweepingYoung(GarbageCollector collector) {
@@ -4319,10 +4360,7 @@ void Heap::Verify() {
   SafepointScope safepoint_scope(this);
   HandleScope scope(isolate());
 
-  MakeLocalHeapLabsIterable();
-
-  // We have to wait here for the sweeper threads to have an iterable heap.
-  mark_compact_collector()->EnsureSweepingCompleted();
+  MakeHeapIterable();
 
   array_buffer_sweeper()->EnsureFinished();
 
@@ -4787,6 +4825,15 @@ void Heap::IterateRoots(RootVisitor* v, base::EnumSet<SkipRoot> options) {
   if (!options.contains(SkipRoot::kWeak)) {
     IterateWeakRoots(v, options);
   }
+}
+
+void Heap::IterateRootsIncludingClients(RootVisitor* v,
+                                        base::EnumSet<SkipRoot> options) {
+  IterateRoots(v, options);
+
+  isolate()->IterateClientIsolates([v, options](Isolate* client) {
+    client->heap()->IterateRoots(v, options);
+  });
 }
 
 void Heap::IterateWeakGlobalHandles(RootVisitor* v) {
@@ -5337,8 +5384,12 @@ HeapObject Heap::AllocateRawWithLightRetrySlowPath(
   }
   // Two GCs before panicking. In newspace will almost always succeed.
   for (int i = 0; i < 2; i++) {
-    CollectGarbage(alloc.RetrySpace(),
-                   GarbageCollectionReason::kAllocationFailure);
+    if (IsSharedAllocationType(allocation)) {
+      CollectSharedGarbage(GarbageCollectionReason::kAllocationFailure);
+    } else {
+      CollectGarbage(alloc.RetrySpace(),
+                     GarbageCollectionReason::kAllocationFailure);
+    }
     alloc = AllocateRaw(size, allocation, origin, alignment);
     if (alloc.To(&result)) {
       DCHECK(result != ReadOnlyRoots(this).exception());
@@ -5357,7 +5408,12 @@ HeapObject Heap::AllocateRawWithRetryOrFailSlowPath(
   if (!result.is_null()) return result;
 
   isolate()->counters()->gc_last_resort_from_handles()->Increment();
-  CollectAllAvailableGarbage(GarbageCollectionReason::kLastResort);
+  if (IsSharedAllocationType(allocation)) {
+    CollectSharedGarbage(GarbageCollectionReason::kLastResort);
+  } else {
+    CollectAllAvailableGarbage(GarbageCollectionReason::kLastResort);
+  }
+
   {
     AlwaysAllocateScope scope(this);
     alloc = AllocateRaw(size, allocation, origin, alignment);
@@ -5369,10 +5425,6 @@ HeapObject Heap::AllocateRawWithRetryOrFailSlowPath(
   // TODO(1181417): Fix this.
   FatalProcessOutOfMemory("CALL_AND_RETRY_LAST");
 }
-
-namespace {
-V8_DECLARE_ONCE(initialize_shared_code_range_once);
-}  // namespace
 
 void Heap::SetUp() {
 #ifdef V8_ENABLE_ALLOCATION_TIMEOUT
@@ -5406,10 +5458,8 @@ void Heap::SetUp() {
       // When sharing a pointer cage among Isolates, also share the
       // CodeRange. isolate_->page_allocator() is the process-wide pointer
       // compression cage's PageAllocator.
-      base::CallOnce(&initialize_shared_code_range_once,
-                     &CodeRange::InitializeProcessWideCodeRangeOnce,
-                     isolate_->page_allocator(), requested_size);
-      code_range_ = CodeRange::GetProcessWideCodeRange();
+      code_range_ = CodeRange::EnsureProcessWideCodeRange(
+          isolate_->page_allocator(), requested_size);
     } else {
       code_range_ = std::make_shared<CodeRange>();
       if (!code_range_->InitReservation(isolate_->page_allocator(),

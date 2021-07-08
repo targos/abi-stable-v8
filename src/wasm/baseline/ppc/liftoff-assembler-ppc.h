@@ -714,7 +714,7 @@ void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
     bind(&loop);
     StoreU64(r0, MemOperand(r0));
     addi(r0, r0, Operand(kSystemPointerSize));
-    cmp(r4, r5);
+    CmpS64(r4, r5);
     bne(&loop);
 
     pop(r4);
@@ -1011,9 +1011,9 @@ void LiftoffAssembler::emit_cond_jump(LiftoffCondition liftoff_cond,
     switch (kind) {
       case kI32:
         if (use_signed) {
-          cmpw(lhs, rhs);
+          CmpS32(lhs, rhs);
         } else {
-          cmplw(lhs, rhs);
+          CmpU32(lhs, rhs);
         }
         break;
       case kRef:
@@ -1024,9 +1024,9 @@ void LiftoffAssembler::emit_cond_jump(LiftoffCondition liftoff_cond,
         V8_FALLTHROUGH;
       case kI64:
         if (use_signed) {
-          cmp(lhs, rhs);
+          CmpS64(lhs, rhs);
         } else {
-          cmpl(lhs, rhs);
+          CmpU64(lhs, rhs);
         }
         break;
       default:
@@ -1035,7 +1035,7 @@ void LiftoffAssembler::emit_cond_jump(LiftoffCondition liftoff_cond,
   } else {
     DCHECK_EQ(kind, kI32);
     CHECK(use_signed);
-    cmpwi(lhs, Operand::Zero());
+    CmpS32(lhs, Operand::Zero(), r0);
   }
 
   b(cond, label);
@@ -1045,13 +1045,13 @@ void LiftoffAssembler::emit_i32_cond_jumpi(LiftoffCondition liftoff_cond,
                                            Label* label, Register lhs,
                                            int32_t imm) {
   Condition cond = liftoff::ToCondition(liftoff_cond);
-  Cmpwi(lhs, Operand(imm), r0);
+  CmpS32(lhs, Operand(imm), r0);
   b(cond, label);
 }
 
 void LiftoffAssembler::emit_i32_eqz(Register dst, Register src) {
   Label done;
-  cmpwi(src, Operand(0));
+  CmpS32(src, Operand(0), r0);
   mov(dst, Operand(1));
   beq(&done);
   mov(dst, Operand::Zero());
@@ -1063,9 +1063,9 @@ void LiftoffAssembler::emit_i32_set_cond(LiftoffCondition liftoff_cond,
                                          Register rhs) {
   bool use_signed = liftoff::UseSignedOp(liftoff_cond);
   if (use_signed) {
-    cmpw(lhs, rhs);
+    CmpS32(lhs, rhs);
   } else {
-    cmplw(lhs, rhs);
+    CmpU32(lhs, rhs);
   }
   Label done;
   mov(dst, Operand(1));
@@ -1088,9 +1088,9 @@ void LiftoffAssembler::emit_i64_set_cond(LiftoffCondition liftoff_cond,
                                          LiftoffRegister rhs) {
   bool use_signed = liftoff::UseSignedOp(liftoff_cond);
   if (use_signed) {
-    cmp(lhs.gp(), rhs.gp());
+    CmpS64(lhs.gp(), rhs.gp());
   } else {
-    cmpl(lhs.gp(), rhs.gp());
+    CmpU64(lhs.gp(), rhs.gp());
   }
   Label done;
   mov(dst, Operand(1));

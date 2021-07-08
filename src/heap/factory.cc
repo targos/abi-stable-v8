@@ -296,7 +296,6 @@ void Factory::CodeBuilder::FinalizeOnHeapCode(Handle<Code> code,
   DCHECK(!heap->code_lo_space()->Contains(*code));
 
   code->CopyRelocInfoToByteArray(reloc_info, code_desc_);
-  code->RelocateFromDesc(reloc_info, heap, code_desc_);
 
   int old_object_size = Code::SizeFor(code_desc_.origin->buffer_size());
   int new_object_size =
@@ -2043,19 +2042,6 @@ Handle<FixedArray> Factory::CopyFixedArrayUpTo(Handle<FixedArray> array,
 Handle<FixedArray> Factory::CopyFixedArray(Handle<FixedArray> array) {
   if (array->length() == 0) return array;
   return CopyArrayWithMap(array, handle(array->map(), isolate()));
-}
-
-Handle<FixedArray> Factory::CopyAndTenureFixedCOWArray(
-    Handle<FixedArray> array) {
-  DCHECK(Heap::InYoungGeneration(*array));
-  Handle<FixedArray> result =
-      CopyFixedArrayUpTo(array, array->length(), AllocationType::kOld);
-
-  // TODO(mvstanton): The map is set twice because of protection against calling
-  // set() on a COW FixedArray. Issue v8:3221 created to track this, and
-  // we might then be able to remove this whole method.
-  result->set_map_after_allocation(*fixed_cow_array_map(), SKIP_WRITE_BARRIER);
-  return result;
 }
 
 Handle<FixedDoubleArray> Factory::CopyFixedDoubleArray(
