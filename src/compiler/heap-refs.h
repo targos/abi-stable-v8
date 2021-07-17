@@ -423,11 +423,6 @@ class V8_EXPORT_PRIVATE JSFunctionRef : public JSObjectRef {
   void SerializeCodeAndFeedback();
   bool serialized_code_and_feedback() const;
 
-  // The following are available only after calling SerializeCodeAndFeedback().
-  // TODO(mvstanton): Once we allow inlining of functions we didn't see
-  // during serialization, we do need to ensure that any feedback vector
-  // we read here has been fully initialized (ie, store-ordered into the
-  // cell).
   FeedbackVectorRef feedback_vector() const;
   FeedbackCellRef raw_feedback_cell() const;
   CodeRef code() const;
@@ -474,8 +469,6 @@ class ContextRef : public HeapObjectRef {
 
   // Only returns a value if the index is valid for this ContextRef.
   base::Optional<ObjectRef> get(int index) const;
-
-  SourceTextModuleRef GetModule() const;
 };
 
 // TODO(jgruber): Don't serialize NativeContext fields once all refs can be
@@ -674,6 +667,10 @@ class V8_EXPORT_PRIVATE MapRef : public HeapObjectRef {
 
   OddballType oddball_type() const;
 
+  // Note: Only returns a value if the requested elements kind matches the
+  // current kind, or if the current map is an unmodified JSArray initial map.
+  base::Optional<MapRef> AsElementsKind(ElementsKind kind) const;
+
 #define DEF_TESTER(Type, ...) bool Is##Type##Map() const;
   INSTANCE_TYPE_CHECKERS(DEF_TESTER)
 #undef DEF_TESTER
@@ -712,7 +709,6 @@ class V8_EXPORT_PRIVATE MapRef : public HeapObjectRef {
   // Available after calling JSFunctionRef::Serialize on a function that has
   // this map as initial map.
   ObjectRef GetConstructor() const;
-  base::Optional<MapRef> AsElementsKind(ElementsKind kind) const;
 };
 
 struct HolderLookupResult {
@@ -963,8 +959,6 @@ class SourceTextModuleRef : public HeapObjectRef {
   DEFINE_REF_CONSTRUCTOR(SourceTextModule, HeapObjectRef)
 
   Handle<SourceTextModule> object() const;
-
-  void Serialize();
 
   base::Optional<CellRef> GetCell(int cell_index) const;
   base::Optional<ObjectRef> import_meta() const;

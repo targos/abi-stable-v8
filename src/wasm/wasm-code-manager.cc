@@ -767,26 +767,6 @@ bool WasmCodeAllocator::SetWritable(bool writable) {
   return true;
 }
 
-bool WasmCodeAllocator::SetThreadWritable(bool writable) {
-  static thread_local int writable_nesting_level = 0;
-  if (writable) {
-    if (++writable_nesting_level > 1) return true;
-  } else {
-    DCHECK_GT(writable_nesting_level, 0);
-    if (--writable_nesting_level > 0) return true;
-  }
-  writable = writable_nesting_level > 0;
-
-  int key = GetWasmCodeManager()->memory_protection_key_;
-
-  MemoryProtectionKeyPermission permissions =
-      writable ? kNoRestrictions : kDisableWrite;
-
-  TRACE_HEAP("Setting memory protection key %d to writable: %d.\n", key,
-             writable);
-  return SetPermissionsForMemoryProtectionKey(key, permissions);
-}
-
 void WasmCodeAllocator::FreeCode(base::Vector<WasmCode* const> codes) {
   // Zap code area and collect freed code regions.
   DisjointAllocationPool freed_regions;
@@ -1236,8 +1216,10 @@ WasmCode* NativeModule::PublishCodeLocked(
        (tiering_state_ == kTieredDown
             // Tiered down: Install breakpoints over normal debug code.
             ? prior_code->for_debugging() <= code->for_debugging()
-            // Tiered up: Install if the tier is higher than before.
-            : prior_code->tier() < code->tier()));
+            // Tiered up: Install if the tier is higher than before or we
+            // replace debugging code with non-debugging code.
+            : (prior_code->tier() < code->tier() ||
+               (prior_code->for_debugging() && !code->for_debugging()))));
   if (update_code_table) {
     code_table_[slot_idx] = code;
     if (prior_code) {
@@ -1254,10 +1236,6 @@ WasmCode* NativeModule::PublishCodeLocked(
     // {WasmCodeRefScope} though, so it cannot die here.
     code->DecRefOnLiveCode();
   }
-  if (!code->for_debugging() && tiering_state_ == kTieredDown &&
-      code->tier() == ExecutionTier::kTurbofan) {
-    liftoff_bailout_count_.fetch_add(1);
-  }
 
   return code;
 }
@@ -1270,7 +1248,9 @@ void NativeModule::ReinstallDebugCode(WasmCode* code) {
   DCHECK(!code->IsAnonymous());
   DCHECK_LE(module_->num_imported_functions, code->index());
   DCHECK_LT(code->index(), num_functions());
-  DCHECK_EQ(kTieredDown, tiering_state_);
+
+  // If the module is tiered up by now, do not reinstall debug code.
+  if (tiering_state_ != kTieredDown) return;
 
   uint32_t slot_idx = declared_function_index(module(), code->index());
   if (WasmCode* prior_code = code_table_[slot_idx]) {
@@ -1555,6 +1535,20 @@ void NativeModule::SetWireBytes(base::OwnedVector<const uint8_t> wire_bytes) {
   }
 }
 
+void NativeModule::UpdateCPUDuration(size_t cpu_duration, ExecutionTier tier) {
+  if (tier == WasmCompilationUnit::GetBaselineExecutionTier(this->module())) {
+    if (!compilation_state_->baseline_compilation_finished()) {
+      baseline_compilation_cpu_duration_.fetch_add(
+          cpu_duration, std::memory_order::memory_order_relaxed);
+    }
+  } else if (tier == ExecutionTier::kTurbofan) {
+    if (!compilation_state_->top_tier_compilation_finished()) {
+      tier_up_cpu_duration_.fetch_add(cpu_duration,
+                                      std::memory_order::memory_order_relaxed);
+    }
+  }
+}
+
 void NativeModule::TransferNewOwnedCodeLocked() const {
   allocation_mutex_.AssertHeld();
   DCHECK(!new_owned_code_.empty());
@@ -1747,7 +1741,7 @@ bool WasmCodeManager::CanRegisterUnwindInfoForNonABICompliantCodeRange() {
 
 void WasmCodeManager::Commit(base::AddressRegion region) {
   // TODO(v8:8462): Remove eager commit once perf supports remapping.
-  if (V8_UNLIKELY(FLAG_perf_prof)) return;
+  if (FLAG_perf_prof) return;
   DCHECK(IsAligned(region.begin(), CommitPageSize()));
   DCHECK(IsAligned(region.size(), CommitPageSize()));
   // Reserve the size. Use CAS loop to avoid overflow on
@@ -1806,7 +1800,7 @@ void WasmCodeManager::Commit(base::AddressRegion region) {
 
 void WasmCodeManager::Decommit(base::AddressRegion region) {
   // TODO(v8:8462): Remove this once perf supports remapping.
-  if (V8_UNLIKELY(FLAG_perf_prof)) return;
+  if (FLAG_perf_prof) return;
   PageAllocator* allocator = GetPlatformPageAllocator();
   DCHECK(IsAligned(region.begin(), allocator->CommitPageSize()));
   DCHECK(IsAligned(region.size(), allocator->CommitPageSize()));
@@ -1972,6 +1966,29 @@ size_t WasmCodeManager::EstimateNativeModuleMetaDataSize(
       (sizeof(WasmCode) * num_wasm_functions);   /* code object size */
 
   return wasm_module_estimate + native_module_estimate;
+}
+
+void WasmCodeManager::SetThreadWritable(bool writable) {
+  DCHECK(HasMemoryProtectionKeySupport());
+  static thread_local int writable_nesting_level = 0;
+  if (writable) {
+    if (++writable_nesting_level > 1) return;
+  } else {
+    DCHECK_GT(writable_nesting_level, 0);
+    if (--writable_nesting_level > 0) return;
+  }
+  writable = writable_nesting_level > 0;
+
+  MemoryProtectionKeyPermission permissions =
+      writable ? kNoRestrictions : kDisableWrite;
+
+  TRACE_HEAP("Setting memory protection key %d to writable: %d.\n",
+             memory_protection_key_, writable);
+  SetPermissionsForMemoryProtectionKey(memory_protection_key_, permissions);
+}
+
+bool WasmCodeManager::HasMemoryProtectionKeySupport() const {
+  return memory_protection_key_ != kNoMemoryProtectionKey;
 }
 
 std::shared_ptr<NativeModule> WasmCodeManager::NewNativeModule(

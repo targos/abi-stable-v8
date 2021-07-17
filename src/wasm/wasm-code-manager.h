@@ -513,12 +513,6 @@ class WasmCodeAllocator {
   // Hold the {NativeModule}'s {allocation_mutex_} when calling this method.
   V8_EXPORT_PRIVATE bool SetWritable(bool writable);
 
-  // Set this thread's permission of all owned code space to read-write or
-  // read-only (if {writable} is false). Uses memory protection keys.
-  // Returns true on success. Since the permission is thread-local, there is no
-  // requirement to hold any lock when calling this method.
-  bool SetThreadWritable(bool writable);
-
   // Free memory pages of all given code objects. Used for wasm code GC.
   // Hold the {NativeModule}'s {allocation_mutex_} when calling this method.
   void FreeCode(base::Vector<WasmCode* const>);
@@ -668,10 +662,6 @@ class V8_EXPORT_PRIVATE NativeModule final {
     return code_allocator_.SetWritable(writable);
   }
 
-  bool SetThreadWritable(bool writable) {
-    return code_allocator_.SetThreadWritable(writable);
-  }
-
   // For cctests, where we build both WasmModule and the runtime objects
   // on the fly, and bypass the instance builder pipeline.
   void ReserveCodeTableForTesting(uint32_t max_functions);
@@ -708,12 +698,22 @@ class V8_EXPORT_PRIVATE NativeModule final {
   size_t liftoff_bailout_count() const { return liftoff_bailout_count_.load(); }
   size_t liftoff_code_size() const { return liftoff_code_size_.load(); }
   size_t turbofan_code_size() const { return turbofan_code_size_.load(); }
+  size_t baseline_compilation_cpu_duration() const {
+    return baseline_compilation_cpu_duration_.load();
+  }
+  size_t tier_up_cpu_duration() const { return tier_up_cpu_duration_.load(); }
 
   bool HasWireBytes() const {
     auto wire_bytes = std::atomic_load(&wire_bytes_);
     return wire_bytes && !wire_bytes->empty();
   }
   void SetWireBytes(base::OwnedVector<const uint8_t> wire_bytes);
+
+  void UpdateCPUDuration(size_t cpu_duration, ExecutionTier tier);
+  void AddLiftoffBailout() {
+    liftoff_bailout_count_.fetch_add(1,
+                                     std::memory_order::memory_order_relaxed);
+  }
 
   WasmCode* Lookup(Address) const;
 
@@ -929,6 +929,8 @@ class V8_EXPORT_PRIVATE NativeModule final {
   std::atomic<size_t> liftoff_bailout_count_{0};
   std::atomic<size_t> liftoff_code_size_{0};
   std::atomic<size_t> turbofan_code_size_{0};
+  std::atomic<size_t> baseline_compilation_cpu_duration_{0};
+  std::atomic<size_t> tier_up_cpu_duration_{0};
 };
 
 class V8_EXPORT_PRIVATE WasmCodeManager final {
@@ -964,6 +966,16 @@ class V8_EXPORT_PRIVATE WasmCodeManager final {
   // Estimate the size of meta data needed for the NativeModule, excluding
   // generated code. This data still be stored on the C++ heap.
   static size_t EstimateNativeModuleMetaDataSize(const WasmModule* module);
+
+  // Set this thread's permission of all owned code space to read-write or
+  // read-only (if {writable} is false). Can only be called if
+  // {HasMemoryProtectionKeySupport()} is {true}.
+  // Since the permission is thread-local, there is no requirement to hold any
+  // lock when calling this method.
+  void SetThreadWritable(bool writable);
+
+  // Returns true if there is PKU support, false otherwise.
+  bool HasMemoryProtectionKeySupport() const;
 
  private:
   friend class WasmCodeAllocator;
