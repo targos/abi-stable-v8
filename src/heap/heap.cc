@@ -2656,16 +2656,22 @@ void Heap::ComputeFastPromotionMode() {
   }
 }
 
-void Heap::UnprotectAndRegisterMemoryChunk(MemoryChunk* chunk) {
+void Heap::UnprotectAndRegisterMemoryChunk(MemoryChunk* chunk,
+                                           UnprotectMemoryOrigin origin) {
   if (unprotected_memory_chunks_registry_enabled_) {
+    base::Optional<base::MutexGuard> guard;
+    if (origin != UnprotectMemoryOrigin::kMainThread) {
+      guard.emplace(&unprotected_memory_chunks_mutex_);
+    }
     if (unprotected_memory_chunks_.insert(chunk).second) {
       chunk->SetReadAndWritable();
     }
   }
 }
 
-void Heap::UnprotectAndRegisterMemoryChunk(HeapObject object) {
-  UnprotectAndRegisterMemoryChunk(MemoryChunk::FromHeapObject(object));
+void Heap::UnprotectAndRegisterMemoryChunk(HeapObject object,
+                                           UnprotectMemoryOrigin origin) {
+  UnprotectAndRegisterMemoryChunk(MemoryChunk::FromHeapObject(object), origin);
 }
 
 void Heap::UnregisterUnprotectedMemoryChunk(MemoryChunk* chunk) {
@@ -3452,12 +3458,8 @@ void Heap::RightTrimWeakFixedArray(WeakFixedArray object,
 void Heap::UndoLastAllocationAt(Address addr, int size) {
   DCHECK_LE(0, size);
   if (size == 0) return;
-  if (code_space_->Contains(addr)) {
-    Address* top = code_space_->allocation_top_address();
-    if (addr + size == *top && code_space_->original_top() <= addr) {
-      *top = addr;
-      return;
-    }
+  if (code_space_->TryFreeLast(addr, size)) {
+    return;
   }
   CreateFillerObjectAt(addr, size, ClearRecordedSlots::kNo);
 }

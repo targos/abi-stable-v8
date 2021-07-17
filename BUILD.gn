@@ -1396,6 +1396,7 @@ action("postmortem-metadata") {
 torque_files = [
   "src/builtins/aggregate-error.tq",
   "src/builtins/array-at.tq",
+  "src/builtins/array-concat.tq",
   "src/builtins/array-copywithin.tq",
   "src/builtins/array-every.tq",
   "src/builtins/array-filter.tq",
@@ -2113,6 +2114,7 @@ v8_source_set("v8_initializers") {
     "src/builtins/builtins-call-gen.cc",
     "src/builtins/builtins-call-gen.h",
     "src/builtins/builtins-collections-gen.cc",
+    "src/builtins/builtins-collections-gen.h",
     "src/builtins/builtins-constructor-gen.cc",
     "src/builtins/builtins-constructor-gen.h",
     "src/builtins/builtins-constructor.h",
@@ -2474,6 +2476,9 @@ v8_header_set("v8_internal_headers") {
     "src/common/ptr-compr.h",
     "src/compiler-dispatcher/compiler-dispatcher.h",
     "src/compiler-dispatcher/optimizing-compile-dispatcher.h",
+    "src/compiler/access-builder.h",
+    "src/compiler/access-info.h",
+    "src/compiler/add-type-assertions-reducer.h",
     "src/compiler/all-nodes.h",
     "src/compiler/allocation-builder-inl.h",
     "src/compiler/allocation-builder.h",
@@ -2529,6 +2534,7 @@ v8_header_set("v8_internal_headers") {
     "src/compiler/graph-visualizer.h",
     "src/compiler/graph-zone-traits.h",
     "src/compiler/graph.h",
+    "src/compiler/heap-refs.h",
     "src/compiler/js-call-reducer.h",
     "src/compiler/js-context-specialization.h",
     "src/compiler/js-create-lowering.h",
@@ -2695,6 +2701,7 @@ v8_header_set("v8_internal_headers") {
     "src/heap/cppgc-js/unified-heap-marking-verifier.h",
     "src/heap/cppgc-js/unified-heap-marking-visitor.h",
     "src/heap/embedder-tracing.h",
+    "src/heap/factory-base-inl.h",
     "src/heap/factory-base.h",
     "src/heap/factory-inl.h",
     "src/heap/factory.h",
@@ -2715,6 +2722,7 @@ v8_header_set("v8_internal_headers") {
     "src/heap/invalidated-slots-inl.h",
     "src/heap/invalidated-slots.h",
     "src/heap/large-spaces.h",
+    "src/heap/linear-allocation-area.h",
     "src/heap/list.h",
     "src/heap/local-allocator-inl.h",
     "src/heap/local-allocator.h",
@@ -2872,6 +2880,7 @@ v8_header_set("v8_internal_headers") {
     "src/objects/free-space-inl.h",
     "src/objects/free-space.h",
     "src/objects/function-kind.h",
+    "src/objects/function-syntax-kind.h",
     "src/objects/hash-table-inl.h",
     "src/objects/hash-table.h",
     "src/objects/heap-number-inl.h",
@@ -2934,6 +2943,7 @@ v8_header_set("v8_internal_headers") {
     "src/objects/object-type.h",
     "src/objects/objects-body-descriptors-inl.h",
     "src/objects/objects-body-descriptors.h",
+    "src/objects/objects-definitions.h",
     "src/objects/objects-inl.h",
     "src/objects/objects.h",
     "src/objects/oddball-inl.h",
@@ -2969,6 +2979,8 @@ v8_header_set("v8_internal_headers") {
     "src/objects/slots-atomic-inl.h",
     "src/objects/slots-inl.h",
     "src/objects/slots.h",
+    "src/objects/smi-inl.h",
+    "src/objects/smi.h",
     "src/objects/source-text-module-inl.h",
     "src/objects/source-text-module.h",
     "src/objects/stack-frame-info-inl.h",
@@ -3149,6 +3161,7 @@ v8_header_set("v8_internal_headers") {
   if (v8_enable_webassembly) {
     sources += [
       "src/asmjs/asm-js.h",
+      "src/asmjs/asm-names.h",
       "src/asmjs/asm-parser.h",
       "src/asmjs/asm-scanner.h",
       "src/asmjs/asm-types.h",
@@ -4712,10 +4725,12 @@ v8_component("v8_libbase") {
     "src/base/sys-info.cc",
     "src/base/sys-info.h",
     "src/base/template-utils.h",
+    "src/base/threaded-list.h",
     "src/base/timezone-cache.h",
     "src/base/type-traits.h",
     "src/base/utils/random-number-generator.cc",
     "src/base/utils/random-number-generator.h",
+    "src/base/v8-fallthrough.h",
     "src/base/vector.h",
     "src/base/vlq-base64.cc",
     "src/base/vlq-base64.h",
@@ -4967,6 +4982,7 @@ v8_source_set("v8_bigint") {
 
   if (v8_advanced_bigint_algorithms) {
     sources += [
+      "src/bigint/div-barrett.cc",
       "src/bigint/mul-fft.cc",
       "src/bigint/mul-toom.cc",
     ]
@@ -4983,6 +4999,7 @@ v8_source_set("v8_cppgc_shared") {
     "src/heap/base/stack.h",
     "src/heap/base/worklist.cc",
     "src/heap/base/worklist.h",
+    "src/heap/cppgc/globals.h",
   ]
 
   if (is_clang || !is_win) {
@@ -5017,7 +5034,10 @@ v8_source_set("v8_cppgc_shared") {
 
   configs = [ ":internal_config" ]
 
-  public_deps = [ ":v8_libbase" ]
+  public_deps = [
+    ":cppgc_headers",
+    ":v8_libbase",
+  ]
 }
 
 # This is split out to be a non-code containing target that the Chromium browser
@@ -5075,7 +5095,10 @@ v8_header_set("cppgc_headers") {
     sources += [ "include/cppgc/internal/caged-heap-local-data.h" ]
   }
 
-  deps = [ ":v8_libplatform" ]
+  deps = [
+    ":v8_libbase",
+    ":v8_libplatform",
+  ]
 
   public_deps = [ ":v8_config_headers" ]
 }
@@ -5171,6 +5194,7 @@ v8_source_set("cppgc_base") {
     "src/heap/cppgc/virtual-memory.cc",
     "src/heap/cppgc/virtual-memory.h",
     "src/heap/cppgc/visitor.cc",
+    "src/heap/cppgc/visitor.h",
     "src/heap/cppgc/write-barrier.cc",
     "src/heap/cppgc/write-barrier.h",
   ]

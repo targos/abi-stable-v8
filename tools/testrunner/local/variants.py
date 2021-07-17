@@ -62,13 +62,15 @@ INCOMPATIBLE_FLAGS_PER_VARIANT = {
   # serialized to the snapshot, so we don't have a
   # SerializeInternalFieldsCallback for it, so they are incompatible with
   # stress_snapshot.
-  "stress_snapshot": [["--turbo-fast-api-calls"]],
+  "stress_snapshot": ["--turbo-fast-api-calls"],
   "stress": ["--always-opt", "--no-always-opt",
              "--max-inlined-bytecode-size=*",
              "--max-inlined-bytecode-size-cumulative=*", "--stress-inline",
              "--liftoff-only"],
   "sparkplug": ["--jitless"],
   "always_sparkplug": ["--jitless"],
+  "turboprop": ["--interrupt-budget=*"],
+  "turboprop_as_toptier": ["--interrupt-budget=*"],
   "code_serializer": ["--cache=after-execute", "--cache=full-code-cache",
                       "--cache=none"],
   "experimental_regexp": ["--no-enable-experimental-regexp-engine"],

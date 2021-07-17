@@ -610,6 +610,7 @@ filegroup(
     srcs = [
         "src/builtins/aggregate-error.tq",
         "src/builtins/array-at.tq",
+        "src/builtins/array-concat.tq",
         "src/builtins/array-copywithin.tq",
         "src/builtins/array-every.tq",
         "src/builtins/array-filter.tq",
@@ -1253,6 +1254,7 @@ filegroup(
         "src/heap/invalidated-slots.h",
         "src/heap/large-spaces.cc",
         "src/heap/large-spaces.h",
+        "src/heap/linear-allocation-area.h",
         "src/heap/list.h",
         "src/heap/local-allocator-inl.h",
         "src/heap/local-allocator.h",
@@ -2672,6 +2674,7 @@ filegroup(
         "src/bigint/bigint-internal.h",
         "src/bigint/bigint.h",
         "src/bigint/digit-arithmetic.h",
+        "src/bigint/div-barrett.cc",
         "src/bigint/div-burnikel.cc",
         "src/bigint/div-helpers.cc",
         "src/bigint/div-helpers.h",

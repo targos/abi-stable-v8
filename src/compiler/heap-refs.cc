@@ -679,7 +679,6 @@ class JSDataViewData : public JSObjectData {
       byte_length_ = object->byte_length();
     } else {
       DCHECK_EQ(kind, kBackgroundSerializedHeapObject);
-      DCHECK(broker->is_concurrent_inlining());
     }
   }
 
@@ -1476,7 +1475,7 @@ class FixedArrayBaseData : public HeapObjectData {
   FixedArrayBaseData(JSHeapBroker* broker, ObjectData** storage,
                      Handle<FixedArrayBase> object, ObjectDataKind kind)
       : HeapObjectData(broker, storage, object, kind),
-        length_(object->length()) {}
+        length_(object->length(kAcquireLoad)) {}
 
   int length() const { return length_; }
 
@@ -2256,18 +2255,12 @@ struct CreateDataFunctor<RefSerializationKind::kBackgroundSerialized, DataT,
                          ObjectT> {
   bool operator()(JSHeapBroker* broker, RefsMap* refs, Handle<Object> object,
                   RefsMap::Entry** entry_out, ObjectData** object_data_out) {
-    if (broker->is_concurrent_inlining()) {
+    if (broker->is_concurrent_inlining() ||
+        broker->mode() == JSHeapBroker::kSerializing) {
       RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
       *object_data_out = broker->zone()->New<DataT>(
           broker, &entry->value, Handle<ObjectT>::cast(object),
           kBackgroundSerializedHeapObject);
-      *entry_out = entry;
-      return true;
-    } else if (broker->mode() == JSHeapBroker::kSerializing) {
-      RefsMap::Entry* entry = refs->LookupOrInsert(object.address());
-      *object_data_out = broker->zone()->New<DataT>(
-          broker, &entry->value, Handle<ObjectT>::cast(object),
-          ObjectDataKind::kSerializedHeapObject);
       *entry_out = entry;
       return true;
     }
@@ -2749,7 +2742,15 @@ int ArrayBoilerplateDescriptionRef::constants_elements_length() const {
 ObjectRef FixedArrayRef::get(int i) const { return TryGet(i).value(); }
 
 base::Optional<ObjectRef> FixedArrayRef::TryGet(int i) const {
-  return TryMakeRef(broker(), object()->get(i, kRelaxedLoad));
+  DisallowGarbageCollection no_gc;
+  CHECK_GE(i, 0);
+  Object value = object()->get(i, kAcquireLoad);
+  if (i >= object()->length(kAcquireLoad)) {
+    // Right-trimming happened.
+    CHECK_LT(i, length());
+    return {};
+  }
+  return TryMakeRef(broker(), value);
 }
 
 Float64 FixedDoubleArrayRef::GetFromImmutableFixedDoubleArray(int i) const {
