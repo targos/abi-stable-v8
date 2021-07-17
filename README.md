@@ -30,9 +30,9 @@ Branch point of 9.0: https://github.com/v8/v8/commit/349bcc6a075411f1a7ce2d866c3
 
 Branch point of 9.1: https://github.com/v8/v8/commit/f565e72d5ba88daae35a59d0f978643e2343e912
 
-ABI-stable tag: https://github.com/targos/abi-stable-v8/tree/9.1
+ABI-stable branch: https://github.com/targos/abi-stable-v8/tree/9.0-abi-stable-9.1
 
-Diff: https://github.com/targos/abi-stable-v8/compare/f565e72d5ba88daae35a59d0f978643e2343e912...9.1
+Diff: https://github.com/targos/abi-stable-v8/compare/f565e72d5ba88daae35a59d0f978643e2343e912...9.0-abi-stable-9.1
 
 - [15a3932250](https://github.com/targos/abi-stable-v8/commit/15a39322507b9bb8c0f6aabc5814c2d87ede2f62) - Reverted [[api] Avoid handles for const API functions](https://github.com/v8/v8/commit/aee471b2ff5b1a9e622426454885b748d226535b)
 - [d6bc672189](https://github.com/targos/abi-stable-v8/commit/d6bc67218954f2e7d691316f9518ae598bdb6483) - Reverted [[api] Remove deprecated [Shared]ArrayBuffer API](https://github.com/v8/v8/commit/578f6be77fc5d8af975005c2baf918e7225abb62)
@@ -43,9 +43,9 @@ Diff: https://github.com/targos/abi-stable-v8/compare/f565e72d5ba88daae35a59d0f9
 
 Branch point of 9.2: https://github.com/v8/v8/commit/587a04f02ab0487d194b55a7137dc2045e071597
 
-ABI-stable tag: https://github.com/targos/abi-stable-v8/tree/9.2
+ABI-stable branch: https://github.com/targos/abi-stable-v8/tree/9.0-abi-stable-9.2
 
-Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a7137dc2045e071597...9.2
+Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a7137dc2045e071597...9.0-abi-stable-9.2
 
 - [ed5b25f698](https://github.com/targos/abi-stable-v8/commit/ed5b25f6986a32df20fe0fb99ab79e11dd7f82e1) - Reverted [[api] Remove previously deprecated Function::GetDisplayName().](https://github.com/v8/v8/commit/6165fef8cc9dde52973e54c915e6905221b3f8fb)
 - [ed7f09bf18](https://github.com/targos/abi-stable-v8/commit/ed7f09bf181d596376cdc84c724547e0e485c5a2) - Reverted [[api] Remove deprecated Symbol::Name()](https://github.com/v8/v8/commit/bbc72ef6c7d6d8e2c4dd074d7713e5c841003163)
@@ -54,11 +54,21 @@ Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a713
 
 #### V8 9.2 to 9.3
 
-Branch point of 9.3: TBD
+Branch point of 9.3: https://github.com/v8/v8/commit/4b6b4cabf3b6a20cdfda72b369df49f3311c4344
 
-ABI-stable tag: TBD
+ABI-stable branch: https://github.com/targos/abi-stable-v8/tree/9.0-abi-stable-9.3
 
-DIFF: TBD
+Diff: https://github.com/targos/abi-stable-v8/compare/4b6b4cabf3b6a20cdfda72b369df49f3311c4344...9.0-abi-stable-9.3
 
 - [38690c8058](https://github.com/targos/abi-stable-v8/commit/38690c80588466d71c5e6d6cbb758808c9eb2123) - Reverted [[api] Support PropertyAttribute in v8::Template::Set](https://github.com/v8/v8/commit/22a32f11f7a39e4a73105608a51ebab0ad97960f)
 - [497ca12865](https://github.com/targos/abi-stable-v8/commit/497ca12865434cf30a7dc52de7dfbb67d1aeb649) - Reverted API change from [[API] Allow embedders to assign instance types](https://github.com/v8/v8/commit/5f82dbbe534635a8b1e93f27e8fd7e68c0eaf291)
+
+#### V8 9.3 to 9.4
+
+Branch point of 9.4: TBD
+
+ABI-stable branch: TBD
+
+Diff: TBD
+
+No changes for now.
