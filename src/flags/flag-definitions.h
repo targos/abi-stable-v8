@@ -859,8 +859,7 @@ DEFINE_BOOL(turbo_compress_translation_arrays, false,
             "compress translation arrays (experimental)")
 DEFINE_BOOL(turbo_inline_js_wasm_calls, false, "inline JS->Wasm calls")
 
-DEFINE_BOOL(turbo_optimize_apply, false, "optimize Function.prototype.apply")
-DEFINE_WEAK_IMPLICATION(future, turbo_optimize_apply)
+DEFINE_BOOL(turbo_optimize_apply, true, "optimize Function.prototype.apply")
 
 DEFINE_BOOL(turbo_collect_feedback_in_generic_lowering, true,
             "enable experimental feedback collection in generic lowering.")
@@ -1678,6 +1677,7 @@ DEFINE_BOOL(regexp_interpret_all, false, "interpret all regexp code")
 DEFINE_BOOL(regexp_tier_up, true,
             "enable regexp interpreter and tier up to the compiler after the "
             "number of executions set by the tier up ticks flag")
+DEFINE_NEG_IMPLICATION(regexp_interpret_all, regexp_tier_up)
 DEFINE_INT(regexp_tier_up_ticks, 1,
            "set the number of executions for the regexp interpreter before "
            "tiering-up to the compiler")

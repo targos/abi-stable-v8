@@ -3825,6 +3825,11 @@ class SlotCollectingVisitor final : public ObjectVisitor {
     }
   }
 
+  void VisitCodePointer(HeapObject host, CodeObjectSlot slot) override {
+    CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+    slots_.push_back(MaybeObjectSlot(slot));
+  }
+
   void VisitCodeTarget(Code host, RelocInfo* rinfo) final { UNREACHABLE(); }
 
   void VisitEmbeddedPointer(Code host, RelocInfo* rinfo) override {
@@ -4275,6 +4280,18 @@ bool Heap::Contains(HeapObject value) const {
           (new_lo_space_ && new_lo_space_->Contains(value)));
 }
 
+bool Heap::ContainsCode(HeapObject value) const {
+  if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL) {
+    return true;
+  }
+  // TODO(v8:11880): support external code space.
+  if (memory_allocator()->IsOutsideAllocatedSpace(value.address())) {
+    return false;
+  }
+  return HasBeenSetUp() &&
+         (code_space_->Contains(value) || code_lo_space_->Contains(value));
+}
+
 bool Heap::SharedHeapContains(HeapObject value) const {
   if (shared_old_space_)
     return shared_old_space_->Contains(value) ||
@@ -4428,6 +4445,12 @@ class SlotVerifyingVisitor : public ObjectVisitor {
         CHECK_GT(untyped_->count(slot.address()), 0);
       }
     }
+  }
+
+  void VisitCodePointer(HeapObject host, CodeObjectSlot slot) override {
+    CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+    // TODO(v8:11880): support external code space.
+    VisitPointers(host, MaybeObjectSlot(slot), MaybeObjectSlot(slot + 1));
   }
 
   void VisitCodeTarget(Code host, RelocInfo* rinfo) override {
@@ -6300,6 +6323,12 @@ class UnreachableObjectsFilter : public HeapObjectsFilter {
       MarkPointers(start, end);
     }
 
+    void VisitCodePointer(HeapObject host, CodeObjectSlot slot) override {
+      CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+      // TODO(v8:11880): support external code space.
+      VisitPointers(host, MaybeObjectSlot(slot), MaybeObjectSlot(slot + 1));
+    }
+
     void VisitCodeTarget(Code host, RelocInfo* rinfo) final {
       Code target = Code::GetCodeFromTargetAddress(rinfo->target_address());
       MarkHeapObject(target);
@@ -6772,6 +6801,20 @@ void VerifyPointersVisitor::VisitPointers(HeapObject host,
   VerifyPointers(host, start, end);
 }
 
+void VerifyPointersVisitor::VisitCodePointer(HeapObject host,
+                                             CodeObjectSlot slot) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  // TODO(v8:11880): support external code space.
+  PtrComprCageBase code_cage_base = GetPtrComprCageBase(host);
+  Object maybe_code = slot.load(code_cage_base);
+  HeapObject code;
+  if (maybe_code.GetHeapObject(&code)) {
+    VerifyCodeObjectImpl(code);
+  } else {
+    CHECK(maybe_code.IsSmi());
+  }
+}
+
 void VerifyPointersVisitor::VisitRootPointers(Root root,
                                               const char* description,
                                               FullObjectSlot start,
@@ -6789,6 +6832,14 @@ void VerifyPointersVisitor::VisitRootPointers(Root root,
 void VerifyPointersVisitor::VerifyHeapObjectImpl(HeapObject heap_object) {
   CHECK(IsValidHeapObject(heap_, heap_object));
   CHECK(heap_object.map().IsMap());
+}
+
+void VerifyPointersVisitor::VerifyCodeObjectImpl(HeapObject heap_object) {
+  CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
+  CHECK(IsValidCodeObject(heap_, heap_object));
+  PtrComprCageBase cage_base(heap_->isolate());
+  CHECK(heap_object.map(cage_base).IsMap(cage_base));
+  CHECK(heap_object.map(cage_base).instance_type() == CODE_TYPE);
 }
 
 template <typename TSlot>
