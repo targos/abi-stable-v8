@@ -51,7 +51,8 @@ Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a713
 - [ed7f09bf18](https://github.com/targos/abi-stable-v8/commit/ed7f09bf181d596376cdc84c724547e0e485c5a2) - Reverted [[api] Remove deprecated Symbol::Name()](https://github.com/v8/v8/commit/bbc72ef6c7d6d8e2c4dd074d7713e5c841003163)
 - [a39efa8cd6](https://github.com/targos/abi-stable-v8/commit/a39efa8cd6bd5b864e56ad76c5dc89231d5e9f30) - Reverted API change from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004)
 - [a5913d18a2](https://github.com/targos/abi-stable-v8/commit/a5913d18a29bf04101a11d9afd3fc4d650196669) - Reverted [[cpu-profiler] Reintroduce support for context filtering](https://github.com/v8/v8/commit/0aacfb2a6ecbeda1d1d97ca113afd8253a1b9670)
-- [c01a294cb8](https://github.com/targos/abi-stable-v8/commit/c01a294cb85fc457901615056f0a3fca60a20d8e) - Restored changed signature from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004) under a new method name.
+- [c01a294cb8](https://github.com/targos/abi-stable-v8/commit/c01a294cb85fc457901615056f0a3fca60a20d8e) - Restored changed signature from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004) under a new method name
+- [93d473308d](https://github.com/targos/abi-stable-v8/commit/0503055d59c5aabe38a0fa4a719583faf2b7d1d2) - Remove deprecation because of self-triggered warning
 
 #### V8 9.2 to 9.3
 
