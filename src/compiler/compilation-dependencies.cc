@@ -355,6 +355,10 @@ class ConsistentJSFunctionViewDependency final : public CompilationDependency {
 
   void Install(Handle<Code> code) const override {}
 
+#ifdef DEBUG
+  bool IsConsistentJSFunctionViewDependency() const override { return true; }
+#endif
+
  private:
   const JSFunctionRef function_;
 };
@@ -728,7 +732,7 @@ void CompilationDependencies::DependOnGlobalProperty(
 }
 
 bool CompilationDependencies::DependOnProtector(const PropertyCellRef& cell) {
-  cell.SerializeAsProtector();
+  cell.CacheAsProtector();
   if (cell.value().AsSmi() != Protectors::kProtectorValid) return false;
   RecordDependency(zone_->New<ProtectorDependency>(cell));
   return true;
@@ -832,17 +836,27 @@ bool CompilationDependencies::Commit(Handle<Code> code) {
   }
 
   // It is even possible that a GC during the above installations invalidated
-  // one of the dependencies. However, this should only affect pretenure mode
-  // dependencies, which we assert below. It is safe to return successfully in
-  // these cases, because once the code gets executed it will do a stack check
-  // that triggers its deoptimization.
+  // one of the dependencies. However, this should only affect
+  //
+  // 1. pretenure mode dependencies, or
+  // 2. function consistency dependencies,
+  //
+  // which we assert below. It is safe to return successfully in these cases,
+  // because
+  //
+  // 1. once the code gets executed it will do a stack check that triggers its
+  //    deoptimization.
+  // 2. since the function state was deemed consistent above, that means the
+  //    compilation saw a self-consistent state of the jsfunction.
   if (FLAG_stress_gc_during_compilation) {
     broker_->isolate()->heap()->PreciseCollectAllGarbage(
         Heap::kForcedGC, GarbageCollectionReason::kTesting, kNoGCCallbackFlags);
   }
 #ifdef DEBUG
   for (auto dep : dependencies_) {
-    CHECK_IMPLIES(!dep->IsValid(), dep->IsPretenureModeDependency());
+    CHECK_IMPLIES(!dep->IsValid(),
+                  dep->IsPretenureModeDependency() ||
+                      dep->IsConsistentJSFunctionViewDependency());
   }
 #endif
 
@@ -867,12 +881,10 @@ void DependOnStablePrototypeChain(CompilationDependencies* deps, MapRef map,
 }
 }  // namespace
 
-template <class MapContainer>
 void CompilationDependencies::DependOnStablePrototypeChains(
-    MapContainer const& receiver_maps, WhereToStart start,
+    ZoneVector<MapRef> const& receiver_maps, WhereToStart start,
     base::Optional<JSObjectRef> last_prototype) {
-  for (auto map : receiver_maps) {
-    MapRef receiver_map = MakeRef(broker_, map);
+  for (MapRef receiver_map : receiver_maps) {
     if (start == kStartAtReceiver) DependOnStableMap(receiver_map);
     if (receiver_map.IsPrimitiveMap()) {
       // Perform the implicit ToObject for primitives here.
@@ -886,12 +898,6 @@ void CompilationDependencies::DependOnStablePrototypeChains(
     DependOnStablePrototypeChain(this, receiver_map, last_prototype);
   }
 }
-template void CompilationDependencies::DependOnStablePrototypeChains(
-    ZoneVector<Handle<Map>> const& receiver_maps, WhereToStart start,
-    base::Optional<JSObjectRef> last_prototype);
-template void CompilationDependencies::DependOnStablePrototypeChains(
-    ZoneHandleSet<Map> const& receiver_maps, WhereToStart start,
-    base::Optional<JSObjectRef> last_prototype);
 
 void CompilationDependencies::DependOnElementsKinds(
     const AllocationSiteRef& site) {

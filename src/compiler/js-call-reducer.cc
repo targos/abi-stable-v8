@@ -6424,19 +6424,18 @@ Reduction JSCallReducer::ReduceStringPrototypeStartsWith(Node* node) {
     if (target_ref.IsString()) {
       StringRef str = target_ref.AsString();
       if (str.length().has_value()) {
+        receiver = effect = graph()->NewNode(
+            simplified()->CheckString(p.feedback()), receiver, effect, control);
+
+        position = effect = graph()->NewNode(
+            simplified()->CheckSmi(p.feedback()), position, effect, control);
+
         if (str.length().value() == 0) {
           Node* value = jsgraph()->TrueConstant();
           ReplaceWithValue(node, value, effect, control);
           return Replace(value);
         }
         if (str.length().value() == 1) {
-          receiver = effect =
-              graph()->NewNode(simplified()->CheckString(p.feedback()),
-                               receiver, effect, control);
-
-          position = effect = graph()->NewNode(
-              simplified()->CheckSmi(p.feedback()), position, effect, control);
-
           Node* string_length =
               graph()->NewNode(simplified()->StringLength(), receiver);
           Node* unsigned_position = graph()->NewNode(
@@ -7979,20 +7978,15 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
   ZoneVector<PropertyAccessInfo> access_infos(graph()->zone());
   AccessInfoFactory access_info_factory(broker(), dependencies(),
                                         graph()->zone());
-  if (broker()->is_concurrent_inlining()) {
-    // Obtain precomputed access infos from the broker.
-    for (auto map : regexp_maps) {
-      MapRef map_ref = MakeRef(broker(), map);
-      PropertyAccessInfo access_info = broker()->GetPropertyAccessInfo(
-          map_ref, MakeRef(broker(), isolate()->factory()->exec_string()),
-          AccessMode::kLoad, dependencies());
-      access_infos.push_back(access_info);
-    }
-  } else {
-    // Compute property access info for "exec" on {resolution}.
-    access_info_factory.ComputePropertyAccessInfos(
-        MapHandles(regexp_maps.begin(), regexp_maps.end()),
-        factory()->exec_string(), AccessMode::kLoad, &access_infos);
+
+  for (auto map : regexp_maps) {
+    access_infos.push_back(broker()->GetPropertyAccessInfo(
+        MakeRef(broker(), map),
+        MakeRef(broker(), isolate()->factory()->exec_string()),
+        AccessMode::kLoad, dependencies(),
+        broker()->is_concurrent_inlining()
+            ? SerializationPolicy::kAssumeSerialized
+            : SerializationPolicy::kSerializeIfNeeded));
   }
 
   PropertyAccessInfo ai_exec =
@@ -8002,14 +7996,12 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
 
   // If "exec" has been modified on {regexp}, we can't do anything.
   if (ai_exec.IsFastDataConstant()) {
-    Handle<JSObject> holder;
+    base::Optional<JSObjectRef> holder = ai_exec.holder();
     // Do not reduce if the exec method is not on the prototype chain.
-    if (!ai_exec.holder().ToHandle(&holder)) return inference.NoChange();
-
-    JSObjectRef holder_ref = MakeRef(broker(), holder);
+    if (!holder.has_value()) return inference.NoChange();
 
     // Bail out if the exec method is not the original one.
-    base::Optional<ObjectRef> constant = holder_ref.GetOwnFastDataProperty(
+    base::Optional<ObjectRef> constant = holder->GetOwnFastDataProperty(
         ai_exec.field_representation(), ai_exec.field_index(), dependencies());
     if (!constant.has_value() ||
         !constant->equals(native_context().regexp_exec_function())) {
@@ -8018,8 +8010,7 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
 
     // Add proper dependencies on the {regexp}s [[Prototype]]s.
     dependencies()->DependOnStablePrototypeChains(
-        ai_exec.lookup_start_object_maps(), kStartAtPrototype,
-        MakeRef(broker(), holder));
+        ai_exec.lookup_start_object_maps(), kStartAtPrototype, holder.value());
   } else {
     // TODO(v8:11457) Support dictionary mode protoypes here.
     return inference.NoChange();

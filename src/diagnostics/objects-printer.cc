@@ -231,6 +231,9 @@ void HeapObject::HeapObjectPrint(std::ostream& os) {
     case FEEDBACK_METADATA_TYPE:
       FeedbackMetadata::cast(*this).FeedbackMetadataPrint(os);
       break;
+    case BIG_INT_BASE_TYPE:
+      BigIntBase::cast(*this).BigIntBasePrint(os);
+      break;
     case JS_PROMISE_CONSTRUCTOR_TYPE:
     case JS_REG_EXP_CONSTRUCTOR_TYPE:
     case JS_ARRAY_CONSTRUCTOR_TYPE:
@@ -1423,6 +1426,7 @@ void JSArrayBuffer::JSArrayBufferPrint(std::ostream& os) {
   JSObjectPrintHeader(os, *this, "JSArrayBuffer");
   os << "\n - backing_store: " << backing_store();
   os << "\n - byte_length: " << byte_length();
+  os << "\n - max_byte_length: " << max_byte_length();
   if (is_external()) os << "\n - external";
   if (is_detachable()) os << "\n - detachable";
   if (was_detached()) os << "\n - detached";

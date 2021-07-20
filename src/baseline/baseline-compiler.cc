@@ -4,14 +4,13 @@
 
 // TODO(v8:11421): Remove #if once baseline compiler is ported to other
 // architectures.
-#include "src/base/bits.h"
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 ||     \
-    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64 || V8_TARGET_ARCH_MIPS64 || \
-    V8_TARGET_ARCH_MIPS
+#include "src/flags/flags.h"
+#if ENABLE_SPARKPLUG
 
 #include <algorithm>
 #include <type_traits>
 
+#include "src/base/bits.h"
 #include "src/baseline/baseline-assembler-inl.h"
 #include "src/baseline/baseline-assembler.h"
 #include "src/baseline/baseline-compiler.h"
@@ -1868,7 +1867,7 @@ void BaselineCompiler::VisitJumpLoop() {
     Register osr_level = scratch;
     __ LoadRegister(osr_level, interpreter::Register::bytecode_array());
     __ LoadByteField(osr_level, osr_level,
-                     BytecodeArray::kOsrNestingLevelOffset);
+                     BytecodeArray::kOsrLoopNestingLevelOffset);
     int loop_depth = iterator().GetImmediateOperand(1);
     __ JumpIfByte(Condition::kUnsignedLessThanEqual, osr_level, loop_depth,
                   &osr_not_armed);
@@ -2249,4 +2248,4 @@ DEBUG_BREAK_BYTECODE_LIST(DEBUG_BREAK)
 }  // namespace internal
 }  // namespace v8
 
-#endif
+#endif  // ENABLE_SPARKPLUG

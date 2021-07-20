@@ -141,22 +141,17 @@ class UncompiledDataWithPreparseData
   TQ_OBJECT_CONSTRUCTORS(UncompiledDataWithPreparseData)
 };
 
-class InterpreterData : public Struct {
+class InterpreterData
+    : public TorqueGeneratedInterpreterData<InterpreterData, Struct> {
  public:
-  DECL_ACCESSORS(bytecode_array, BytecodeArray)
   DECL_ACCESSORS(interpreter_trampoline, Code)
 
-  DEFINE_FIELD_OFFSET_CONSTANTS(Struct::kHeaderSize,
-                                TORQUE_GENERATED_INTERPRETER_DATA_FIELDS)
-
-  DECL_CAST(InterpreterData)
   DECL_PRINTER(InterpreterData)
-  DECL_VERIFIER(InterpreterData)
 
  private:
   DECL_ACCESSORS(raw_interpreter_trampoline, CodeT)
 
-  OBJECT_CONSTRUCTORS(InterpreterData, Struct);
+  TQ_OBJECT_CONSTRUCTORS(InterpreterData)
 };
 
 class BaselineData : public TorqueGeneratedBaselineData<BaselineData, Struct> {
@@ -534,7 +529,7 @@ class SharedFunctionInfo
   // Returns true if the function has old bytecode that could be flushed. This
   // function shouldn't access any flags as it is used by concurrent marker.
   // Hence it takes the mode as an argument.
-  inline bool ShouldFlushBytecode(BytecodeFlushMode mode);
+  inline bool ShouldFlushBytecode(CodeFlushMode mode);
 
   enum Inlineability {
     kIsInlineable,
