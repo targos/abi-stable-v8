@@ -103,7 +103,7 @@
   ##############################################################################
   # Tests verifying CHECK and ASSERT.
   'verify-check-false': [FAIL, NO_VARIANTS],
-  'verify-assert-false': [NO_VARIANTS, ['mode == release and dcheck_always_on == False', PASS], ['mode == debug', FAIL]],
+  'verify-assert-false': [NO_VARIANTS, ['mode == release and v8_dcheck_always_on == False', PASS], ['mode == debug', FAIL]],
 
   ##############################################################################
   # Tests with different versions for release and debug.
@@ -138,15 +138,15 @@
   'regress/regress-655573': [PASS, SLOW],
   'regress/regress-1200351': [PASS, SLOW],
   'regress/regress-crbug-808192': [PASS, SLOW, NO_VARIANTS, ['arch not in (ia32, x64)', SKIP], ['tsan', SKIP]],
-  'regress/regress-crbug-918301': [PASS, SLOW, NO_VARIANTS, ['mode != release or dcheck_always_on', SKIP], ['(arch == arm or arch == arm64) and simulator_run', SKIP]],
+  'regress/regress-crbug-918301': [PASS, SLOW, NO_VARIANTS, ['mode != release or v8_dcheck_always_on', SKIP], ['(arch == arm or arch == arm64) and simulator_run', SKIP]],
   'regress/wasm/regress-810973': [PASS, SLOW],
   'sealed-array-reduce': [PASS, SLOW],
   'string-replace-gc': [PASS, SLOW],
   'wasm/embenchen/*': [PASS, SLOW],
   'wasm/futex': [PASS, SLOW],
   'wasm/unreachable-validation': [PASS, SLOW],
-  'wasm/atomics-stress': [PASS, SLOW, NO_VARIANTS, ['mode != release or dcheck_always_on', SKIP], ['tsan', SKIP]],
-  'wasm/atomics64-stress': [PASS, SLOW, NO_VARIANTS, ['mode != release or dcheck_always_on', SKIP], ['tsan', SKIP]],
+  'wasm/atomics-stress': [PASS, SLOW, NO_VARIANTS, ['mode != release or v8_dcheck_always_on', SKIP], ['tsan', SKIP]],
+  'wasm/atomics64-stress': [PASS, SLOW, NO_VARIANTS, ['mode != release or v8_dcheck_always_on', SKIP], ['tsan', SKIP]],
   'wasm/compare-exchange-stress': [PASS, SLOW, NO_VARIANTS],
   'wasm/compare-exchange64-stress': [PASS, SLOW, NO_VARIANTS],
 
@@ -1279,7 +1279,7 @@
 }],
 
 ##############################################################################
-['variant == turboprop or variant == turboprop_as_toptier', {
+['variant == turboprop or variant == turboprop_as_toptier or variant == future or deopt_fuzzer or (tsan and not concurrent_marking)', {
   # Deopts differently than TurboFan.
   'compiler/native-context-specialization-hole-check': [SKIP],
   'compiler/number-comparison-truncations': [SKIP],
@@ -1327,18 +1327,53 @@
   'field-type-tracking': [SKIP],
 
   # Tests failing for the lack of function context specialization in Turboprop.
-  'compiler/abstract-equal-receiver': [FAIL],
-  'compiler/constant-fold-cow-array': [FAIL],
-  'compiler/promise-resolve-stable-maps': [FAIL],
+  'compiler/abstract-equal-receiver': [SKIP],
+  'compiler/constant-fold-cow-array': [SKIP],
+  'compiler/promise-resolve-stable-maps': [SKIP],
 
   # Tests failing due to reduced constant propagation in Turboprop.
-  'compiler/js-create-arguments': [FAIL],
-  'compiler/catch-block-load': [FAIL],
-  'compiler/construct-bound-function': [FAIL],
-  'compiler/construct-object': [FAIL],
-  'compiler/construct-receiver': [FAIL],
-  'compiler/js-create': [FAIL],
+  'compiler/js-create-arguments': [SKIP],
+  'compiler/catch-block-load': [SKIP],
+  'compiler/construct-bound-function': [SKIP],
+  'compiler/construct-object': [SKIP],
+  'compiler/construct-receiver': [SKIP],
+  'compiler/js-create': [SKIP],
+
+  # Incompatible flags that both weakly imply interrupt_budget.
+  'regress/regress-1220974': [SKIP],
+  'compiler/regress-1224277': [SKIP],
 }],  # variant == turboprop or variant = turboprop_as_toptier
+
+
+##############################################################################
+['variant == stress_concurrent_inlining', {
+  # Incompatible flags that both weakly imply interrupt_budget.
+  'regress/regress-1225561': [SKIP],
+  'regress/regress-1201114': [SKIP],
+  'regress/regress-1172797': [SKIP],
+  'regress/regress-1163715': [SKIP],
+  'regress/regress-1084953': [SKIP],
+  'regress/regress-1083763': [SKIP],
+  'regress/regress-1076569': [SKIP],
+  'es6/super-ic-opt-dynamic-map-checks': [SKIP],
+  'compiler/test-dynamic-map-checks-wrong-handler': [SKIP],
+  'compiler/test-dynamic-map-checks-poly-mono': [SKIP],
+  'compiler/test-dynamic-map-check-deprecated-maps': [SKIP],
+  'compiler/test-dynamic-map-check-deprecated-maps2': [SKIP],
+  'compiler/test-dynamic-map-check-deprecated-maps3': [SKIP],
+  'compiler/test-dynamic-map-checks-wrong-handler1': [SKIP],
+  'compiler/test-dynamic-map-check-deprecated-maps-polymorphic': [SKIP],
+  'compiler/test-dynamic-map-checks': [SKIP],
+  'compiler/regress-1226988': [SKIP],
+  'regress/regress-1223733': [SKIP],
+  'regress/regress-1154961': [SKIP],
+  'regress/regress-1137979': [SKIP],
+  'regress/regress-1138075': [SKIP],
+  'regress/regress-1083272': [SKIP],
+  'regress/regress-1079446': [SKIP],
+  'regress/regress-1138611': [SKIP],
+  'const-field-tracking-2': [SKIP],
+}],  # variant == stress_concurrent_inlining
 
 ##############################################################################
 ['variant == top_level_await', {

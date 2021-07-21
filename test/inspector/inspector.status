@@ -29,12 +29,12 @@
 }],  # ALWAYS
 
 ##############################################################################
-['mode != debug or dcheck_always_on', {
+['mode != debug or v8_dcheck_always_on', {
   # Investigating flaky tests: https://crbug.com/v8/10876. Enable only on pure debug.
   'debugger/pause-on-oom': [SKIP],
   'debugger/pause-on-oom-wide': [SKIP],
   'debugger/pause-on-oom-extrawide': [SKIP],
-}],  # 'mode != debug or dcheck_always_on'
+}],  # 'mode != debug or v8_dcheck_always_on'
 
 ##############################################################################
 ['system == android', {
@@ -530,5 +530,11 @@
   'type-profiler/type-profile-with-to-string-tag': [SKIP],
   'regress/regress-crbug-1195927': [SKIP],
 }], # third_party_heap
+
+##############################################################################
+['variant == turboprop or variant == turboprop_as_toptier or variant == future or (tsan and not concurrent_marking)', {
+
+  'cpu-profiler/coverage-block': [SKIP],
+}],  # variant == turboprop or variant = turboprop_as_toptier
 
 ]
