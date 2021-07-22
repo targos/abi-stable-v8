@@ -53,6 +53,7 @@ Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a713
 - [a5913d18a2](https://github.com/targos/abi-stable-v8/commit/a5913d18a29bf04101a11d9afd3fc4d650196669) - Reverted [[cpu-profiler] Reintroduce support for context filtering](https://github.com/v8/v8/commit/0aacfb2a6ecbeda1d1d97ca113afd8253a1b9670)
 - [c01a294cb8](https://github.com/targos/abi-stable-v8/commit/c01a294cb85fc457901615056f0a3fca60a20d8e) - Restored changed signature from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004) under a new method name
 - [93d473308d](https://github.com/targos/abi-stable-v8/commit/0503055d59c5aabe38a0fa4a719583faf2b7d1d2) - Remove deprecation because of self-triggered warning
+- [e408cc2de3](https://github.com/targos/abi-stable-v8/commit/e408cc2de35d8d03f051076f0da8441d5b34b798) - Reverted [[api] Add v8::metrics::LongTaskStats for the LongTasks UKM](https://github.com/v8/v8/commit/521ae93bf652b0cc1fec1fdd788e3b80fb72a349)
 
 #### V8 9.2 to 9.3
 
