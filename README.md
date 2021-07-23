@@ -2,7 +2,7 @@
 
 ## Documentation
 
-Reference on ABI compatibility: https://community.kde.org/Policies/Binary_Compatibility_Issues_With_C%2B%2B
+Reference on ABI compatibility: https://community.kde.org/Policies/Binary\_Compatibility\_Issues\_With\_C%2B%2B
 
 Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
 
@@ -54,6 +54,7 @@ Diff: https://github.com/targos/abi-stable-v8/compare/587a04f02ab0487d194b55a713
 - [c01a294cb8](https://github.com/targos/abi-stable-v8/commit/c01a294cb85fc457901615056f0a3fca60a20d8e) - Restored changed signature from [Heap Number encoding](https://github.com/v8/v8/commit/7f52e4f92d3d3ded9a1701ee2f93966075ae5004) under a new method name
 - [93d473308d](https://github.com/targos/abi-stable-v8/commit/0503055d59c5aabe38a0fa4a719583faf2b7d1d2) - Remove deprecation because of self-triggered warning
 - [e408cc2de3](https://github.com/targos/abi-stable-v8/commit/e408cc2de35d8d03f051076f0da8441d5b34b798) - Reverted [[api] Add v8::metrics::LongTaskStats for the LongTasks UKM](https://github.com/v8/v8/commit/521ae93bf652b0cc1fec1fdd788e3b80fb72a349)
+- [cfb2605b3c](https://github.com/targos/abi-stable-v8/commit/cfb2605b3cf34b07ddd09132e27676433bcf6f06) - Move field added in [[ptr-cage] Introduce PtrComprCage](https://github.com/v8/v8/commit/3ada6f27404b4ffd6d3e97cf15be76672f60c10d)
 
 #### V8 9.2 to 9.3
 
