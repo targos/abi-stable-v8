@@ -3558,6 +3558,23 @@ bool Has64BitIntegerParamsInSignature(const CFunctionInfo* c_signature) {
 }  // namespace
 #endif
 
+namespace {
+bool Has64BitTypedArraysInSignature(const CFunctionInfo* c_signature) {
+  for (unsigned int i = 0; i < c_signature->ArgumentCount(); ++i) {
+    if (c_signature->ArgumentInfo(i).GetSequenceType() !=
+        CTypeInfo::SequenceType::kIsTypedArray) {
+      continue;
+    }
+    if (c_signature->ArgumentInfo(i).GetType() == CTypeInfo::Type::kInt64 ||
+        c_signature->ArgumentInfo(i).GetType() == CTypeInfo::Type::kUint64 ||
+        c_signature->ArgumentInfo(i).GetType() == CTypeInfo::Type::kFloat64) {
+      return true;
+    }
+  }
+  return false;
+}
+}  // namespace
+
 // Given a FunctionTemplateInfo, checks whether the fast API call can be
 // optimized, applying the initial step of the overload resolution algorithm:
 // Given an overload set function_template_info.c_signatures, and a list of
@@ -3612,6 +3629,11 @@ FastApiCallFunctionVector CanOptimizeFastCall(
     optimize_to_fast_call =
         optimize_to_fast_call && !Has64BitIntegerParamsInSignature(c_signature);
 #endif
+    // TODO(mslekova): Add back support for 64-bit TA params when the API is
+    // changed to disallow raw access to unaligned data.
+    optimize_to_fast_call =
+        optimize_to_fast_call && !Has64BitTypedArraysInSignature(c_signature);
+
     if (optimize_to_fast_call) {
       result.push_back({functions[i], c_signature});
     }
@@ -4279,10 +4301,10 @@ Reduction JSCallReducer::ReduceCallOrConstructWithArrayLikeOrSpread(
   }
 
   NodeProperties::ChangeOp(
-      node, javascript()->Call(
-                JSCallNode::ArityForArgc(new_argument_count), frequency,
-                feedback_source, ConvertReceiverMode::kNullOrUndefined,
-                speculation_mode, CallFeedbackRelation::kUnrelated));
+      node,
+      javascript()->Call(JSCallNode::ArityForArgc(new_argument_count),
+                         frequency, feedback_source, ConvertReceiverMode::kAny,
+                         speculation_mode, CallFeedbackRelation::kUnrelated));
   NodeProperties::ReplaceEffectInput(node, effect);
   return Changed(node).FollowedBy(ReduceJSCall(node));
 }
@@ -7993,28 +8015,23 @@ Reduction JSCallReducer::ReduceRegExpPrototypeTest(Node* node) {
       access_info_factory.FinalizePropertyAccessInfosAsOne(access_infos,
                                                            AccessMode::kLoad);
   if (ai_exec.IsInvalid()) return inference.NoChange();
+  if (!ai_exec.IsFastDataConstant()) return inference.NoChange();
 
-  // If "exec" has been modified on {regexp}, we can't do anything.
-  if (ai_exec.IsFastDataConstant()) {
-    base::Optional<JSObjectRef> holder = ai_exec.holder();
-    // Do not reduce if the exec method is not on the prototype chain.
-    if (!holder.has_value()) return inference.NoChange();
+  // Do not reduce if the exec method is not on the prototype chain.
+  base::Optional<JSObjectRef> holder = ai_exec.holder();
+  if (!holder.has_value()) return inference.NoChange();
 
-    // Bail out if the exec method is not the original one.
-    base::Optional<ObjectRef> constant = holder->GetOwnFastDataProperty(
-        ai_exec.field_representation(), ai_exec.field_index(), dependencies());
-    if (!constant.has_value() ||
-        !constant->equals(native_context().regexp_exec_function())) {
-      return inference.NoChange();
-    }
-
-    // Add proper dependencies on the {regexp}s [[Prototype]]s.
-    dependencies()->DependOnStablePrototypeChains(
-        ai_exec.lookup_start_object_maps(), kStartAtPrototype, holder.value());
-  } else {
-    // TODO(v8:11457) Support dictionary mode protoypes here.
+  // Bail out if the exec method is not the original one.
+  base::Optional<ObjectRef> constant = holder->GetOwnFastDataProperty(
+      ai_exec.field_representation(), ai_exec.field_index(), dependencies());
+  if (!constant.has_value() ||
+      !constant->equals(native_context().regexp_exec_function())) {
     return inference.NoChange();
   }
+
+  // Add proper dependencies on the {regexp}s [[Prototype]]s.
+  dependencies()->DependOnStablePrototypeChains(
+      ai_exec.lookup_start_object_maps(), kStartAtPrototype, holder.value());
 
   inference.RelyOnMapsPreferStability(dependencies(), jsgraph(), &effect,
                                       control, p.feedback());

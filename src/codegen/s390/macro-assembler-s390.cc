@@ -16,6 +16,7 @@
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/register-configuration.h"
 #include "src/debug/debug.h"
+#include "src/deoptimizer/deoptimizer.h"
 #include "src/execution/frames-inl.h"
 #include "src/heap/memory-chunk.h"
 #include "src/init/bootstrapper.h"
@@ -5156,6 +5157,75 @@ void TurboAssembler::I8x16ExtractLaneS(Register dst, Simd128Register src,
   vlgv(r0, src, MemOperand(r0, 15 - imm_lane_idx), Condition(0));
   lgbr(dst, r0);
 }
+
+void TurboAssembler::F64x2ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      DoubleRegister src2,
+                                      uint8_t imm_lane_idx) {
+  vlgv(r0, src2, MemOperand(r0, 0), Condition(3));
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, r0, MemOperand(r0, 1 - imm_lane_idx), Condition(3));
+}
+
+void TurboAssembler::F32x4ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      DoubleRegister src2,
+                                      uint8_t imm_lane_idx) {
+  vlgv(r0, src2, MemOperand(r0, 0), Condition(2));
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, r0, MemOperand(r0, 3 - imm_lane_idx), Condition(2));
+}
+
+void TurboAssembler::I64x2ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      Register src2, uint8_t imm_lane_idx) {
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, src2, MemOperand(r0, 1 - imm_lane_idx), Condition(3));
+}
+
+void TurboAssembler::I32x4ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      Register src2, uint8_t imm_lane_idx) {
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, src2, MemOperand(r0, 3 - imm_lane_idx), Condition(2));
+}
+
+void TurboAssembler::I16x8ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      Register src2, uint8_t imm_lane_idx) {
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, src2, MemOperand(r0, 7 - imm_lane_idx), Condition(1));
+}
+
+void TurboAssembler::I8x16ReplaceLane(Simd128Register dst, Simd128Register src1,
+                                      Register src2, uint8_t imm_lane_idx) {
+  if (src1 != dst) {
+    vlr(dst, src1, Condition(0), Condition(0), Condition(0));
+  }
+  vlvg(dst, src2, MemOperand(r0, 15 - imm_lane_idx), Condition(0));
+}
+
+#define SIMD_BINOP_LIST(V) \
+  V(F64x2Add, vfa, 3)      \
+  V(F32x4Add, vfa, 2)      \
+  V(I64x2Add, va, 3)       \
+  V(I32x4Add, va, 2)       \
+  V(I16x8Add, va, 1)       \
+  V(I8x16Add, va, 0)
+
+#define EMIT_SIMD_BINOP(name, op, condition)                               \
+  void TurboAssembler::name(Simd128Register dst, Simd128Register src1,     \
+                            Simd128Register src2) {                        \
+    op(dst, src1, src2, Condition(0), Condition(0), Condition(condition)); \
+  }
+SIMD_BINOP_LIST(EMIT_SIMD_BINOP)
+#undef EMIT_SIMD_BINOP
+#undef SIMD_BINOP_LIST
 
 }  // namespace internal
 }  // namespace v8

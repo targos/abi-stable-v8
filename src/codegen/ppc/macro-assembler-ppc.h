@@ -38,23 +38,11 @@ Register GetRegisterThatIsNotOneOf(Register reg1, Register reg2 = no_reg,
 
 // These exist to provide portability between 32 and 64bit
 #if V8_TARGET_ARCH_PPC64
-#define ShiftLeftImm sldi
-#define ShiftRightImm srdi
 #define ClearLeftImm clrldi
 #define ClearRightImm clrrdi
-#define ShiftRightArithImm sradi
-#define ShiftLeft_ sld
-#define ShiftRight_ srd
-#define ShiftRightArith srad
 #else
-#define ShiftLeftImm slwi
-#define ShiftRightImm srwi
 #define ClearLeftImm clrlwi
 #define ClearRightImm clrrwi
-#define ShiftRightArithImm srawi
-#define ShiftLeft_ slw
-#define ShiftRight_ srw
-#define ShiftRightArith sraw
 #endif
 
 class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
@@ -197,6 +185,14 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void SubS32(Register dst, Register src, const Operand& value,
               Register scratch = r0, RCBit r = LeaveRC);
   void SubS32(Register dst, Register src, Register value, RCBit r = LeaveRC);
+  void MulS64(Register dst, Register src, const Operand& value,
+              Register scratch = r0, OEBit s = LeaveOE, RCBit r = LeaveRC);
+  void MulS64(Register dst, Register src, Register value, OEBit s = LeaveOE,
+              RCBit r = LeaveRC);
+  void MulS32(Register dst, Register src, const Operand& value,
+              Register scratch = r0, OEBit s = LeaveOE, RCBit r = LeaveRC);
+  void MulS32(Register dst, Register src, Register value, OEBit s = LeaveOE,
+              RCBit r = LeaveRC);
 
   void AndU64(Register dst, Register src, const Operand& value,
               Register scratch = r0, RCBit r = SetRC);
@@ -241,6 +237,23 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
                      RCBit r = LeaveRC);
   void ShiftRightS32(Register dst, Register src, Register value,
                      RCBit r = LeaveRC);
+
+  void AddF64(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void SubF64(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void MulF64(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void DivF64(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void AddF32(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void SubF32(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void MulF32(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
+  void DivF32(DoubleRegister dst, DoubleRegister lhs, DoubleRegister rhs,
+              RCBit r = LeaveRC);
 
   void Push(Register src) { push(src); }
   // Push a handle.
@@ -557,7 +570,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     if (COMPRESS_POINTERS_BOOL) {
       srawi(dst, src, kSmiShift, rc);
     } else {
-      ShiftRightArithImm(dst, src, kSmiShift, rc);
+      ShiftRightS64(dst, src, Operand(kSmiShift), rc);
     }
   }
 
@@ -1057,16 +1070,16 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // Shift left by kSmiShift
   void SmiTag(Register reg, RCBit rc = LeaveRC) { SmiTag(reg, reg, rc); }
   void SmiTag(Register dst, Register src, RCBit rc = LeaveRC) {
-    ShiftLeftImm(dst, src, Operand(kSmiShift), rc);
+    ShiftLeftU64(dst, src, Operand(kSmiShift), rc);
   }
 
   void SmiToPtrArrayOffset(Register dst, Register src) {
 #if defined(V8_COMPRESS_POINTERS) || defined(V8_31BIT_SMIS_ON_64BIT_ARCH)
     STATIC_ASSERT(kSmiTag == 0 && kSmiShift < kSystemPointerSizeLog2);
-    ShiftLeftImm(dst, src, Operand(kSystemPointerSizeLog2 - kSmiShift));
+    ShiftLeftU64(dst, src, Operand(kSystemPointerSizeLog2 - kSmiShift));
 #else
     STATIC_ASSERT(kSmiTag == 0 && kSmiShift > kSystemPointerSizeLog2);
-    ShiftRightArithImm(dst, src, kSmiShift - kSystemPointerSizeLog2);
+    ShiftRightS64(dst, src, Operand(kSmiShift - kSystemPointerSizeLog2));
 #endif
   }
 

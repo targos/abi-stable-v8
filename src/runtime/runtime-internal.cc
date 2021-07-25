@@ -329,10 +329,10 @@ RUNTIME_FUNCTION(Runtime_StackGuardWithGap) {
   return isolate->stack_guard()->HandleInterrupts();
 }
 
-RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromBytecode) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
-  CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
+namespace {
+
+void BytecodeBudgetInterruptFromBytecode(Isolate* isolate,
+                                         Handle<JSFunction> function) {
   function->SetInterruptBudget();
   bool should_mark_for_optimization = function->has_feedback_vector();
   if (!function->has_feedback_vector()) {
@@ -361,6 +361,42 @@ RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromBytecode) {
     isolate->counters()->runtime_profiler_ticks()->Increment();
     isolate->runtime_profiler()->MarkCandidatesForOptimizationFromBytecode();
   }
+}
+}  // namespace
+
+RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptWithStackCheckFromBytecode) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
+  TRACE_EVENT0("v8.execute", "V8.BytecodeBudgetInterruptWithStackCheck");
+
+  // Check for stack interrupts here so that we can fold the interrupt check
+  // into bytecode budget interrupts.
+  StackLimitCheck check(isolate);
+  if (check.JsHasOverflowed()) {
+    // We ideally wouldn't actually get StackOverflows here, since we stack
+    // check on bytecode entry, but it's possible that this check fires due to
+    // the runtime function call being what overflows the stack.
+    // if our function entry
+    return isolate->StackOverflow();
+  } else if (check.InterruptRequested()) {
+    Object return_value = isolate->stack_guard()->HandleInterrupts();
+    if (!return_value.IsUndefined(isolate)) {
+      return return_value;
+    }
+  }
+
+  BytecodeBudgetInterruptFromBytecode(isolate, function);
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
+RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromBytecode) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(1, args.length());
+  CONVERT_ARG_HANDLE_CHECKED(JSFunction, function, 0);
+  TRACE_EVENT0("v8.execute", "V8.BytecodeBudgetInterrupt");
+
+  BytecodeBudgetInterruptFromBytecode(isolate, function);
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
@@ -368,6 +404,9 @@ RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptFromCode) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
   CONVERT_ARG_HANDLE_CHECKED(FeedbackCell, feedback_cell, 0);
+
+  // TODO(leszeks): Consider checking stack interrupts here, and removing
+  // those checks for code that can have budget interrupts.
 
   DCHECK(feedback_cell->value().IsFeedbackVector());
 

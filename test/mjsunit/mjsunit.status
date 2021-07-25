@@ -34,6 +34,7 @@
   'regress/modules-skip*': [SKIP],
   'wasm/exceptions-utils': [SKIP],
   'wasm/wasm-module-builder': [SKIP],
+  'compiler/fast-api-helpers': [SKIP],
 
   # All tests in the bug directory are expected to fail.
   'bugs/*': [FAIL],
@@ -72,6 +73,9 @@
 
   # https://crbug.com/1129854
   'tools/log': ['arch == arm or arch == arm64', SKIP],
+
+  # https://crbug.com/v8/10948
+  'wasm/atomics': [PASS, ['arch == arm and not simulator_run', SKIP]],
 
   ##############################################################################
   # Tests where variants make no sense.
@@ -1279,103 +1283,6 @@
 }],
 
 ##############################################################################
-['variant == turboprop or variant == turboprop_as_toptier or variant == future or deopt_fuzzer or (tsan and not concurrent_marking)', {
-  # Deopts differently than TurboFan.
-  'compiler/native-context-specialization-hole-check': [SKIP],
-  'compiler/number-comparison-truncations': [SKIP],
-  'compiler/redundancy-elimination': [SKIP],
-  'compiler/regress-9945-*': [SKIP],
-  'es6/super-ic-opt-no-turboprop': [SKIP],
-
-  # Static asserts for optimizations don't hold due to removed optimization
-  # phases.
-  'compiler/concurrent-inlining-1': [SKIP],
-  'compiler/concurrent-inlining-2': [SKIP],
-  'compiler/constant-fold-add-static': [SKIP],
-  'compiler/diamond-followedby-branch': [SKIP],
-  'compiler/is-being-interpreted-*': [SKIP],
-  'compiler/load-elimination-const-field': [SKIP],
-  'compiler/serializer-accessors': [SKIP],
-  'compiler/serializer-apply': [SKIP],
-  'compiler/serializer-call': [SKIP],
-  'compiler/serializer-dead-after-jump': [SKIP],
-  'compiler/serializer-dead-after-return': [SKIP],
-  'compiler/serializer-feedback-propagation-*': [SKIP],
-  'compiler/serializer-transition-propagation': [SKIP],
-
-  # Some tests rely on inlining.
-  'compiler/call-with-arraylike-or-spread*': [SKIP],
-  'compiler/inlined-call-polymorphic': [SKIP],
-  'compiler/opt-higher-order-functions': [SKIP],
-  'regress/regress-1049982-1': [SKIP],
-  'regress/regress-1049982-2': [SKIP],
-  'es6/iterator-eager-deopt': [SKIP],
-
-  # In turboprop we reuse the optimized code on soft deopt. The following tests
-  # test for a soft deopt and they won't work in TurboProp.
-  'deopt-recursive-soft-once': [SKIP],
-  'regress/regress-3709': [SKIP],
-  'regress/regress-5790': [SKIP],
-
-  # const field tracking is disabled in turboprop
-  'const-field-tracking': [SKIP],
-
-  # Dynamic map checks doesn't use information from maps so we don't inline
-  # array builtins or track field representation.
-  'compiler/deopt-inlined-from-call': [SKIP],
-  'compiler/field-representation-tracking': [SKIP],
-  'field-type-tracking': [SKIP],
-
-  # Tests failing for the lack of function context specialization in Turboprop.
-  'compiler/abstract-equal-receiver': [SKIP],
-  'compiler/constant-fold-cow-array': [SKIP],
-  'compiler/promise-resolve-stable-maps': [SKIP],
-
-  # Tests failing due to reduced constant propagation in Turboprop.
-  'compiler/js-create-arguments': [SKIP],
-  'compiler/catch-block-load': [SKIP],
-  'compiler/construct-bound-function': [SKIP],
-  'compiler/construct-object': [SKIP],
-  'compiler/construct-receiver': [SKIP],
-  'compiler/js-create': [SKIP],
-
-  # Incompatible flags that both weakly imply interrupt_budget.
-  'regress/regress-1220974': [SKIP],
-  'compiler/regress-1224277': [SKIP],
-}],  # variant == turboprop or variant = turboprop_as_toptier
-
-
-##############################################################################
-['variant == stress_concurrent_inlining', {
-  # Incompatible flags that both weakly imply interrupt_budget.
-  'regress/regress-1225561': [SKIP],
-  'regress/regress-1201114': [SKIP],
-  'regress/regress-1172797': [SKIP],
-  'regress/regress-1163715': [SKIP],
-  'regress/regress-1084953': [SKIP],
-  'regress/regress-1083763': [SKIP],
-  'regress/regress-1076569': [SKIP],
-  'es6/super-ic-opt-dynamic-map-checks': [SKIP],
-  'compiler/test-dynamic-map-checks-wrong-handler': [SKIP],
-  'compiler/test-dynamic-map-checks-poly-mono': [SKIP],
-  'compiler/test-dynamic-map-check-deprecated-maps': [SKIP],
-  'compiler/test-dynamic-map-check-deprecated-maps2': [SKIP],
-  'compiler/test-dynamic-map-check-deprecated-maps3': [SKIP],
-  'compiler/test-dynamic-map-checks-wrong-handler1': [SKIP],
-  'compiler/test-dynamic-map-check-deprecated-maps-polymorphic': [SKIP],
-  'compiler/test-dynamic-map-checks': [SKIP],
-  'compiler/regress-1226988': [SKIP],
-  'regress/regress-1223733': [SKIP],
-  'regress/regress-1154961': [SKIP],
-  'regress/regress-1137979': [SKIP],
-  'regress/regress-1138075': [SKIP],
-  'regress/regress-1083272': [SKIP],
-  'regress/regress-1079446': [SKIP],
-  'regress/regress-1138611': [SKIP],
-  'const-field-tracking-2': [SKIP],
-}],  # variant == stress_concurrent_inlining
-
-##############################################################################
 ['variant == top_level_await', {
   # specifically expects to fail on top level await.
   'harmony/modules-import-15': [SKIP],
@@ -1525,6 +1432,7 @@
   'regress/wasm/regress-1165966': [SKIP],
   'regress/wasm/regress-1187831': [SKIP],
   'regress/wasm/regress-1199662': [SKIP],
+  'regress/wasm/regress-1231950': [SKIP],
 }],  # no_simd_hardware == True
 
 ##############################################################################
@@ -1549,6 +1457,12 @@
   'concurrent-initial-prototype-change-1': [SKIP],
 }],  # variant == concurrent_inlining
 
+##############################################################################
+['variant == instruction_scheduling or variant == stress_instruction_scheduling', {
+  # BUG(12018): This test currently fails with --turbo-instruction-scheduling.
+  'regress/wasm/regress-1231950': [SKIP],
+}],  # variant == instruction_scheduling or variant == stress_instruction_scheduling
+
 ################################################################################
 ['single_generation', {
   # These tests rely on allocation site tracking which only works in the young generation.
@@ -1564,6 +1478,7 @@
   'compiler/native-context-specialization-hole-check': [SKIP],
   'compiler/test-literal-map-migration': [SKIP],
   'compiler/deopt-pretenure': [SKIP],
+  'compiler/fast-api-sequences-x64': [SKIP],
 }], # single_generation
 
 ################################################################################
@@ -1701,5 +1616,11 @@
   'wasm/compiled-module-management': [SKIP],
   'wasm/shared-memory-gc-stress': [SKIP],
 }], # third_party_heap
+
+##############################################################################
+['arch != x64', {
+  # Tests that include types only supported on x64.
+  'compiler/fast-api-sequences-x64': [SKIP],
+}],  # arch != x64
 
 ]

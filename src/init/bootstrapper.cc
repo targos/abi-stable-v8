@@ -1436,11 +1436,6 @@ static void InstallError(Isolate* isolate, Handle<JSObject> global,
     JSObject::AddProperty(isolate, prototype, factory->message_string(),
                           factory->empty_string(), DONT_ENUM);
 
-    if (FLAG_harmony_error_cause) {
-      JSObject::AddProperty(isolate, prototype, factory->cause_string(),
-                            factory->undefined_value(), DONT_ENUM);
-    }
-
     if (context_index == Context::ERROR_FUNCTION_INDEX) {
       Handle<JSFunction> to_string_fun =
           SimpleInstallFunction(isolate, prototype, "toString",
@@ -2466,6 +2461,8 @@ void Genesis::InitializeGlobal(Handle<JSGlobalObject> global_object,
                           Builtin::kRegExpPrototypeFlagsGetter, true);
       SimpleInstallGetter(isolate_, prototype, factory->global_string(),
                           Builtin::kRegExpPrototypeGlobalGetter, true);
+      SimpleInstallGetter(isolate(), prototype, factory->has_indices_string(),
+                          Builtin::kRegExpPrototypeHasIndicesGetter, true);
       SimpleInstallGetter(isolate_, prototype, factory->ignoreCase_string(),
                           Builtin::kRegExpPrototypeIgnoreCaseGetter, true);
       SimpleInstallGetter(isolate_, prototype, factory->multiline_string(),
@@ -4300,6 +4297,10 @@ void Genesis::InitializeIteratorFunctions() {
         native_context->async_function_map(), kReleaseStore);
     async_function_constructor->shared().DontAdaptArguments();
     async_function_constructor->shared().set_length(1);
+    InstallWithIntrinsicDefaultProto(
+        isolate, async_function_constructor,
+        Context::ASYNC_FUNCTION_FUNCTION_INDEX);
+
     native_context->set_async_function_constructor(*async_function_constructor);
     JSObject::ForceSetPrototype(isolate, async_function_constructor,
                                 isolate->function_function());
@@ -4447,36 +4448,6 @@ void Genesis::InitializeGlobal_harmony_weak_refs_with_cleanup_some() {
                         factory()->InternalizeUtf8String("cleanupSome"),
                         isolate()->finalization_registry_cleanup_some(),
                         DONT_ENUM);
-}
-
-void Genesis::InitializeGlobal_harmony_regexp_match_indices() {
-  if (!FLAG_harmony_regexp_match_indices) return;
-
-  Handle<Map> source_map(native_context()->regexp_result_map(), isolate());
-  Handle<Map> initial_map =
-      Map::Copy(isolate(), source_map, "JSRegExpResult with indices");
-  initial_map->set_instance_size(JSRegExpResultWithIndices::kSize);
-  DCHECK_EQ(initial_map->GetInObjectProperties(),
-            JSRegExpResultWithIndices::kInObjectPropertyCount);
-
-  // indices descriptor
-  {
-    Descriptor d =
-        Descriptor::DataField(isolate(), factory()->indices_string(),
-                              JSRegExpResultWithIndices::kIndicesIndex, NONE,
-                              Representation::Tagged());
-    Map::EnsureDescriptorSlack(isolate(), initial_map, 1);
-    initial_map->AppendDescriptor(isolate(), &d);
-  }
-
-  native_context()->set_regexp_result_with_indices_map(*initial_map);
-
-  Handle<JSObject> prototype(native_context()->regexp_prototype(), isolate());
-  SimpleInstallGetter(isolate(), prototype, factory()->has_indices_string(),
-                      Builtin::kRegExpPrototypeHasIndicesGetter, true);
-
-  // Store regexp prototype map again after change.
-  native_context()->set_regexp_prototype_map(prototype->map());
 }
 
 void Genesis::InitializeGlobal_regexp_linear_flag() {
@@ -4890,7 +4861,27 @@ bool Genesis::InstallABunchOfRandomThings() {
       }
     }
 
+    // Set up the map for RegExp results objects for regexps with the /d flag.
+    Handle<Map> initial_with_indices_map =
+        Map::Copy(isolate(), initial_map, "JSRegExpResult with indices");
+    initial_with_indices_map->set_instance_size(
+        JSRegExpResultWithIndices::kSize);
+    DCHECK_EQ(initial_with_indices_map->GetInObjectProperties(),
+              JSRegExpResultWithIndices::kInObjectPropertyCount);
+
+    // indices descriptor
+    {
+      Descriptor d =
+          Descriptor::DataField(isolate(), factory()->indices_string(),
+                                JSRegExpResultWithIndices::kIndicesIndex, NONE,
+                                Representation::Tagged());
+      Map::EnsureDescriptorSlack(isolate(), initial_with_indices_map, 1);
+      initial_with_indices_map->AppendDescriptor(isolate(), &d);
+    }
+
     native_context()->set_regexp_result_map(*initial_map);
+    native_context()->set_regexp_result_with_indices_map(
+        *initial_with_indices_map);
   }
 
   // Create a constructor for JSRegExpResultIndices (a variant of Array that
