@@ -793,7 +793,7 @@ template Handle<FixedArray> String::CalculateLineEnds(LocalIsolate* isolate,
                                                       Handle<String> src,
                                                       bool include_ending_line);
 
-bool String::SlowEquals(String other) {
+bool String::SlowEquals(String other) const {
   DisallowGarbageCollection no_gc;
   // Fast check: negative check with lengths.
   int len = length();
@@ -845,6 +845,7 @@ bool String::SlowEquals(String other) {
   return comparator.Equals(*this, other);
 }
 
+// static
 bool String::SlowEquals(Isolate* isolate, Handle<String> one,
                         Handle<String> two) {
   // Fast check: negative check with lengths.
