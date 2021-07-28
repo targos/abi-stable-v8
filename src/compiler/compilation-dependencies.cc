@@ -420,6 +420,7 @@ class FieldRepresentationDependency final : public CompilationDependency {
 
   bool IsValid() const override {
     DisallowGarbageCollection no_heap_allocation;
+    if (owner_.is_deprecated()) return false;
     return representation_.Equals(owner_.object()
                                       ->instance_descriptors(owner_.isolate())
                                       .GetDetails(descriptor_)
@@ -456,6 +457,7 @@ class FieldTypeDependency final : public CompilationDependency {
 
   bool IsValid() const override {
     DisallowGarbageCollection no_heap_allocation;
+    if (owner_.is_deprecated()) return false;
     return *type_.object() == owner_.object()
                                   ->instance_descriptors(owner_.isolate())
                                   .GetFieldType(descriptor_);
@@ -483,6 +485,7 @@ class FieldConstnessDependency final : public CompilationDependency {
 
   bool IsValid() const override {
     DisallowGarbageCollection no_heap_allocation;
+    if (owner_.is_deprecated()) return false;
     return PropertyConstness::kConst ==
            owner_.object()
                ->instance_descriptors(owner_.isolate())
@@ -939,26 +942,17 @@ CompilationDependencies::TransitionDependencyOffTheRecord(
 
 CompilationDependency const*
 CompilationDependencies::FieldRepresentationDependencyOffTheRecord(
-    const MapRef& map, InternalIndex descriptor) const {
-  DCHECK(!map.IsNeverSerializedHeapObject());
-  MapRef owner = map.FindFieldOwner(descriptor);
-  DCHECK(!owner.IsNeverSerializedHeapObject());
-  PropertyDetails details = owner.GetPropertyDetails(descriptor);
-  CHECK(details.representation().Equals(
-      map.GetPropertyDetails(descriptor).representation()));
-  return zone_->New<FieldRepresentationDependency>(owner, descriptor,
-                                                   details.representation());
+    const MapRef& map, InternalIndex descriptor,
+    Representation representation) const {
+  return zone_->New<FieldRepresentationDependency>(
+      map.FindFieldOwner(descriptor), descriptor, representation);
 }
 
 CompilationDependency const*
 CompilationDependencies::FieldTypeDependencyOffTheRecord(
-    const MapRef& map, InternalIndex descriptor) const {
-  DCHECK(!map.IsNeverSerializedHeapObject());
-  MapRef owner = map.FindFieldOwner(descriptor);
-  DCHECK(!owner.IsNeverSerializedHeapObject());
-  ObjectRef type = owner.GetFieldType(descriptor);
-  CHECK(type.equals(map.GetFieldType(descriptor)));
-  return zone_->New<FieldTypeDependency>(owner, descriptor, type);
+    const MapRef& map, InternalIndex descriptor, const ObjectRef& type) const {
+  return zone_->New<FieldTypeDependency>(map.FindFieldOwner(descriptor),
+                                         descriptor, type);
 }
 
 }  // namespace compiler
