@@ -45,6 +45,7 @@
 #include "src/objects/struct-inl.h"
 #include "src/profiler/heap-profiler.h"
 #include "src/strings/string-hasher.h"
+#include "src/utils/ostreams.h"
 #include "src/zone/zone-list-inl.h"
 
 namespace v8 {
@@ -84,16 +85,28 @@ Address AllocationResult::ToAddress() {
 }
 
 // static
-CodeFlushMode Heap::GetCodeFlushMode(Isolate* isolate) {
+base::EnumSet<CodeFlushMode> Heap::GetCodeFlushMode(Isolate* isolate) {
   if (isolate->disable_bytecode_flushing()) {
-    return CodeFlushMode::kDoNotFlushCode;
+    return base::EnumSet<CodeFlushMode>();
   }
+
+  base::EnumSet<CodeFlushMode> code_flush_mode;
+  if (FLAG_flush_bytecode) {
+    code_flush_mode.Add(CodeFlushMode::kFlushBytecode);
+  }
+
+  if (FLAG_flush_baseline_code) {
+    // TODO(mythria): Add support to be able to flush baseline code without
+    // flushing bytecode.
+    DCHECK(FLAG_flush_bytecode);
+    code_flush_mode.Add(CodeFlushMode::kFlushBaselineCode);
+  }
+
   if (FLAG_stress_flush_bytecode) {
-    return CodeFlushMode::kStressFlushCode;
-  } else if (FLAG_flush_bytecode) {
-    return CodeFlushMode::kFlushCode;
+    code_flush_mode.Add(CodeFlushMode::kStressFlushCode);
   }
-  return CodeFlushMode::kDoNotFlushCode;
+
+  return code_flush_mode;
 }
 
 Isolate* Heap::isolate() {
@@ -603,7 +616,7 @@ void Heap::UpdateAllocationSite(Map map, HeapObject object,
   (*pretenuring_feedback)[AllocationSite::unchecked_cast(Object(key))]++;
 }
 
-bool Heap::IsPendingAllocation(HeapObject object) {
+bool Heap::IsPendingAllocationInternal(HeapObject object) {
   DCHECK(deserialization_complete());
 
   if (V8_ENABLE_THIRD_PARTY_HEAP_BOOL) {
@@ -653,6 +666,15 @@ bool Heap::IsPendingAllocation(HeapObject object) {
   }
 
   UNREACHABLE();
+}
+
+bool Heap::IsPendingAllocation(HeapObject object) {
+  bool result = IsPendingAllocationInternal(object);
+  if (FLAG_trace_pending_allocations && result) {
+    StdoutStream{} << "Pending allocation: " << std::hex << "0x" << object.ptr()
+                   << "\n";
+  }
+  return result;
 }
 
 bool Heap::IsPendingAllocation(Object object) {

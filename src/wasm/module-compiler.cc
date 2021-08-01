@@ -3043,11 +3043,17 @@ void CompilationStateImpl::InitializeCompilationProgressAfterDeserialization(
         RequiredTopTierField::encode(ExecutionTier::kTurbofan) |
         ReachedTierField::encode(ExecutionTier::kTurbofan);
     finished_events_.Add(CompilationEvent::kFinishedExportWrappers);
-    finished_events_.Add(CompilationEvent::kFinishedBaselineCompilation);
-    finished_events_.Add(CompilationEvent::kFinishedTopTierCompilation);
+    if (missing_functions.empty() || FLAG_wasm_lazy_compilation) {
+      finished_events_.Add(CompilationEvent::kFinishedBaselineCompilation);
+      finished_events_.Add(CompilationEvent::kFinishedTopTierCompilation);
+    }
     compilation_progress_.assign(module->num_declared_functions,
                                  kProgressAfterDeserialization);
+    uint32_t num_imported_functions = module->num_imported_functions;
     for (auto func_index : missing_functions) {
+      if (FLAG_wasm_lazy_compilation) {
+        native_module_->UseLazyStub(num_imported_functions + func_index);
+      }
       compilation_progress_[func_index] = SetupCompilationProgressForFunction(
           lazy_module, module, enabled_features, func_index);
     }

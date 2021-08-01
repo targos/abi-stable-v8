@@ -1124,7 +1124,7 @@ void Decoder::DecodeExt2(Instruction* instr) {
       return;
     }
     case MTVSRDD: {
-      Format(instr, "mtvsrdd 'Xt, 'ra");
+      Format(instr, "mtvsrdd 'Xt, 'ra, 'rb");
       return;
     }
     case LDBRX: {
@@ -1300,6 +1300,10 @@ void Decoder::DecodeExt4(Instruction* instr) {
     }
     case FNEG: {
       Format(instr, "fneg'.   'Dt, 'Db");
+      break;
+    }
+    case FCPSGN: {
+      Format(instr, "fcpsgn'.   'Dt, 'Da, 'Db");
       break;
     }
     case MCRFS: {

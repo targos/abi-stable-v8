@@ -196,6 +196,11 @@ class Assembler : public AssemblerBase {
     GetCode(isolate, desc, kNoSafepointTable, kNoHandlerTable);
   }
 
+  // This function is called when on-heap-compilation invariants are
+  // invalidated. For instance, when the assembler buffer grows or a GC happens
+  // between Code object allocation and Code object finalization.
+  void FixOnHeapReferences();
+
   void MaybeEmitOutOfLineConstantPool() { EmitConstantPool(); }
 
   inline void CheckTrampolinePoolQuick(int extra_space = 0) {
@@ -1050,6 +1055,8 @@ class Assembler : public AssemblerBase {
   void fmsub(const DoubleRegister frt, const DoubleRegister fra,
              const DoubleRegister frc, const DoubleRegister frb,
              RCBit rc = LeaveRC);
+  void fcpsgn(const DoubleRegister frt, const DoubleRegister fra,
+              const DoubleRegister frc, RCBit rc = LeaveRC);
 
   // Vector instructions
   void mfvsrd(const Register ra, const Simd128Register r);
