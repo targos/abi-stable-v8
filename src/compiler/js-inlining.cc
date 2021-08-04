@@ -530,12 +530,6 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
   // Determine the target's feedback vector and its context.
   Node* context;
   FeedbackCellRef feedback_cell = DetermineCallContext(node, &context);
-  if (!broker()->IsSerializedForCompilation(*shared_info,
-                                            *feedback_cell.value())) {
-    TRACE("Not inlining " << *shared_info << " into " << outer_shared_info
-                          << " because it wasn't serialized for compilation.");
-    return NoChange();
-  }
 
   TRACE("Inlining " << *shared_info << " into " << outer_shared_info
                     << ((exception_target != nullptr) ? " (inside try-block)"
@@ -685,7 +679,7 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
   // passed into this node has to be the callees context (loaded above).
   if (node->opcode() == IrOpcode::kJSCall &&
       is_sloppy(shared_info->language_mode()) && !shared_info->native()) {
-    Node* effect = NodeProperties::GetEffectInput(node);
+    Effect effect{NodeProperties::GetEffectInput(node)};
     if (NodeProperties::CanBePrimitive(broker(), call.receiver(), effect)) {
       CallParameters const& p = CallParametersOf(node->op());
       Node* global_proxy = jsgraph()->Constant(

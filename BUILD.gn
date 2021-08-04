@@ -2474,6 +2474,7 @@ v8_header_set("v8_internal_headers") {
     "src/codegen/reglist.h",
     "src/codegen/reloc-info.h",
     "src/codegen/safepoint-table.h",
+    "src/codegen/script-details.h",
     "src/codegen/signature.h",
     "src/codegen/source-position-table.h",
     "src/codegen/source-position.h",
@@ -2603,8 +2604,6 @@ v8_header_set("v8_internal_headers") {
     "src/compiler/schedule.h",
     "src/compiler/scheduler.h",
     "src/compiler/select-lowering.h",
-    "src/compiler/serializer-for-background-compilation.h",
-    "src/compiler/serializer-hints.h",
     "src/compiler/simplified-lowering.h",
     "src/compiler/simplified-operator-reducer.h",
     "src/compiler/simplified-operator.h",
@@ -3393,12 +3392,13 @@ v8_header_set("v8_internal_headers") {
       sources += [ "src/execution/arm64/pointer-authentication-arm64.h" ]
     }
     if (v8_enable_webassembly) {
-      # Trap handling is enabled on arm64 Mac and in simulators on x64 on Linux.
+      # Trap handling is enabled on arm64 Mac and in simulators on x64 on Linux
+      # and Mac.
       if ((current_cpu == "arm64" && is_mac) ||
-          (current_cpu == "x64" && (is_linux || is_chromeos))) {
+          (current_cpu == "x64" && (is_linux || is_chromeos || is_mac))) {
         sources += [ "src/trap-handler/handler-inside-posix.h" ]
       }
-      if (current_cpu == "x64" && (is_linux || is_chromeos)) {
+      if (current_cpu == "x64" && (is_linux || is_chromeos || is_mac)) {
         sources += [ "src/trap-handler/trap-handler-simulator.h" ]
       }
     }
@@ -3484,6 +3484,8 @@ v8_header_set("v8_internal_headers") {
     ]
   } else if (v8_current_cpu == "riscv64") {
     sources += [  ### gcmole(arch:riscv64) ###
+      "src/baseline/riscv64/baseline-assembler-riscv64-inl.h",
+      "src/baseline/riscv64/baseline-compiler-riscv64-inl.h",
       "src/codegen/riscv64/assembler-riscv64-inl.h",
       "src/codegen/riscv64/assembler-riscv64.h",
       "src/codegen/riscv64/constants-riscv64.h",
@@ -3611,7 +3613,6 @@ v8_compiler_sources = [
   "src/compiler/schedule.cc",
   "src/compiler/scheduler.cc",
   "src/compiler/select-lowering.cc",
-  "src/compiler/serializer-for-background-compilation.cc",
   "src/compiler/simplified-lowering.cc",
   "src/compiler/simplified-operator-reducer.cc",
   "src/compiler/simplified-operator.cc",
@@ -4301,15 +4302,16 @@ v8_source_set("v8_base_without_compiler") {
       "src/regexp/arm64/regexp-macro-assembler-arm64.cc",
     ]
     if (v8_enable_webassembly) {
-      # Trap handling is enabled on arm64 Mac and in simulators on x64 on Linux.
+      # Trap handling is enabled on arm64 Mac and in simulators on x64 on Linux
+      # and Mac.
       if ((current_cpu == "arm64" && is_mac) ||
-          (current_cpu == "x64" && (is_linux || is_chromeos))) {
+          (current_cpu == "x64" && (is_linux || is_chromeos || is_mac))) {
         sources += [
           "src/trap-handler/handler-inside-posix.cc",
           "src/trap-handler/handler-outside-posix.cc",
         ]
       }
-      if (current_cpu == "x64" && (is_linux || is_chromeos)) {
+      if (current_cpu == "x64" && (is_linux || is_chromeos || is_mac)) {
         sources += [ "src/trap-handler/handler-outside-simulator.cc" ]
       }
     }

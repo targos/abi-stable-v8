@@ -706,9 +706,6 @@ DEFINE_IMPLICATION(stress_concurrent_inlining, concurrent_inlining)
 DEFINE_NEG_IMPLICATION(stress_concurrent_inlining, lazy_feedback_allocation)
 DEFINE_WEAK_VALUE_IMPLICATION(stress_concurrent_inlining, interrupt_budget,
                               15 * KB)
-DEFINE_BOOL(
-    turbo_concurrent_get_property_access_info, true,
-    "concurrently call GetPropertyAccessInfo (only with --concurrent-inlining)")
 DEFINE_INT(max_serializer_nesting, 25,
            "maximum levels for nesting child serializers")
 DEFINE_WEAK_IMPLICATION(future, concurrent_inlining)
@@ -1250,12 +1247,10 @@ DEFINE_BOOL(never_compact, false,
 DEFINE_BOOL(compact_code_space, true, "Compact code space on full collections")
 DEFINE_BOOL(flush_baseline_code, false,
             "flush of baseline code when it has not been executed recently")
-DEFINE_IMPLICATION(flush_baseline_code, flush_bytecode)
 DEFINE_BOOL(flush_bytecode, true,
             "flush of bytecode when it has not been executed recently")
-DEFINE_BOOL(stress_flush_bytecode, false, "stress bytecode flushing")
+DEFINE_BOOL(stress_flush_code, false, "stress code flushing")
 DEFINE_BOOL(trace_flush_bytecode, false, "trace bytecode flushing")
-DEFINE_IMPLICATION(stress_flush_bytecode, flush_bytecode)
 DEFINE_BOOL(use_marking_progress_bar, true,
             "Use a progress bar to scan large objects in increments when "
             "incremental marking is active.")

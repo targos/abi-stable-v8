@@ -30,6 +30,7 @@
 #include "src/builtins/builtins-utils.h"
 #include "src/codegen/compiler.h"
 #include "src/codegen/cpu-features.h"
+#include "src/codegen/script-details.h"
 #include "src/common/assert-scope.h"
 #include "src/common/external-pointer.h"
 #include "src/common/globals.h"
@@ -130,8 +131,10 @@
 #endif
 
 #if V8_OS_WIN
-#include <versionhelpers.h>
 #include <windows.h>
+
+// This has to come after windows.h.
+#include <versionhelpers.h>
 
 #include "include/v8-wasm-trap-handler-win.h"
 #include "src/trap-handler/handler-inside-win.h"
@@ -2379,14 +2382,15 @@ void Module::SetSyntheticModuleExport(Local<String> export_name,
 
 namespace {
 
-i::Compiler::ScriptDetails GetScriptDetails(
-    i::Isolate* isolate, Local<Value> resource_name, int resource_line_offset,
-    int resource_column_offset, Local<Value> source_map_url,
-    Local<PrimitiveArray> host_defined_options) {
-  i::Compiler::ScriptDetails script_details;
-  if (!resource_name.IsEmpty()) {
-    script_details.name_obj = Utils::OpenHandle(*(resource_name));
-  }
+i::ScriptDetails GetScriptDetails(i::Isolate* isolate,
+                                  Local<Value> resource_name,
+                                  int resource_line_offset,
+                                  int resource_column_offset,
+                                  Local<Value> source_map_url,
+                                  Local<PrimitiveArray> host_defined_options,
+                                  ScriptOriginOptions origin_options) {
+  i::ScriptDetails script_details(Utils::OpenHandle(*(resource_name), true),
+                                  origin_options);
   script_details.line_offset = resource_line_offset;
   script_details.column_offset = resource_column_offset;
   script_details.host_defined_options =
@@ -2421,14 +2425,14 @@ MaybeLocal<UnboundScript> ScriptCompiler::CompileUnboundInternal(
   i::Handle<i::String> str = Utils::OpenHandle(*(source->source_string));
   i::Handle<i::SharedFunctionInfo> result;
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"), "V8.CompileScript");
-  i::Compiler::ScriptDetails script_details = GetScriptDetails(
+  i::ScriptDetails script_details = GetScriptDetails(
       isolate, source->resource_name, source->resource_line_offset,
       source->resource_column_offset, source->source_map_url,
-      source->host_defined_options);
+      source->host_defined_options, source->resource_options);
   i::MaybeHandle<i::SharedFunctionInfo> maybe_function_info =
       i::Compiler::GetSharedFunctionInfoForScript(
-          isolate, str, script_details, source->resource_options, nullptr,
-          script_data, options, no_cache_reason, i::NOT_NATIVES_CODE);
+          isolate, str, script_details, nullptr, script_data, options,
+          no_cache_reason, i::NOT_NATIVES_CODE);
   if (options == kConsumeCodeCache) {
     source->cached_data->rejected = script_data->rejected();
   }
@@ -2549,10 +2553,10 @@ MaybeLocal<Function> ScriptCompiler::CompileFunctionInContext(
           extension);
     }
 
-    i::Compiler::ScriptDetails script_details = GetScriptDetails(
+    i::ScriptDetails script_details = GetScriptDetails(
         isolate, source->resource_name, source->resource_line_offset,
         source->resource_column_offset, source->source_map_url,
-        source->host_defined_options);
+        source->host_defined_options, source->resource_options);
 
     i::ScriptData* script_data = nullptr;
     if (options == kConsumeCodeCache) {
@@ -2566,8 +2570,7 @@ MaybeLocal<Function> ScriptCompiler::CompileFunctionInContext(
     has_pending_exception =
         !i::Compiler::GetWrappedFunction(
              Utils::OpenHandle(*source->source_string), arguments_list, context,
-             script_details, source->resource_options, script_data, options,
-             no_cache_reason)
+             script_details, script_data, options, no_cache_reason)
              .ToHandle(&scoped_result);
     if (options == kConsumeCodeCache) {
       source->cached_data->rejected = script_data->rejected();
@@ -2616,13 +2619,13 @@ i::MaybeHandle<i::SharedFunctionInfo> CompileStreamedSource(
     i::Isolate* isolate, ScriptCompiler::StreamedSource* v8_source,
     Local<String> full_source_string, const ScriptOrigin& origin) {
   i::Handle<i::String> str = Utils::OpenHandle(*(full_source_string));
-  i::Compiler::ScriptDetails script_details =
+  i::ScriptDetails script_details =
       GetScriptDetails(isolate, origin.ResourceName(), origin.LineOffset(),
                        origin.ColumnOffset(), origin.SourceMapUrl(),
-                       origin.HostDefinedOptions());
+                       origin.HostDefinedOptions(), origin.Options());
   i::ScriptStreamingData* data = v8_source->impl();
   return i::Compiler::GetSharedFunctionInfoForStreamedScript(
-      isolate, str, script_details, origin.Options(), data);
+      isolate, str, script_details, data);
 }
 
 }  // namespace

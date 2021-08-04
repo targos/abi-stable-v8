@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --expose-gc --stress-flush-bytecode --allow-natives-syntax
+// Flags: --expose-gc --stress-flush-code --allow-natives-syntax
 // Flags: --baseline-batch-compilation-threshold=0 --sparkplug
 // Flags: --no-always-sparkplug --lazy-feedback-allocation
-// Flags: --flush-baseline-code
+// Flags: --flush-baseline-code --flush-bytecode
 
 function HasBaselineCode(f) {
   let opt_status = %GetOptimizationStatus(f);

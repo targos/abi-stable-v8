@@ -1988,11 +1988,11 @@ void Assembler::AdjustBaseAndOffset(MemOperand* src,
   constexpr int32_t kMaxOffsetForSimpleAdjustment =
       2 * kMinOffsetForSimpleAdjustment;
   if (0 <= src->offset() && src->offset() <= kMaxOffsetForSimpleAdjustment) {
-    addiu(at, src->rm(), kMinOffsetForSimpleAdjustment);
+    addiu(scratch, src->rm(), kMinOffsetForSimpleAdjustment);
     src->offset_ -= kMinOffsetForSimpleAdjustment;
   } else if (-kMaxOffsetForSimpleAdjustment <= src->offset() &&
              src->offset() < 0) {
-    addiu(at, src->rm(), -kMinOffsetForSimpleAdjustment);
+    addiu(scratch, src->rm(), -kMinOffsetForSimpleAdjustment);
     src->offset_ += kMinOffsetForSimpleAdjustment;
   } else if (IsMipsArchVariant(kMips32r6)) {
     // On r6 take advantage of the aui instruction, e.g.:
@@ -3537,7 +3537,24 @@ void Assembler::RelocateRelativeReference(RelocInfo::Mode rmode, Address pc,
   }
 }
 
+void Assembler::FixOnHeapReferences() {
+  for (auto p : saved_handles_for_raw_object_ptr_) {
+    Address base = reinterpret_cast<Address>(buffer_->start() + p.first);
+    Handle<HeapObject> object(reinterpret_cast<Address*>(p.second));
+    set_target_value_at(base, *object);
+  }
+}
+
+void Assembler::FixOnHeapReferencesToHandles() {
+  for (auto p : saved_handles_for_raw_object_ptr_) {
+    Address base = reinterpret_cast<Address>(buffer_->start() + p.first);
+    set_target_value_at(base, p.second);
+  }
+}
+
 void Assembler::GrowBuffer() {
+  bool previously_on_heap = buffer_->IsOnHeap();
+
   // Compute new buffer size.
   int old_size = buffer_->size();
   int new_size = std::min(2 * old_size, old_size + 1 * MB);
@@ -3580,6 +3597,16 @@ void Assembler::GrowBuffer() {
       RelocateInternalReference(rmode, it.rinfo()->pc(), pc_delta);
     }
   }
+
+  // Fix on-heap references.
+  if (previously_on_heap) {
+    if (buffer_->IsOnHeap()) {
+      FixOnHeapReferences();
+    } else {
+      FixOnHeapReferencesToHandles();
+    }
+  }
+
   DCHECK(!overflow());
 }
 

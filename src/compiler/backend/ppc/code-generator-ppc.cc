@@ -2279,9 +2279,13 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       constexpr int lane_width_in_bytes = 8;
       Simd128Register dst = i.OutputSimd128Register();
       __ MovDoubleToInt64(r0, i.InputDoubleRegister(2));
-      __ mtvsrd(kScratchSimd128Reg, r0);
-      __ vinsertd(dst, kScratchSimd128Reg,
-                  Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ vinsd(dst, r0, Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      } else {
+        __ mtvsrd(kScratchSimd128Reg, r0);
+        __ vinsertd(dst, kScratchSimd128Reg,
+                    Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      }
       break;
     }
     case kPPC_F32x4ReplaceLane: {
@@ -2289,27 +2293,41 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       constexpr int lane_width_in_bytes = 4;
       Simd128Register dst = i.OutputSimd128Register();
       __ MovFloatToInt(r0, i.InputDoubleRegister(2));
-      __ mtvsrd(kScratchSimd128Reg, r0);
-      __ vinsertw(dst, kScratchSimd128Reg,
-                  Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ vinsw(dst, r0, Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      } else {
+        __ mtvsrd(kScratchSimd128Reg, r0);
+        __ vinsertw(dst, kScratchSimd128Reg,
+                    Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      }
       break;
     }
     case kPPC_I64x2ReplaceLane: {
       DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
       constexpr int lane_width_in_bytes = 8;
       Simd128Register dst = i.OutputSimd128Register();
-      __ mtvsrd(kScratchSimd128Reg, i.InputRegister(2));
-      __ vinsertd(dst, kScratchSimd128Reg,
-                  Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ vinsd(dst, i.InputRegister(2),
+                 Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      } else {
+        __ mtvsrd(kScratchSimd128Reg, i.InputRegister(2));
+        __ vinsertd(dst, kScratchSimd128Reg,
+                    Operand((1 - i.InputInt8(1)) * lane_width_in_bytes));
+      }
       break;
     }
     case kPPC_I32x4ReplaceLane: {
       DCHECK_EQ(i.OutputSimd128Register(), i.InputSimd128Register(0));
       constexpr int lane_width_in_bytes = 4;
       Simd128Register dst = i.OutputSimd128Register();
-      __ mtvsrd(kScratchSimd128Reg, i.InputRegister(2));
-      __ vinsertw(dst, kScratchSimd128Reg,
-                  Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ vinsw(dst, i.InputRegister(2),
+                 Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      } else {
+        __ mtvsrd(kScratchSimd128Reg, i.InputRegister(2));
+        __ vinsertw(dst, kScratchSimd128Reg,
+                    Operand((3 - i.InputInt8(1)) * lane_width_in_bytes));
+      }
       break;
     }
     case kPPC_I16x8ReplaceLane: {
@@ -4072,7 +4090,7 @@ void CodeGenerator::AssembleConstructFrame() {
 
   if (required_slots > 0) {
 #if V8_ENABLE_WEBASSEMBLY
-    if (info()->IsWasm() && required_slots > 128) {
+    if (info()->IsWasm() && required_slots * kSystemPointerSize > 4 * KB) {
       // For WebAssembly functions with big frames we have to do the stack
       // overflow check before we construct the frame. Otherwise we may not
       // have enough space on the stack to call the runtime for the stack
@@ -4082,7 +4100,7 @@ void CodeGenerator::AssembleConstructFrame() {
       // If the frame is bigger than the stack, we throw the stack overflow
       // exception unconditionally. Thereby we can avoid the integer overflow
       // check in the condition code.
-      if ((required_slots * kSystemPointerSize) < (FLAG_stack_size * 1024)) {
+      if (required_slots * kSystemPointerSize < FLAG_stack_size * KB) {
         Register scratch = ip;
         __ LoadU64(
             scratch,
@@ -4097,12 +4115,11 @@ void CodeGenerator::AssembleConstructFrame() {
       }
 
       __ Call(wasm::WasmCode::kWasmStackOverflow, RelocInfo::WASM_STUB_CALL);
-      // We come from WebAssembly, there are no references for the GC.
+      // The call does not return, hence we can ignore any references and just
+      // define an empty safepoint.
       ReferenceMap* reference_map = zone()->New<ReferenceMap>(zone());
       RecordSafepoint(reference_map);
-      if (FLAG_debug_code) {
-        __ stop();
-      }
+      if (FLAG_debug_code) __ stop();
 
       __ bind(&done);
     }

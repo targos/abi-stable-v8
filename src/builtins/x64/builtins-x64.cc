@@ -92,7 +92,7 @@ void Generate_JSBuiltinsConstructStubHelper(MacroAssembler* masm) {
   // -----------------------------------
 
   Label stack_overflow;
-  __ StackOverflowCheck(rax, rcx, &stack_overflow, Label::kFar);
+  __ StackOverflowCheck(rax, &stack_overflow, Label::kFar);
 
   // Enter a construct frame.
   {
@@ -129,7 +129,8 @@ void Generate_JSBuiltinsConstructStubHelper(MacroAssembler* masm) {
   }
 
   // Remove caller arguments from the stack and return.
-  __ DropArguments(rbx, rcx, MacroAssembler::kCountIsSmi);
+  __ DropArguments(rbx, rcx, TurboAssembler::kCountIsSmi,
+                   TurboAssembler::kCountExcludesReceiver);
 
   __ ret(0);
 
@@ -225,9 +226,9 @@ void Builtins::Generate_JSConstructStubGeneric(MacroAssembler* masm) {
   __ SmiUntag(rax, Operand(rbp, ConstructFrameConstants::kLengthOffset));
 
   // Check if we have enough stack space to push all arguments.
-  // Argument count in rax. Clobbers rcx.
+  // Argument count in rax.
   Label stack_overflow;
-  __ StackOverflowCheck(rax, rcx, &stack_overflow);
+  __ StackOverflowCheck(rax, &stack_overflow);
 
   // TODO(victorgomes): When the arguments adaptor is completely removed, we
   // should get the formal parameter count and copy the arguments in its
@@ -278,7 +279,8 @@ void Builtins::Generate_JSConstructStubGeneric(MacroAssembler* masm) {
   __ movq(rbx, Operand(rbp, ConstructFrameConstants::kLengthOffset));
   __ LeaveFrame(StackFrame::CONSTRUCT);
   // Remove caller arguments from the stack and return.
-  __ DropArguments(rbx, rcx, MacroAssembler::kCountIsSmi);
+  __ DropArguments(rbx, rcx, TurboAssembler::kCountIsSmi,
+                   TurboAssembler::kCountExcludesReceiver);
   __ ret(0);
 
   // If the result is a smi, it is *not* an object in the ECMA sense.
@@ -593,9 +595,9 @@ static void Generate_JSEntryTrampolineHelper(MacroAssembler* masm,
     // r9  : receiver
 
     // Check if we have enough stack space to push all arguments.
-    // Argument count in rax. Clobbers rcx.
+    // Argument count in rax.
     Label enough_stack_space, stack_overflow;
-    __ StackOverflowCheck(rax, rcx, &stack_overflow, Label::kNear);
+    __ StackOverflowCheck(rax, &stack_overflow, Label::kNear);
     __ jmp(&enough_stack_space, Label::kNear);
 
     __ bind(&stack_overflow);
@@ -874,8 +876,8 @@ static void LeaveInterpreterFrame(MacroAssembler* masm, Register scratch1,
   __ leave();
 
   // Drop receiver + arguments.
-  __ DropArguments(params_size, scratch2, MacroAssembler::kCountIsBytes,
-                   MacroAssembler::kCountIncludesReceiver);
+  __ DropArguments(params_size, scratch2, TurboAssembler::kCountIsBytes,
+                   TurboAssembler::kCountIncludesReceiver);
 }
 
 // Tail-call |function_id| if |actual_marker| == |expected_marker|
@@ -1388,7 +1390,7 @@ void Builtins::Generate_InterpreterPushArgsThenCallImpl(
   __ leal(rcx, Operand(rax, 1));  // Add one for receiver.
 
   // Add a stack check before pushing arguments.
-  __ StackOverflowCheck(rcx, rdx, &stack_overflow);
+  __ StackOverflowCheck(rcx, &stack_overflow);
 
   // Pop return address to allow tail-call after pushing arguments.
   __ PopReturnAddressTo(kScratchRegister);
@@ -1449,7 +1451,7 @@ void Builtins::Generate_InterpreterPushArgsThenConstructImpl(
   Label stack_overflow;
 
   // Add a stack check before pushing arguments.
-  __ StackOverflowCheck(rax, r8, &stack_overflow);
+  __ StackOverflowCheck(rax, &stack_overflow);
 
   // Pop return address to allow tail-call after pushing arguments.
   __ PopReturnAddressTo(kScratchRegister);
@@ -1891,7 +1893,9 @@ void Builtins::Generate_FunctionPrototypeApply(MacroAssembler* masm) {
       __ bind(&no_arg_array);
     }
     __ bind(&no_this_arg);
-    __ DropArgumentsAndPushNewReceiver(rax, rdx, rcx);
+    __ DropArgumentsAndPushNewReceiver(rax, rdx, rcx,
+                                       TurboAssembler::kCountIsInteger,
+                                       TurboAssembler::kCountExcludesReceiver);
   }
 
   // ----------- S t a t e -------------
@@ -1994,7 +1998,9 @@ void Builtins::Generate_ReflectApply(MacroAssembler* masm) {
     __ j(below, &done, Label::kNear);
     __ movq(rbx, args[3]);  // argumentsList
     __ bind(&done);
-    __ DropArgumentsAndPushNewReceiver(rax, rdx, rcx);
+    __ DropArgumentsAndPushNewReceiver(rax, rdx, rcx,
+                                       TurboAssembler::kCountIsInteger,
+                                       TurboAssembler::kCountExcludesReceiver);
   }
 
   // ----------- S t a t e -------------
@@ -2044,7 +2050,9 @@ void Builtins::Generate_ReflectConstruct(MacroAssembler* masm) {
     __ movq(rdx, args[3]);  // new.target
     __ bind(&done);
     __ DropArgumentsAndPushNewReceiver(
-        rax, masm->RootAsOperand(RootIndex::kUndefinedValue), rcx);
+        rax, masm->RootAsOperand(RootIndex::kUndefinedValue), rcx,
+        TurboAssembler::kCountIsInteger,
+        TurboAssembler::kCountExcludesReceiver);
   }
 
   // ----------- S t a t e -------------
@@ -2101,7 +2109,7 @@ void Builtins::Generate_CallOrConstructVarargs(MacroAssembler* masm,
   }
 
   Label stack_overflow;
-  __ StackOverflowCheck(rcx, r8, &stack_overflow, Label::kNear);
+  __ StackOverflowCheck(rcx, &stack_overflow, Label::kNear);
 
   // Push additional arguments onto the stack.
   // Move the arguments already in the stack,
@@ -2203,7 +2211,7 @@ void Builtins::Generate_CallOrConstructForwardVarargs(MacroAssembler* masm,
     // -----------------------------------
 
     // Check for stack overflow.
-    __ StackOverflowCheck(r8, r12, &stack_overflow, Label::kNear);
+    __ StackOverflowCheck(r8, &stack_overflow, Label::kNear);
 
     // Forward the arguments from the caller frame.
     // Move the arguments already in the stack,
@@ -3326,7 +3334,8 @@ void Builtins::Generate_GenericJSToWasmWrapper(MacroAssembler* masm) {
   // expected to be on the top of the stack).
   // We cannot use just the ret instruction for this, because we cannot pass the
   // number of slots to remove in a Register as an argument.
-  __ DropArguments(param_count, rbx);
+  __ DropArguments(param_count, rbx, TurboAssembler::kCountIsInteger,
+                   TurboAssembler::kCountExcludesReceiver);
   __ ret(0);
 
   // --------------------------------------------------------------------------
