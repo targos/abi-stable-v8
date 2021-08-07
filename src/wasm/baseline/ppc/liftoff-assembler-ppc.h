@@ -99,8 +99,9 @@ inline constexpr bool UseSignedOp(LiftoffCondition liftoff_cond) {
 }  // namespace liftoff
 
 int LiftoffAssembler::PrepareStackFrame() {
-  bailout(kUnsupportedArchitecture, "PrepareStackFrame");
-  return 0;
+  int offset = pc_offset();
+  addi(sp, sp, Operand::Zero());
+  return offset;
 }
 
 void LiftoffAssembler::PrepareTailCall(int num_callee_stack_params,
@@ -112,7 +113,26 @@ void LiftoffAssembler::AlignFrameSize() {}
 
 void LiftoffAssembler::PatchPrepareStackFrame(int offset,
                                               SafepointTableBuilder*) {
-  bailout(kUnsupportedArchitecture, "PatchPrepareStackFrame");
+  int frame_size = GetTotalFrameSize() - 2 * kSystemPointerSize;
+
+#ifdef USE_SIMULATOR
+  // When using the simulator, deal with Liftoff which allocates the stack
+  // before checking it.
+  // TODO(arm): Remove this when the stack check mechanism will be updated.
+  if (frame_size > KB / 2) {
+    bailout(kOtherReason,
+            "Stack limited to 512 bytes to avoid a bug in StackCheck");
+    return;
+  }
+#endif
+  if (!is_int16(-frame_size)) {
+    bailout(kOtherReason, "PPC subi overflow");
+    return;
+  }
+  Assembler patching_assembler(
+      AssemblerOptions{},
+      ExternalAssemblerBuffer(buffer_start_ + offset, kInstrSize + kGap));
+  patching_assembler.addi(sp, sp, Operand(-frame_size));
 }
 
 void LiftoffAssembler::FinishCode() { EmitConstantPool(); }
@@ -156,7 +176,7 @@ void LiftoffAssembler::LoadConstant(LiftoffRegister reg, WasmValue value,
     case kF64: {
       UseScratchRegisterScope temps(this);
       Register scratch = temps.Acquire();
-      mov(scratch, Operand(value.to_f32_boxed().get_scalar()));
+      mov(scratch, Operand(value.to_f64_boxed().get_scalar()));
       MovInt64ToDouble(reg.fp(), scratch);
       break;
     }
@@ -228,7 +248,7 @@ void LiftoffAssembler::StoreTaggedPointer(Register dst_addr,
 
   Label write_barrier;
   Label exit;
-  CheckPageFlag(dst_addr, r0, MemoryChunk::kPointersFromHereAreInterestingMask,
+  CheckPageFlag(dst_addr, ip, MemoryChunk::kPointersFromHereAreInterestingMask,
                 ne, &write_barrier);
   b(&exit);
   bind(&write_barrier);
@@ -236,7 +256,7 @@ void LiftoffAssembler::StoreTaggedPointer(Register dst_addr,
   if (COMPRESS_POINTERS_BOOL) {
     DecompressTaggedPointer(src.gp(), src.gp());
   }
-  CheckPageFlag(src.gp(), r0, MemoryChunk::kPointersToHereAreInterestingMask,
+  CheckPageFlag(src.gp(), ip, MemoryChunk::kPointersToHereAreInterestingMask,
                 eq, &exit);
   mov(ip, Operand(offset_imm));
   add(ip, ip, dst_addr);
@@ -322,6 +342,8 @@ void LiftoffAssembler::Load(LiftoffRegister dst, Register src_addr,
       }
       break;
     case LoadType::kS128Load:
+      bailout(kUnsupportedArchitecture, "SIMD");
+      break;
     default:
       UNREACHABLE();
   }
@@ -689,40 +711,40 @@ void LiftoffAssembler::FillI64Half(Register, int offset, RegPairHalf) {
 
 void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
   DCHECK_LT(0, size);
-  DCHECK_EQ(0, size % 4);
+  DCHECK_EQ(0, size % 8);
   RecordUsedSpillOffset(start + size);
 
   // We need a zero reg. Always use r0 for that, and push it before to restore
   // its value afterwards.
-  push(r0);
-  mov(r0, Operand(0));
 
   if (size <= 36) {
     // Special straight-line code for up to nine words. Generates one
     // instruction per word.
-    for (int offset = 4; offset <= size; offset += 4) {
-      StoreU64(r0, liftoff::GetHalfStackSlot(start + offset, kLowWord));
+    mov(ip, Operand::Zero());
+    uint32_t remainder = size;
+    for (; remainder >= kStackSlotSize; remainder -= kStackSlotSize) {
+      StoreU64(ip, liftoff::GetStackSlot(start + remainder), r0);
+    }
+    DCHECK(remainder == 4 || remainder == 0);
+    if (remainder) {
+      StoreU32(ip, liftoff::GetStackSlot(start + remainder), r0);
     }
   } else {
-    // General case for bigger counts (9 instructions).
-    // Use r4 for start address (inclusive), r5 for end address (exclusive).
-    push(r4);
-    push(r5);
-    SubS64(r4, fp, Operand(start + size), r0);
-    SubS64(r5, fp, Operand(start), r0);
-
     Label loop;
+    push(r4);
+
+    mov(r4, Operand(size / kSystemPointerSize));
+    mtctr(r4);
+
+    SubS64(r4, fp, Operand(start + size + kSystemPointerSize), r0);
+    mov(r0, Operand::Zero());
+
     bind(&loop);
-    StoreU64(r0, MemOperand(r0));
-    addi(r0, r0, Operand(kSystemPointerSize));
-    CmpS64(r4, r5);
-    bne(&loop);
+    StoreU64WithUpdate(r0, MemOperand(r4, kSystemPointerSize));
+    bdnz(&loop);
 
     pop(r4);
-    pop(r5);
   }
-
-  pop(r0);
 }
 
 #define SIGN_EXT(r) extsw(r, r)

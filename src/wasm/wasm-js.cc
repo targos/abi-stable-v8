@@ -2627,6 +2627,8 @@ void WasmJs::Install(Isolate* isolate, bool exposed_on_global_object) {
     JSFunction::EnsureHasInitialMap(tag_constructor);
     Handle<JSObject> tag_proto(
         JSObject::cast(tag_constructor->instance_prototype()), isolate);
+    JSObject::AddProperty(isolate, tag_proto, factory->to_string_tag_symbol(),
+                          v8_str(isolate, "WebAssembly.Tag"), ro_attributes);
     if (enabled_features.has_type_reflection()) {
       InstallFunc(isolate, tag_proto, "type", WebAssemblyTagType, 0);
     }
@@ -2638,8 +2640,10 @@ void WasmJs::Install(Isolate* isolate, bool exposed_on_global_object) {
     Handle<JSFunction> exception_constructor = InstallConstructorFunc(
         isolate, webassembly, "Exception", WebAssemblyException);
     SetDummyInstanceTemplate(isolate, exception_constructor);
-    Handle<Map> exception_map = isolate->factory()->NewMap(
-        i::JS_ERROR_TYPE, WasmExceptionPackage::kHeaderSize);
+    Handle<Map> exception_map(isolate->native_context()
+                                  ->wasm_exception_error_function()
+                                  .initial_map(),
+                              isolate);
     Handle<JSObject> exception_proto(
         JSObject::cast(isolate->native_context()
                            ->wasm_exception_error_function()

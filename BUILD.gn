@@ -452,6 +452,12 @@ if (v8_enable_shared_ro_heap == "") {
                              v8_enable_pointer_compression_shared_cage
 }
 
+# Check if it is a Chromium build and activate PAC/BTI if needed.
+if (build_with_chromium && v8_current_cpu == "arm64" &&
+    arm_control_flow_integrity == "standard") {
+  v8_control_flow_integrity = true
+}
+
 assert(!v8_disable_write_barriers || v8_enable_single_generation,
        "Disabling write barriers works only with single generation")
 
@@ -2490,7 +2496,7 @@ v8_header_set("v8_internal_headers") {
     "src/common/message-template.h",
     "src/common/ptr-compr-inl.h",
     "src/common/ptr-compr.h",
-    "src/compiler-dispatcher/compiler-dispatcher.h",
+    "src/compiler-dispatcher/lazy-compile-dispatcher.h",
     "src/compiler-dispatcher/optimizing-compile-dispatcher.h",
     "src/compiler/access-builder.h",
     "src/compiler/access-info.h",
@@ -3792,7 +3798,7 @@ v8_source_set("v8_base_without_compiler") {
     "src/codegen/turbo-assembler.cc",
     "src/codegen/unoptimized-compilation-info.cc",
     "src/common/assert-scope.cc",
-    "src/compiler-dispatcher/compiler-dispatcher.cc",
+    "src/compiler-dispatcher/lazy-compile-dispatcher.cc",
     "src/compiler-dispatcher/optimizing-compile-dispatcher.cc",
     "src/date/date.cc",
     "src/date/dateparser.cc",
