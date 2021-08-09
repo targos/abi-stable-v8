@@ -1812,8 +1812,8 @@ Handle<JSObject> Factory::CopyJSObjectWithAllocationSite(
   bool is_clonable_js_type =
       instance_type == JS_REG_EXP_TYPE || instance_type == JS_OBJECT_TYPE ||
       instance_type == JS_ERROR_TYPE || instance_type == JS_ARRAY_TYPE ||
-      instance_type == JS_API_OBJECT_TYPE ||
-      instance_type == JS_SPECIAL_API_OBJECT_TYPE;
+      instance_type == JS_SPECIAL_API_OBJECT_TYPE ||
+      InstanceTypeChecker::IsJSApiObject(instance_type);
   bool is_clonable_wasm_type = false;
 #if V8_ENABLE_WEBASSEMBLY
   is_clonable_wasm_type = instance_type == WASM_GLOBAL_OBJECT_TYPE ||
@@ -2655,7 +2655,7 @@ Handle<SourceTextModule> Factory::NewSourceTextModule(
   module.set_hash(isolate()->GenerateIdentityHash(Smi::kMaxValue));
   module.set_module_namespace(roots.undefined_value(), SKIP_WRITE_BARRIER);
   module.set_requested_modules(*requested_modules);
-  module.set_status(Module::kUninstantiated);
+  module.set_status(Module::kUnlinked);
   module.set_exception(roots.the_hole_value(), SKIP_WRITE_BARRIER);
   module.set_top_level_capability(roots.undefined_value(), SKIP_WRITE_BARRIER);
   module.set_import_meta(roots.the_hole_value(), kReleaseStore,
@@ -2686,7 +2686,7 @@ Handle<SyntheticModule> Factory::NewSyntheticModule(
   DisallowGarbageCollection no_gc;
   module.set_hash(isolate()->GenerateIdentityHash(Smi::kMaxValue));
   module.set_module_namespace(roots.undefined_value(), SKIP_WRITE_BARRIER);
-  module.set_status(Module::kUninstantiated);
+  module.set_status(Module::kUnlinked);
   module.set_exception(roots.the_hole_value(), SKIP_WRITE_BARRIER);
   module.set_top_level_capability(roots.undefined_value(), SKIP_WRITE_BARRIER);
   module.set_name(*module_name);

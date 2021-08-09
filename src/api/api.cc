@@ -1228,8 +1228,9 @@ static Local<FunctionTemplate> FunctionTemplateNew(
     v8::Local<Private> cached_property_name = v8::Local<Private>(),
     SideEffectType side_effect_type = SideEffectType::kHasSideEffect,
     const MemorySpan<const CFunction>& c_function_overloads = {},
-    uint8_t instance_type = 0, uint8_t allowed_receiver_range_start = 0,
-    uint8_t allowed_receiver_range_end = 0) {
+    uint8_t instance_type = 0,
+    uint8_t allowed_receiver_instance_type_range_start = 0,
+    uint8_t allowed_receiver_instance_type_range_end = 0) {
   i::Handle<i::Struct> struct_obj = isolate->factory()->NewStruct(
       i::FUNCTION_TEMPLATE_INFO_TYPE, i::AllocationType::kOld);
   i::Handle<i::FunctionTemplateInfo> obj =
@@ -1252,8 +1253,10 @@ static Local<FunctionTemplate> FunctionTemplateNew(
             : *Utils::OpenHandle(*cached_property_name));
     if (behavior == ConstructorBehavior::kThrow) raw.set_remove_prototype(true);
     raw.SetInstanceType(instance_type);
-    raw.set_allowed_receiver_range_start(allowed_receiver_range_start);
-    raw.set_allowed_receiver_range_end(allowed_receiver_range_end);
+    raw.set_allowed_receiver_instance_type_range_start(
+        allowed_receiver_instance_type_range_start);
+    raw.set_allowed_receiver_instance_type_range_end(
+        allowed_receiver_instance_type_range_end);
   }
   if (callback != nullptr) {
     Utils::ToLocal(obj)->SetCallHandlerV8_92(callback, data, side_effect_type,
@@ -2119,14 +2122,15 @@ Local<FixedArray> ModuleRequest::GetImportAssertions() const {
 Module::Status Module::GetStatus() const {
   i::Handle<i::Module> self = Utils::OpenHandle(this);
   switch (self->status()) {
-    case i::Module::kUninstantiated:
-    case i::Module::kPreInstantiating:
+    case i::Module::kUnlinked:
+    case i::Module::kPreLinking:
       return kUninstantiated;
-    case i::Module::kInstantiating:
+    case i::Module::kLinking:
       return kInstantiating;
-    case i::Module::kInstantiated:
+    case i::Module::kLinked:
       return kInstantiated;
     case i::Module::kEvaluating:
+    case i::Module::kEvaluatingAsync:
       return kEvaluating;
     case i::Module::kEvaluated:
       return kEvaluated;
@@ -2315,8 +2319,8 @@ MaybeLocal<Value> Module::Evaluate(Local<Context> context) {
   i::TimerEventScope<i::TimerEventExecute> timer_scope(isolate);
 
   i::Handle<i::Module> self = Utils::OpenHandle(this);
-  Utils::ApiCheck(self->status() >= i::Module::kInstantiated,
-                  "Module::Evaluate", "Expected instantiated module");
+  Utils::ApiCheck(self->status() >= i::Module::kLinked, "Module::Evaluate",
+                  "Expected instantiated module");
 
   Local<Value> result;
   has_pending_exception = !ToLocal(i::Module::Evaluate(isolate, self), &result);
@@ -3692,6 +3696,13 @@ i::Isolate* i::IsolateFromNeverReadOnlySpaceObject(i::Address obj) {
 bool i::ShouldThrowOnError(i::Isolate* isolate) {
   return i::GetShouldThrow(isolate, Nothing<i::ShouldThrow>()) ==
          i::ShouldThrow::kThrowOnError;
+}
+
+bool i::CanHaveInternalField(int instance_type) {
+  return instance_type == i::Internals::kJSObjectType ||
+         instance_type == i::Internals::kJSSpecialApiObjectType ||
+         v8::internal::InstanceTypeChecker::IsJSApiObject(
+             static_cast<v8::internal::InstanceType>(instance_type));
 }
 
 void i::Internals::CheckInitializedImpl(v8::Isolate* external_isolate) {
