@@ -18,6 +18,6 @@ Additional commits made for ABI-stability are prefixed with `[ABI-stability]`.
 ### List commits to audit
 
 ```bash
-git fetch v8 master
-git log HEAD..v8/master --stat --reverse -- 'include/cppgc/common.h' 'include/libplatform/libplatform.h'  'include/libplatform/libplatform-export.h' 'include/libplatform/v8-tracing.h' 'include/v8.h' 'include/v8-internal.h' 'include/v8-platform.h' 'include/v8-profiler.h' 'include/v8-version.h' 'include/v8config.h'
+git fetch v8 main
+git log HEAD..v8/main --stat --reverse -- 'include/cppgc/common.h' 'include/libplatform/libplatform.h'  'include/libplatform/libplatform-export.h' 'include/libplatform/v8-tracing.h' 'include/v8.h' 'include/v8-internal.h' 'include/v8-platform.h' 'include/v8-profiler.h' 'include/v8-version.h' 'include/v8config.h'
 ```
