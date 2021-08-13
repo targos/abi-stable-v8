@@ -800,8 +800,8 @@ bool Code::IsExecutable() {
 // concurrent marker.
 STATIC_ASSERT(FIELD_SIZE(CodeDataContainer::kKindSpecificFlagsOffset) ==
               kInt32Size);
-RELAXED_INT32_ACCESSORS(CodeDataContainer, kind_specific_flags,
-                        kKindSpecificFlagsOffset)
+IMPLICIT_TAG_RELAXED_INT32_ACCESSORS(CodeDataContainer, kind_specific_flags,
+                                     kKindSpecificFlagsOffset)
 ACCESSORS_CHECKED(CodeDataContainer, raw_code, Object, kCodeOffset,
                   V8_EXTERNAL_CODE_SPACE_BOOL)
 RELAXED_ACCESSORS_CHECKED(CodeDataContainer, raw_code, Object, kCodeOffset,
@@ -1004,6 +1004,9 @@ DEFINE_DEOPT_ELEMENT_ACCESSORS(LazyDeoptCount, Smi)
 DEFINE_DEOPT_ENTRY_ACCESSORS(BytecodeOffsetRaw, Smi)
 DEFINE_DEOPT_ENTRY_ACCESSORS(TranslationIndex, Smi)
 DEFINE_DEOPT_ENTRY_ACCESSORS(Pc, Smi)
+#ifdef DEBUG
+DEFINE_DEOPT_ENTRY_ACCESSORS(NodeId, Smi)
+#endif  // DEBUG
 
 BytecodeOffset DeoptimizationData::GetBytecodeOffset(int i) {
   return BytecodeOffset(BytecodeOffsetRaw(i).value());

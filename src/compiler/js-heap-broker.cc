@@ -19,6 +19,7 @@
 #include "src/objects/feedback-cell.h"
 #include "src/objects/js-array-inl.h"
 #include "src/objects/literal-objects-inl.h"
+#include "src/objects/map-updater.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/oddball.h"
 #include "src/objects/property-cell.h"
@@ -536,12 +537,6 @@ bool HasMigrationTargets(const ZoneVector<MapRef>& maps) {
 
 }  // namespace
 
-bool JSHeapBroker::CanUseFeedback(const FeedbackNexus& nexus) const {
-  // TODO(jgruber,v8:8888): Currently, nci code does not use any
-  // feedback. This restriction will be relaxed in the future.
-  return !is_native_context_independent() && !nexus.IsUninitialized();
-}
-
 const ProcessedFeedback& JSHeapBroker::NewInsufficientFeedback(
     FeedbackSlotKind kind) const {
   return *zone()->New<InsufficientFeedback>(kind);
@@ -552,7 +547,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForPropertyAccess(
     base::Optional<NameRef> static_name) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
   FeedbackSlotKind kind = nexus.kind();
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(kind);
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(kind);
 
   ZoneVector<MapRefAndHandler> maps_and_handlers(zone());
   ZoneVector<MapRef> maps(zone());
@@ -562,17 +557,19 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForPropertyAccess(
 
     for (const MapAndHandler& map_and_handler : maps_and_handlers_unfiltered) {
       MapRef map = MakeRefAssumeMemoryFence(this, *map_and_handler.first);
-      if (!is_concurrent_inlining()) {
-        // TODO(jgruber): Consider replaying transitions on deprecated maps
-        // when concurrent inlining (see Map::TryUpdate).
-        Handle<Map> map_handle;
-        if (!Map::TryUpdate(isolate(), map.object()).ToHandle(&map_handle))
-          continue;
-        map = MakeRefAssumeMemoryFence(this, *map_handle);
-      }
       // May change concurrently at any time - must be guarded by a dependency
       // if non-deprecation is important.
-      if (map.is_deprecated()) continue;
+      if (map.is_deprecated()) {
+        // TODO(ishell): support fast map updating if we enable it.
+        CHECK(!FLAG_fast_map_update);
+        base::Optional<Map> maybe_map = MapUpdater::TryUpdateNoLock(
+            isolate(), *map.object(), ConcurrencyMode::kConcurrent);
+        if (maybe_map.has_value()) {
+          map = MakeRefAssumeMemoryFence(this, maybe_map.value());
+        } else {
+          continue;  // Couldn't update the deprecated map.
+        }
+      }
       if (map.is_abandoned_prototype_map()) continue;
       maps_and_handlers.push_back({map, map_and_handler.second});
       maps.push_back(map);
@@ -619,7 +616,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForGlobalAccess(
          nexus.kind() == FeedbackSlotKind::kLoadGlobalNotInsideTypeof ||
          nexus.kind() == FeedbackSlotKind::kStoreGlobalSloppy ||
          nexus.kind() == FeedbackSlotKind::kStoreGlobalStrict);
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
   if (nexus.ic_state() != MONOMORPHIC || nexus.GetFeedback()->IsCleared()) {
     return *zone()->New<GlobalAccessFeedback>(nexus.kind());
   }
@@ -659,7 +656,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForGlobalAccess(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForBinaryOperation(
     FeedbackSource const& source) const {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
   BinaryOperationHint hint = nexus.GetBinaryOperationFeedback();
   DCHECK_NE(hint, BinaryOperationHint::kNone);  // Not uninitialized.
   return *zone()->New<BinaryOperationFeedback>(hint, nexus.kind());
@@ -668,7 +665,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForBinaryOperation(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForCompareOperation(
     FeedbackSource const& source) const {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
   CompareOperationHint hint = nexus.GetCompareOperationFeedback();
   DCHECK_NE(hint, CompareOperationHint::kNone);  // Not uninitialized.
   return *zone()->New<CompareOperationFeedback>(hint, nexus.kind());
@@ -677,7 +674,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForCompareOperation(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForForIn(
     FeedbackSource const& source) const {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
   ForInHint hint = nexus.GetForInFeedback();
   DCHECK_NE(hint, ForInHint::kNone);  // Not uninitialized.
   return *zone()->New<ForInFeedback>(hint, nexus.kind());
@@ -686,7 +683,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForForIn(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForInstanceOf(
     FeedbackSource const& source) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
 
   base::Optional<JSObjectRef> optional_constructor;
   {
@@ -702,7 +699,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForInstanceOf(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForArrayOrObjectLiteral(
     FeedbackSource const& source) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
 
   HeapObject object;
   if (!nexus.GetFeedback()->GetHeapObject(&object)) {
@@ -720,7 +717,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForArrayOrObjectLiteral(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForRegExpLiteral(
     FeedbackSource const& source) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
 
   HeapObject object;
   if (!nexus.GetFeedback()->GetHeapObject(&object)) {
@@ -738,7 +735,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForRegExpLiteral(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForTemplateObject(
     FeedbackSource const& source) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
 
   HeapObject object;
   if (!nexus.GetFeedback()->GetHeapObject(&object)) {
@@ -752,7 +749,7 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForTemplateObject(
 ProcessedFeedback const& JSHeapBroker::ReadFeedbackForCall(
     FeedbackSource const& source) {
   FeedbackNexus nexus(source.vector, source.slot, feedback_nexus_config());
-  if (!CanUseFeedback(nexus)) return NewInsufficientFeedback(nexus.kind());
+  if (nexus.IsUninitialized()) return NewInsufficientFeedback(nexus.kind());
 
   base::Optional<HeapObjectRef> target_ref;
   {
@@ -904,29 +901,23 @@ ElementAccessFeedback const& JSHeapBroker::ProcessFeedbackMapsForElementAccess(
 
   // Separate the actual receiver maps and the possible transition sources.
   for (const MapRef& map : maps) {
+    Map transition_target;
+
     // Don't generate elements kind transitions from stable maps.
-    if (is_concurrent_inlining()) {
-      // TODO(jgruber): Bring back elements kind transition generation when
-      // concurrent inlining (see FindElementsKindTransitionedMap).
+    if (!map.is_stable()) {
+      transition_target = map.object()->FindElementsKindTransitionedMap(
+          isolate(), possible_transition_targets, ConcurrencyMode::kConcurrent);
+    }
+
+    if (transition_target.is_null()) {
       TransitionGroup group(1, map.object(), zone());
       transition_groups.insert({map.object(), group});
     } else {
-      Map transition_target;
-      if (!map.is_stable()) {
-        transition_target = map.object()->FindElementsKindTransitionedMap(
-            isolate(), possible_transition_targets);
-      }
-
-      if (transition_target.is_null()) {
-        TransitionGroup group(1, map.object(), zone());
-        transition_groups.insert({map.object(), group});
-      } else {
-        Handle<Map> target(transition_target, isolate());
-        TransitionGroup new_group(1, target, zone());
-        TransitionGroup& actual_group =
-            transition_groups.insert({target, new_group}).first->second;
-        actual_group.push_back(map.object());
-      }
+      Handle<Map> target = CanonicalPersistentHandle(transition_target);
+      TransitionGroup new_group(1, target, zone());
+      TransitionGroup& actual_group =
+          transition_groups.insert({target, new_group}).first->second;
+      actual_group.push_back(map.object());
     }
   }
 
