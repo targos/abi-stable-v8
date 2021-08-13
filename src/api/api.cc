@@ -10377,6 +10377,10 @@ const CTypeInfo& CFunctionInfo::ArgumentInfo(unsigned int index) const {
   return arg_info_[index];
 }
 
+void FastApiTypedArrayBase::ValidateIndex(size_t index) const {
+  DCHECK_LT(index, length_);
+}
+
 RegisterState::RegisterState()
     : pc(nullptr), sp(nullptr), fp(nullptr), lr(nullptr) {}
 RegisterState::~RegisterState() = default;
@@ -10663,18 +10667,6 @@ bool ConvertDouble(double d) {
 #undef CALLBACK_SETTER
 
 }  // namespace internal
-
-bool CopyAndConvertArrayToCppBufferInt32(Local<Array> src, int32_t* dst,
-                                         uint32_t max_length) {
-  return CopyAndConvertArrayToCppBuffer<&v8::kTypeInfoInt32, int32_t>(
-      src, dst, max_length);
-}
-
-bool CopyAndConvertArrayToCppBufferFloat64(Local<Array> src, double* dst,
-                                           uint32_t max_length) {
-  return CopyAndConvertArrayToCppBuffer<&v8::kTypeInfoFloat64, double>(
-      src, dst, max_length);
-}
 
 }  // namespace v8
 
