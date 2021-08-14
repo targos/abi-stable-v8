@@ -3111,30 +3111,29 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kIA32I8x16Shl: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
       Register tmp = i.TempRegister(0);
-      XMMRegister tmp_simd = i.TempSimd128Register(1);
+
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
-                    kScratchDoubleReg);
+        __ I8x16Shl(dst, src, i.InputInt3(1), tmp, kScratchDoubleReg);
       } else {
-        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
-                    kScratchDoubleReg, tmp_simd);
+        XMMRegister tmp_simd = i.TempSimd128Register(1);
+        __ I8x16Shl(dst, src, i.InputRegister(1), tmp, kScratchDoubleReg,
+                    tmp_simd);
       }
       break;
     }
     case kIA32I8x16ShrS: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
+
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputInt3(1),
-                     kScratchDoubleReg);
+        __ I8x16ShrS(dst, src, i.InputInt3(1), kScratchDoubleReg);
       } else {
-        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputRegister(1),
-                     i.TempRegister(0), kScratchDoubleReg,
-                     i.TempSimd128Register(1));
+        __ I8x16ShrS(dst, src, i.InputRegister(1), i.TempRegister(0),
+                     kScratchDoubleReg, i.TempSimd128Register(1));
       }
       break;
     }
@@ -3237,16 +3236,15 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kIA32I8x16ShrU: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
-      Register tmp = i.ToRegister(instr->TempAt(0));
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
+      Register tmp = i.TempRegister(0);
 
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
-                     kScratchDoubleReg);
+        __ I8x16ShrU(dst, src, i.InputInt3(1), tmp, kScratchDoubleReg);
       } else {
-        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
-                     kScratchDoubleReg, i.TempSimd128Register(1));
+        __ I8x16ShrU(dst, src, i.InputRegister(1), tmp, kScratchDoubleReg,
+                     i.TempSimd128Register(1));
       }
 
       break;
@@ -3539,10 +3537,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       uint8_t half_dup = lane4 | (lane4 << 2) | (lane4 << 4) | (lane4 << 6);
       if (lane < 4) {
         __ Pshuflw(dst, src, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0});
+        __ Punpcklqdq(dst, dst);
       } else {
         __ Pshufhw(dst, src, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0xaa});
+        __ Punpckhqdq(dst, dst);
       }
       break;
     }
@@ -3570,10 +3568,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       uint8_t half_dup = lane4 | (lane4 << 2) | (lane4 << 4) | (lane4 << 6);
       if (lane < 4) {
         __ Pshuflw(dst, dst, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0});
+        __ Punpcklqdq(dst, dst);
       } else {
         __ Pshufhw(dst, dst, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0xaa});
+        __ Punpckhqdq(dst, dst);
       }
       break;
     }
@@ -3857,27 +3855,27 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ j(not_equal, &store);
       break;
     }
-    case kWord32AtomicExchangeInt8: {
+    case kAtomicExchangeInt8: {
       __ xchg_b(i.InputRegister(0), i.MemoryOperand(1));
       __ movsx_b(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeUint8: {
+    case kAtomicExchangeUint8: {
       __ xchg_b(i.InputRegister(0), i.MemoryOperand(1));
       __ movzx_b(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeInt16: {
+    case kAtomicExchangeInt16: {
       __ xchg_w(i.InputRegister(0), i.MemoryOperand(1));
       __ movsx_w(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeUint16: {
+    case kAtomicExchangeUint16: {
       __ xchg_w(i.InputRegister(0), i.MemoryOperand(1));
       __ movzx_w(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeWord32: {
+    case kAtomicExchangeWord32: {
       __ xchg(i.InputRegister(0), i.MemoryOperand(1));
       break;
     }
@@ -3897,31 +3895,31 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ j(not_equal, &exchange);
       break;
     }
-    case kWord32AtomicCompareExchangeInt8: {
+    case kAtomicCompareExchangeInt8: {
       __ lock();
       __ cmpxchg_b(i.MemoryOperand(2), i.InputRegister(1));
       __ movsx_b(eax, eax);
       break;
     }
-    case kWord32AtomicCompareExchangeUint8: {
+    case kAtomicCompareExchangeUint8: {
       __ lock();
       __ cmpxchg_b(i.MemoryOperand(2), i.InputRegister(1));
       __ movzx_b(eax, eax);
       break;
     }
-    case kWord32AtomicCompareExchangeInt16: {
+    case kAtomicCompareExchangeInt16: {
       __ lock();
       __ cmpxchg_w(i.MemoryOperand(2), i.InputRegister(1));
       __ movsx_w(eax, eax);
       break;
     }
-    case kWord32AtomicCompareExchangeUint16: {
+    case kAtomicCompareExchangeUint16: {
       __ lock();
       __ cmpxchg_w(i.MemoryOperand(2), i.InputRegister(1));
       __ movzx_w(eax, eax);
       break;
     }
-    case kWord32AtomicCompareExchangeWord32: {
+    case kAtomicCompareExchangeWord32: {
       __ lock();
       __ cmpxchg(i.MemoryOperand(2), i.InputRegister(1));
       break;
@@ -3937,27 +3935,27 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
 #define ATOMIC_BINOP_CASE(op, inst)                \
-  case kWord32Atomic##op##Int8: {                  \
+  case kAtomic##op##Int8: {                        \
     ASSEMBLE_ATOMIC_BINOP(inst, mov_b, cmpxchg_b); \
     __ movsx_b(eax, eax);                          \
     break;                                         \
   }                                                \
-  case kWord32Atomic##op##Uint8: {                 \
+  case kAtomic##op##Uint8: {                       \
     ASSEMBLE_ATOMIC_BINOP(inst, mov_b, cmpxchg_b); \
     __ movzx_b(eax, eax);                          \
     break;                                         \
   }                                                \
-  case kWord32Atomic##op##Int16: {                 \
+  case kAtomic##op##Int16: {                       \
     ASSEMBLE_ATOMIC_BINOP(inst, mov_w, cmpxchg_w); \
     __ movsx_w(eax, eax);                          \
     break;                                         \
   }                                                \
-  case kWord32Atomic##op##Uint16: {                \
+  case kAtomic##op##Uint16: {                      \
     ASSEMBLE_ATOMIC_BINOP(inst, mov_w, cmpxchg_w); \
     __ movzx_w(eax, eax);                          \
     break;                                         \
   }                                                \
-  case kWord32Atomic##op##Word32: {                \
+  case kAtomic##op##Word32: {                      \
     ASSEMBLE_ATOMIC_BINOP(inst, mov, cmpxchg);     \
     break;                                         \
   }
@@ -4006,14 +4004,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ j(not_equal, &binop);
       break;
     }
-    case kWord32AtomicLoadInt8:
-    case kWord32AtomicLoadUint8:
-    case kWord32AtomicLoadInt16:
-    case kWord32AtomicLoadUint16:
-    case kWord32AtomicLoadWord32:
-    case kWord32AtomicStoreWord8:
-    case kWord32AtomicStoreWord16:
-    case kWord32AtomicStoreWord32:
+    case kAtomicLoadInt8:
+    case kAtomicLoadUint8:
+    case kAtomicLoadInt16:
+    case kAtomicLoadUint16:
+    case kAtomicLoadWord32:
+    case kAtomicStoreWord8:
+    case kAtomicStoreWord16:
+    case kAtomicStoreWord32:
       UNREACHABLE();  // Won't be generated by instruction selector.
       break;
   }

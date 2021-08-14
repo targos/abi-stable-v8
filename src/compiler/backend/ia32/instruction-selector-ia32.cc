@@ -389,14 +389,28 @@ void VisitRROSimdShift(InstructionSelector* selector, Node* node,
   }
 }
 
-void VisitRROI8x16SimdShift(InstructionSelector* selector, Node* node,
-                            ArchOpcode opcode) {
+void VisitI8x16Shift(InstructionSelector* selector, Node* node,
+                     ArchOpcode opcode) {
   IA32OperandGenerator g(selector);
-  InstructionOperand operand0 = g.UseUniqueRegister(node->InputAt(0));
-  InstructionOperand operand1 = g.UseUniqueRegister(node->InputAt(1));
-  InstructionOperand temps[] = {g.TempRegister(), g.TempSimd128Register()};
-  selector->Emit(opcode, g.DefineSameAsFirst(node), operand0, operand1,
-                 arraysize(temps), temps);
+  InstructionOperand output = CpuFeatures::IsSupported(AVX)
+                                  ? g.UseRegister(node)
+                                  : g.DefineSameAsFirst(node);
+
+  if (g.CanBeImmediate(node->InputAt(1))) {
+    if (opcode == kIA32I8x16ShrS) {
+      selector->Emit(opcode, output, g.UseRegister(node->InputAt(0)),
+                     g.UseImmediate(node->InputAt(1)));
+    } else {
+      InstructionOperand temps[] = {g.TempRegister()};
+      selector->Emit(opcode, output, g.UseRegister(node->InputAt(0)),
+                     g.UseImmediate(node->InputAt(1)), arraysize(temps), temps);
+    }
+  } else {
+    InstructionOperand operand0 = g.UseUniqueRegister(node->InputAt(0));
+    InstructionOperand operand1 = g.UseUniqueRegister(node->InputAt(1));
+    InstructionOperand temps[] = {g.TempRegister(), g.TempSimd128Register()};
+    selector->Emit(opcode, output, operand0, operand1, arraysize(temps), temps);
+  }
 }
 }  // namespace
 
@@ -1957,13 +1971,13 @@ void InstructionSelector::VisitWord32AtomicStore(Node* node) {
   ArchOpcode opcode;
   switch (rep) {
     case MachineRepresentation::kWord8:
-      opcode = kWord32AtomicExchangeInt8;
+      opcode = kAtomicExchangeInt8;
       break;
     case MachineRepresentation::kWord16:
-      opcode = kWord32AtomicExchangeInt16;
+      opcode = kAtomicExchangeInt16;
       break;
     case MachineRepresentation::kWord32:
-      opcode = kWord32AtomicExchangeWord32;
+      opcode = kAtomicExchangeWord32;
       break;
     default:
       UNREACHABLE();
@@ -1976,15 +1990,15 @@ void InstructionSelector::VisitWord32AtomicExchange(Node* node) {
   MachineType type = AtomicOpType(node->op());
   ArchOpcode opcode;
   if (type == MachineType::Int8()) {
-    opcode = kWord32AtomicExchangeInt8;
+    opcode = kAtomicExchangeInt8;
   } else if (type == MachineType::Uint8()) {
-    opcode = kWord32AtomicExchangeUint8;
+    opcode = kAtomicExchangeUint8;
   } else if (type == MachineType::Int16()) {
-    opcode = kWord32AtomicExchangeInt16;
+    opcode = kAtomicExchangeInt16;
   } else if (type == MachineType::Uint16()) {
-    opcode = kWord32AtomicExchangeUint16;
+    opcode = kAtomicExchangeUint16;
   } else if (type == MachineType::Int32() || type == MachineType::Uint32()) {
-    opcode = kWord32AtomicExchangeWord32;
+    opcode = kAtomicExchangeWord32;
   } else {
     UNREACHABLE();
   }
@@ -2001,15 +2015,15 @@ void InstructionSelector::VisitWord32AtomicCompareExchange(Node* node) {
   MachineType type = AtomicOpType(node->op());
   ArchOpcode opcode;
   if (type == MachineType::Int8()) {
-    opcode = kWord32AtomicCompareExchangeInt8;
+    opcode = kAtomicCompareExchangeInt8;
   } else if (type == MachineType::Uint8()) {
-    opcode = kWord32AtomicCompareExchangeUint8;
+    opcode = kAtomicCompareExchangeUint8;
   } else if (type == MachineType::Int16()) {
-    opcode = kWord32AtomicCompareExchangeInt16;
+    opcode = kAtomicCompareExchangeInt16;
   } else if (type == MachineType::Uint16()) {
-    opcode = kWord32AtomicCompareExchangeUint16;
+    opcode = kAtomicCompareExchangeUint16;
   } else if (type == MachineType::Int32() || type == MachineType::Uint32()) {
-    opcode = kWord32AtomicCompareExchangeWord32;
+    opcode = kAtomicCompareExchangeWord32;
   } else {
     UNREACHABLE();
   }
@@ -2047,12 +2061,11 @@ void InstructionSelector::VisitWord32AtomicBinaryOperation(
   VisitAtomicBinOp(this, node, opcode, type.representation());
 }
 
-#define VISIT_ATOMIC_BINOP(op)                                   \
-  void InstructionSelector::VisitWord32Atomic##op(Node* node) {  \
-    VisitWord32AtomicBinaryOperation(                            \
-        node, kWord32Atomic##op##Int8, kWord32Atomic##op##Uint8, \
-        kWord32Atomic##op##Int16, kWord32Atomic##op##Uint16,     \
-        kWord32Atomic##op##Word32);                              \
+#define VISIT_ATOMIC_BINOP(op)                                           \
+  void InstructionSelector::VisitWord32Atomic##op(Node* node) {          \
+    VisitWord32AtomicBinaryOperation(                                    \
+        node, kAtomic##op##Int8, kAtomic##op##Uint8, kAtomic##op##Int16, \
+        kAtomic##op##Uint16, kAtomic##op##Word32);                       \
   }
 VISIT_ATOMIC_BINOP(Add)
 VISIT_ATOMIC_BINOP(Sub)
@@ -2651,38 +2664,15 @@ void InstructionSelector::VisitI8x16UConvertI16x8(Node* node) {
 }
 
 void InstructionSelector::VisitI8x16Shl(Node* node) {
-  IA32OperandGenerator g(this);
-  if (g.CanBeImmediate(node->InputAt(1))) {
-    InstructionOperand temps[] = {g.TempRegister(), g.TempSimd128Register()};
-    this->Emit(kIA32I8x16Shl, g.DefineSameAsFirst(node),
-               g.UseRegister(node->InputAt(0)),
-               g.UseImmediate(node->InputAt(1)), arraysize(temps), temps);
-  } else {
-    VisitRROI8x16SimdShift(this, node, kIA32I8x16Shl);
-  }
+  VisitI8x16Shift(this, node, kIA32I8x16Shl);
 }
 
 void InstructionSelector::VisitI8x16ShrS(Node* node) {
-  IA32OperandGenerator g(this);
-  if (g.CanBeImmediate(node->InputAt(1))) {
-    this->Emit(kIA32I8x16ShrS, g.DefineSameAsFirst(node),
-               g.UseRegister(node->InputAt(0)),
-               g.UseImmediate(node->InputAt(1)));
-  } else {
-    VisitRROI8x16SimdShift(this, node, kIA32I8x16ShrS);
-  }
+  VisitI8x16Shift(this, node, kIA32I8x16ShrS);
 }
 
 void InstructionSelector::VisitI8x16ShrU(Node* node) {
-  IA32OperandGenerator g(this);
-  if (g.CanBeImmediate(node->InputAt(1))) {
-    InstructionOperand temps[] = {g.TempRegister(), g.TempSimd128Register()};
-    this->Emit(kIA32I8x16ShrU, g.DefineSameAsFirst(node),
-               g.UseRegister(node->InputAt(0)),
-               g.UseImmediate(node->InputAt(1)), arraysize(temps), temps);
-  } else {
-    VisitRROI8x16SimdShift(this, node, kIA32I8x16ShrU);
-  }
+  VisitI8x16Shift(this, node, kIA32I8x16ShrU);
 }
 
 void InstructionSelector::VisitInt32AbsWithOverflow(Node* node) {

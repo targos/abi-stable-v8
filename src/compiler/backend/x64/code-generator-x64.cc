@@ -3492,32 +3492,26 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I8x16Shl: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
-      // Temp registers for shift mask and additional moves to XMM registers.
-      Register tmp = i.TempRegister(0);
-      XMMRegister tmp_simd = i.TempSimd128Register(1);
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
+        __ I8x16Shl(dst, src, i.InputInt3(1), kScratchRegister,
                     kScratchDoubleReg);
       } else {
-        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
-                    kScratchDoubleReg, tmp_simd);
+        __ I8x16Shl(dst, src, i.InputRegister(1), kScratchRegister,
+                    kScratchDoubleReg, i.TempSimd128Register(0));
       }
       break;
     }
     case kX64I8x16ShrS: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputInt3(1),
-                     kScratchDoubleReg);
+        __ I8x16ShrS(dst, src, i.InputInt3(1), kScratchDoubleReg);
       } else {
-        // TODO(zhin): use kScratchRegister instead of TempRegister.
-        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputRegister(1),
-                     i.TempRegister(0), kScratchDoubleReg,
-                     i.TempSimd128Register(1));
+        __ I8x16ShrS(dst, src, i.InputRegister(1), kScratchRegister,
+                     kScratchDoubleReg, i.TempSimd128Register(0));
       }
       break;
     }
@@ -3573,16 +3567,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kX64I8x16ShrU: {
       XMMRegister dst = i.OutputSimd128Register();
-      // TODO(zhin): remove this restriction from instruction-selector.
-      DCHECK_EQ(dst, i.InputSimd128Register(0));
-      // TODO(zhin): use kScratchRegister instead of tmp.
-      Register tmp = i.TempRegister(0);
+      XMMRegister src = i.InputSimd128Register(0);
+      DCHECK_IMPLIES(!CpuFeatures::IsSupported(AVX), dst == src);
       if (HasImmediateInput(instr, 1)) {
-        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
+        __ I8x16ShrU(dst, src, i.InputInt3(1), kScratchRegister,
                      kScratchDoubleReg);
       } else {
-        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
-                     kScratchDoubleReg, i.TempSimd128Register(1));
+        __ I8x16ShrU(dst, src, i.InputRegister(1), kScratchRegister,
+                     kScratchDoubleReg, i.TempSimd128Register(0));
       }
       break;
     }
@@ -3903,10 +3895,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       uint8_t half_dup = lane4 | (lane4 << 2) | (lane4 << 4) | (lane4 << 6);
       if (lane < 4) {
         ASSEMBLE_SIMD_IMM_INSTR(Pshuflw, dst, 0, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0});
+        __ Punpcklqdq(dst, dst);
       } else {
         ASSEMBLE_SIMD_IMM_INSTR(Pshufhw, dst, 0, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0xaa});
+        __ Punpckhqdq(dst, dst);
       }
       break;
     }
@@ -3924,10 +3916,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       uint8_t half_dup = lane4 | (lane4 << 2) | (lane4 << 4) | (lane4 << 6);
       if (lane < 4) {
         __ Pshuflw(dst, dst, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0});
+        __ Punpcklqdq(dst, dst);
       } else {
         __ Pshufhw(dst, dst, half_dup);
-        __ Pshufd(dst, dst, uint8_t{0xaa});
+        __ Punpckhqdq(dst, dst);
       }
       break;
     }
@@ -4086,120 +4078,97 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       ASSEMBLE_SIMD_ALL_TRUE(Pcmpeqb);
       break;
     }
-    case kWord32AtomicExchangeInt8: {
+    case kAtomicExchangeInt8: {
+      DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32);
       __ xchgb(i.InputRegister(0), i.MemoryOperand(1));
       __ movsxbl(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeUint8: {
+    case kAtomicExchangeUint8: {
       __ xchgb(i.InputRegister(0), i.MemoryOperand(1));
-      __ movzxbl(i.InputRegister(0), i.InputRegister(0));
+      switch (AtomicWidthField::decode(opcode)) {
+        case AtomicWidth::kWord32:
+          __ movzxbl(i.InputRegister(0), i.InputRegister(0));
+          break;
+        case AtomicWidth::kWord64:
+          __ movzxbq(i.InputRegister(0), i.InputRegister(0));
+          break;
+      }
       break;
     }
-    case kWord32AtomicExchangeInt16: {
+    case kAtomicExchangeInt16: {
+      DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32);
       __ xchgw(i.InputRegister(0), i.MemoryOperand(1));
       __ movsxwl(i.InputRegister(0), i.InputRegister(0));
       break;
     }
-    case kWord32AtomicExchangeUint16: {
+    case kAtomicExchangeUint16: {
       __ xchgw(i.InputRegister(0), i.MemoryOperand(1));
-      __ movzxwl(i.InputRegister(0), i.InputRegister(0));
+      switch (AtomicWidthField::decode(opcode)) {
+        case AtomicWidth::kWord32:
+          __ movzxwl(i.InputRegister(0), i.InputRegister(0));
+          break;
+        case AtomicWidth::kWord64:
+          __ movzxwq(i.InputRegister(0), i.InputRegister(0));
+          break;
+      }
       break;
     }
-    case kWord32AtomicExchangeWord32: {
+    case kAtomicExchangeWord32: {
       __ xchgl(i.InputRegister(0), i.MemoryOperand(1));
       break;
     }
-    case kWord32AtomicCompareExchangeInt8: {
+    case kAtomicCompareExchangeInt8: {
+      DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32);
       __ lock();
       __ cmpxchgb(i.MemoryOperand(2), i.InputRegister(1));
       __ movsxbl(rax, rax);
       break;
     }
-    case kWord32AtomicCompareExchangeUint8: {
+    case kAtomicCompareExchangeUint8: {
       __ lock();
       __ cmpxchgb(i.MemoryOperand(2), i.InputRegister(1));
-      __ movzxbl(rax, rax);
+      switch (AtomicWidthField::decode(opcode)) {
+        case AtomicWidth::kWord32:
+          __ movzxbl(rax, rax);
+          break;
+        case AtomicWidth::kWord64:
+          __ movzxbq(rax, rax);
+          break;
+      }
       break;
     }
-    case kWord32AtomicCompareExchangeInt16: {
+    case kAtomicCompareExchangeInt16: {
+      DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32);
       __ lock();
       __ cmpxchgw(i.MemoryOperand(2), i.InputRegister(1));
       __ movsxwl(rax, rax);
       break;
     }
-    case kWord32AtomicCompareExchangeUint16: {
+    case kAtomicCompareExchangeUint16: {
       __ lock();
       __ cmpxchgw(i.MemoryOperand(2), i.InputRegister(1));
-      __ movzxwl(rax, rax);
+      switch (AtomicWidthField::decode(opcode)) {
+        case AtomicWidth::kWord32:
+          __ movzxwl(rax, rax);
+          break;
+        case AtomicWidth::kWord64:
+          __ movzxwq(rax, rax);
+          break;
+      }
       break;
     }
-    case kWord32AtomicCompareExchangeWord32: {
+    case kAtomicCompareExchangeWord32: {
       __ lock();
       __ cmpxchgl(i.MemoryOperand(2), i.InputRegister(1));
-      break;
-    }
-#define ATOMIC_BINOP_CASE(op, inst)              \
-  case kWord32Atomic##op##Int8:                  \
-    ASSEMBLE_ATOMIC_BINOP(inst, movb, cmpxchgb); \
-    __ movsxbl(rax, rax);                        \
-    break;                                       \
-  case kWord32Atomic##op##Uint8:                 \
-    ASSEMBLE_ATOMIC_BINOP(inst, movb, cmpxchgb); \
-    __ movzxbl(rax, rax);                        \
-    break;                                       \
-  case kWord32Atomic##op##Int16:                 \
-    ASSEMBLE_ATOMIC_BINOP(inst, movw, cmpxchgw); \
-    __ movsxwl(rax, rax);                        \
-    break;                                       \
-  case kWord32Atomic##op##Uint16:                \
-    ASSEMBLE_ATOMIC_BINOP(inst, movw, cmpxchgw); \
-    __ movzxwl(rax, rax);                        \
-    break;                                       \
-  case kWord32Atomic##op##Word32:                \
-    ASSEMBLE_ATOMIC_BINOP(inst, movl, cmpxchgl); \
-    break;
-      ATOMIC_BINOP_CASE(Add, addl)
-      ATOMIC_BINOP_CASE(Sub, subl)
-      ATOMIC_BINOP_CASE(And, andl)
-      ATOMIC_BINOP_CASE(Or, orl)
-      ATOMIC_BINOP_CASE(Xor, xorl)
-#undef ATOMIC_BINOP_CASE
-    case kX64Word64AtomicExchangeUint8: {
-      __ xchgb(i.InputRegister(0), i.MemoryOperand(1));
-      __ movzxbq(i.InputRegister(0), i.InputRegister(0));
-      break;
-    }
-    case kX64Word64AtomicExchangeUint16: {
-      __ xchgw(i.InputRegister(0), i.MemoryOperand(1));
-      __ movzxwq(i.InputRegister(0), i.InputRegister(0));
-      break;
-    }
-    case kX64Word64AtomicExchangeUint32: {
-      __ xchgl(i.InputRegister(0), i.MemoryOperand(1));
+      if (AtomicWidthField::decode(opcode) == AtomicWidth::kWord64) {
+        // Zero-extend the 32 bit value to 64 bit.
+        __ movl(rax, rax);
+      }
       break;
     }
     case kX64Word64AtomicExchangeUint64: {
       __ xchgq(i.InputRegister(0), i.MemoryOperand(1));
-      break;
-    }
-    case kX64Word64AtomicCompareExchangeUint8: {
-      __ lock();
-      __ cmpxchgb(i.MemoryOperand(2), i.InputRegister(1));
-      __ movzxbq(rax, rax);
-      break;
-    }
-    case kX64Word64AtomicCompareExchangeUint16: {
-      __ lock();
-      __ cmpxchgw(i.MemoryOperand(2), i.InputRegister(1));
-      __ movzxwq(rax, rax);
-      break;
-    }
-    case kX64Word64AtomicCompareExchangeUint32: {
-      __ lock();
-      __ cmpxchgl(i.MemoryOperand(2), i.InputRegister(1));
-      // Zero-extend the 32 bit value to 64 bit.
-      __ movl(rax, rax);
       break;
     }
     case kX64Word64AtomicCompareExchangeUint64: {
@@ -4207,35 +4176,69 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ cmpxchgq(i.MemoryOperand(2), i.InputRegister(1));
       break;
     }
-#define ATOMIC64_BINOP_CASE(op, inst)              \
-  case kX64Word64Atomic##op##Uint8:                \
-    ASSEMBLE_ATOMIC64_BINOP(inst, movb, cmpxchgb); \
-    __ movzxbq(rax, rax);                          \
-    break;                                         \
-  case kX64Word64Atomic##op##Uint16:               \
-    ASSEMBLE_ATOMIC64_BINOP(inst, movw, cmpxchgw); \
-    __ movzxwq(rax, rax);                          \
-    break;                                         \
-  case kX64Word64Atomic##op##Uint32:               \
-    ASSEMBLE_ATOMIC64_BINOP(inst, movl, cmpxchgl); \
-    break;                                         \
-  case kX64Word64Atomic##op##Uint64:               \
-    ASSEMBLE_ATOMIC64_BINOP(inst, movq, cmpxchgq); \
+#define ATOMIC_BINOP_CASE(op, inst32, inst64)                          \
+  case kAtomic##op##Int8:                                              \
+    DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32); \
+    ASSEMBLE_ATOMIC_BINOP(inst32, movb, cmpxchgb);                     \
+    __ movsxbl(rax, rax);                                              \
+    break;                                                             \
+  case kAtomic##op##Uint8:                                             \
+    switch (AtomicWidthField::decode(opcode)) {                        \
+      case AtomicWidth::kWord32:                                       \
+        ASSEMBLE_ATOMIC_BINOP(inst32, movb, cmpxchgb);                 \
+        __ movzxbl(rax, rax);                                          \
+        break;                                                         \
+      case AtomicWidth::kWord64:                                       \
+        ASSEMBLE_ATOMIC64_BINOP(inst64, movb, cmpxchgb);               \
+        __ movzxbq(rax, rax);                                          \
+        break;                                                         \
+    }                                                                  \
+    break;                                                             \
+  case kAtomic##op##Int16:                                             \
+    DCHECK_EQ(AtomicWidthField::decode(opcode), AtomicWidth::kWord32); \
+    ASSEMBLE_ATOMIC_BINOP(inst32, movw, cmpxchgw);                     \
+    __ movsxwl(rax, rax);                                              \
+    break;                                                             \
+  case kAtomic##op##Uint16:                                            \
+    switch (AtomicWidthField::decode(opcode)) {                        \
+      case AtomicWidth::kWord32:                                       \
+        ASSEMBLE_ATOMIC_BINOP(inst32, movw, cmpxchgw);                 \
+        __ movzxwl(rax, rax);                                          \
+        break;                                                         \
+      case AtomicWidth::kWord64:                                       \
+        ASSEMBLE_ATOMIC64_BINOP(inst64, movw, cmpxchgw);               \
+        __ movzxwq(rax, rax);                                          \
+        break;                                                         \
+    }                                                                  \
+    break;                                                             \
+  case kAtomic##op##Word32:                                            \
+    switch (AtomicWidthField::decode(opcode)) {                        \
+      case AtomicWidth::kWord32:                                       \
+        ASSEMBLE_ATOMIC_BINOP(inst32, movl, cmpxchgl);                 \
+        break;                                                         \
+      case AtomicWidth::kWord64:                                       \
+        ASSEMBLE_ATOMIC64_BINOP(inst64, movl, cmpxchgl);               \
+        break;                                                         \
+    }                                                                  \
+    break;                                                             \
+  case kX64Word64Atomic##op##Uint64:                                   \
+    ASSEMBLE_ATOMIC64_BINOP(inst64, movq, cmpxchgq);                   \
     break;
-      ATOMIC64_BINOP_CASE(Add, addq)
-      ATOMIC64_BINOP_CASE(Sub, subq)
-      ATOMIC64_BINOP_CASE(And, andq)
-      ATOMIC64_BINOP_CASE(Or, orq)
-      ATOMIC64_BINOP_CASE(Xor, xorq)
-#undef ATOMIC64_BINOP_CASE
-    case kWord32AtomicLoadInt8:
-    case kWord32AtomicLoadUint8:
-    case kWord32AtomicLoadInt16:
-    case kWord32AtomicLoadUint16:
-    case kWord32AtomicLoadWord32:
-    case kWord32AtomicStoreWord8:
-    case kWord32AtomicStoreWord16:
-    case kWord32AtomicStoreWord32:
+      ATOMIC_BINOP_CASE(Add, addl, addq)
+      ATOMIC_BINOP_CASE(Sub, subl, subq)
+      ATOMIC_BINOP_CASE(And, andl, andq)
+      ATOMIC_BINOP_CASE(Or, orl, orq)
+      ATOMIC_BINOP_CASE(Xor, xorl, xorq)
+#undef ATOMIC_BINOP_CASE
+
+    case kAtomicLoadInt8:
+    case kAtomicLoadUint8:
+    case kAtomicLoadInt16:
+    case kAtomicLoadUint16:
+    case kAtomicLoadWord32:
+    case kAtomicStoreWord8:
+    case kAtomicStoreWord16:
+    case kAtomicStoreWord32:
       UNREACHABLE();  // Won't be generated by instruction selector.
   }
   return kSuccess;

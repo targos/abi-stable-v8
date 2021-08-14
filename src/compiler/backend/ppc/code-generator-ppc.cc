@@ -2011,9 +2011,9 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       DCHECK_EQ(LeaveRC, i.OutputRCBit());
       break;
     }
-    case kWord32AtomicLoadInt8:
+    case kAtomicLoadInt8:
     case kPPC_AtomicLoadUint8:
-    case kWord32AtomicLoadInt16:
+    case kAtomicLoadInt16:
     case kPPC_AtomicLoadUint16:
     case kPPC_AtomicLoadWord32:
     case kPPC_AtomicLoadWord64:
@@ -2022,14 +2022,14 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kPPC_AtomicStoreWord32:
     case kPPC_AtomicStoreWord64:
       UNREACHABLE();
-    case kWord32AtomicExchangeInt8:
+    case kAtomicExchangeInt8:
       ASSEMBLE_ATOMIC_EXCHANGE_INTEGER(lbarx, stbcx);
       __ extsb(i.OutputRegister(0), i.OutputRegister(0));
       break;
     case kPPC_AtomicExchangeUint8:
       ASSEMBLE_ATOMIC_EXCHANGE_INTEGER(lbarx, stbcx);
       break;
-    case kWord32AtomicExchangeInt16:
+    case kAtomicExchangeInt16:
       ASSEMBLE_ATOMIC_EXCHANGE_INTEGER(lharx, sthcx);
       __ extsh(i.OutputRegister(0), i.OutputRegister(0));
       break;
@@ -2042,13 +2042,13 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kPPC_AtomicExchangeWord64:
       ASSEMBLE_ATOMIC_EXCHANGE_INTEGER(ldarx, stdcx);
       break;
-    case kWord32AtomicCompareExchangeInt8:
+    case kAtomicCompareExchangeInt8:
       ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_SIGN_EXT(CmpS64, lbarx, stbcx, extsb);
       break;
     case kPPC_AtomicCompareExchangeUint8:
       ASSEMBLE_ATOMIC_COMPARE_EXCHANGE(CmpS64, lbarx, stbcx, ZeroExtByte);
       break;
-    case kWord32AtomicCompareExchangeInt16:
+    case kAtomicCompareExchangeInt16:
       ASSEMBLE_ATOMIC_COMPARE_EXCHANGE_SIGN_EXT(CmpS64, lharx, sthcx, extsh);
       break;
     case kPPC_AtomicCompareExchangeUint16:
@@ -2095,6 +2095,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Register input = i.InputRegister(0);
       Register output = i.OutputRegister();
       Register temp1 = r0;
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ brw(output, input);
+        break;
+      }
       __ rotlwi(temp1, input, 8);
       __ rlwimi(temp1, input, 24, 0, 7);
       __ rlwimi(temp1, input, 24, 16, 23);
@@ -2115,6 +2119,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       Register temp1 = r0;
       Register temp2 = kScratchReg;
       Register temp3 = i.TempRegister(0);
+      if (CpuFeatures::IsSupported(PPC_10_PLUS)) {
+        __ brd(output, input);
+        break;
+      }
       __ rldicl(temp1, input, 32, 32);
       __ rotlwi(temp2, input, 8);
       __ rlwimi(temp2, input, 24, 0, 7);
