@@ -170,7 +170,7 @@ void LiftoffAssembler::LoadConstant(LiftoffRegister reg, WasmValue value,
       UseScratchRegisterScope temps(this);
       Register scratch = temps.Acquire();
       mov(scratch, Operand(value.to_f32_boxed().get_scalar()));
-      MovIntToFloat(reg.fp(), scratch);
+      MovIntToFloat(reg.fp(), scratch, ip);
       break;
     }
     case kF64: {
@@ -924,50 +924,126 @@ BINOP_LIST(EMIT_BINOP_FUNCTION)
 void LiftoffAssembler::emit_i32_divs(Register dst, Register lhs, Register rhs,
                                      Label* trap_div_by_zero,
                                      Label* trap_div_unrepresentable) {
-  bailout(kUnsupportedArchitecture, "i32_divs");
+  Label cont;
+
+  // Check for division by zero.
+  CmpS32(rhs, Operand::Zero(), r0);
+  b(eq, trap_div_by_zero);
+
+  // Check for kMinInt / -1. This is unrepresentable.
+  CmpS32(rhs, Operand(-1), r0);
+  bne(&cont);
+  CmpS32(lhs, Operand(kMinInt), r0);
+  b(eq, trap_div_unrepresentable);
+
+  bind(&cont);
+  DivS32(dst, lhs, rhs);
 }
 
 void LiftoffAssembler::emit_i32_divu(Register dst, Register lhs, Register rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i32_divu");
+  CmpS32(rhs, Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+  DivU32(dst, lhs, rhs);
 }
 
 void LiftoffAssembler::emit_i32_rems(Register dst, Register lhs, Register rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i32_rems");
+  Label cont, done, trap_div_unrepresentable;
+  // Check for division by zero.
+  CmpS32(rhs, Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+
+  // Check kMinInt/-1 case.
+  CmpS32(rhs, Operand(-1), r0);
+  bne(&cont);
+  CmpS32(lhs, Operand(kMinInt), r0);
+  beq(&trap_div_unrepresentable);
+
+  // Continue noraml calculation.
+  bind(&cont);
+  ModS32(dst, lhs, rhs);
+  bne(&done);
+
+  // trap by kMinInt/-1 case.
+  bind(&trap_div_unrepresentable);
+  mov(dst, Operand(0));
+  bind(&done);
 }
 
 void LiftoffAssembler::emit_i32_remu(Register dst, Register lhs, Register rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i32_remu");
+  CmpS32(rhs, Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+  ModU32(dst, lhs, rhs);
 }
 
 bool LiftoffAssembler::emit_i64_divs(LiftoffRegister dst, LiftoffRegister lhs,
                                      LiftoffRegister rhs,
                                      Label* trap_div_by_zero,
                                      Label* trap_div_unrepresentable) {
-  bailout(kUnsupportedArchitecture, "i64_divs");
+  constexpr int64_t kMinInt64 = static_cast<int64_t>(1) << 63;
+  Label cont;
+  // Check for division by zero.
+  CmpS64(rhs.gp(), Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+
+  // Check for kMinInt / -1. This is unrepresentable.
+  CmpS64(rhs.gp(), Operand(-1), r0);
+  bne(&cont);
+  CmpS64(lhs.gp(), Operand(kMinInt64), r0);
+  beq(trap_div_unrepresentable);
+
+  bind(&cont);
+  DivS64(dst.gp(), lhs.gp(), rhs.gp());
   return true;
 }
 
 bool LiftoffAssembler::emit_i64_divu(LiftoffRegister dst, LiftoffRegister lhs,
                                      LiftoffRegister rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i64_divu");
+  CmpS64(rhs.gp(), Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+  // Do div.
+  DivU64(dst.gp(), lhs.gp(), rhs.gp());
   return true;
 }
 
 bool LiftoffAssembler::emit_i64_rems(LiftoffRegister dst, LiftoffRegister lhs,
                                      LiftoffRegister rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i64_rems");
+  constexpr int64_t kMinInt64 = static_cast<int64_t>(1) << 63;
+
+  Label trap_div_unrepresentable;
+  Label done;
+  Label cont;
+
+  // Check for division by zero.
+  CmpS64(rhs.gp(), Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+
+  // Check for kMinInt / -1. This is unrepresentable.
+  CmpS64(rhs.gp(), Operand(-1), r0);
+  bne(&cont);
+  CmpS64(lhs.gp(), Operand(kMinInt64), r0);
+  beq(&trap_div_unrepresentable);
+
+  bind(&cont);
+  ModS64(dst.gp(), lhs.gp(), rhs.gp());
+  bne(&done);
+
+  bind(&trap_div_unrepresentable);
+  mov(dst.gp(), Operand(0));
+  bind(&done);
   return true;
 }
 
 bool LiftoffAssembler::emit_i64_remu(LiftoffRegister dst, LiftoffRegister lhs,
                                      LiftoffRegister rhs,
                                      Label* trap_div_by_zero) {
-  bailout(kUnsupportedArchitecture, "i64_remu");
+  CmpS64(rhs.gp(), Operand::Zero(), r0);
+  beq(trap_div_by_zero);
+  ModU64(dst.gp(), lhs.gp(), rhs.gp());
   return true;
 }
 
@@ -2329,9 +2405,9 @@ void LiftoffAssembler::emit_set_if_nan(Register dst, DoubleRegister src,
   UNIMPLEMENTED();
 }
 
-void LiftoffAssembler::emit_s128_set_if_nan(Register dst, DoubleRegister src,
+void LiftoffAssembler::emit_s128_set_if_nan(Register dst, LiftoffRegister src,
                                             Register tmp_gp,
-                                            DoubleRegister tmp_fp,
+                                            LiftoffRegister tmp_s128,
                                             ValueKind lane_kind) {
   UNIMPLEMENTED();
 }

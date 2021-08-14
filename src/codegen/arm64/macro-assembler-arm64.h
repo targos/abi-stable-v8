@@ -1347,8 +1347,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // This is an alternative to embedding the {CodeObject} handle as a reference.
   void ComputeCodeStartAddress(const Register& rd);
 
-  void ResetSpeculationPoisonRegister();
-
   // ---------------------------------------------------------------------------
   // Pointer compression Support
 
@@ -1390,9 +1388,10 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void StoreReturnAddressInWasmExitFrame(Label* return_location);
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-  // Wasm SIMD helpers. These instructions don't have direct lowering to native
-  // instructions. These helpers allow us to define the optimal code sequence,
-  // and be used in both TurboFan and Liftoff.
+  // Wasm helpers. These instructions don't have direct lowering
+  // to native instructions. These helpers allow us to define the optimal code
+  // sequence, and be used in both TurboFan and Liftoff.
+  void PopcntHelper(Register dst, Register src);
   void I64x2BitMask(Register dst, VRegister src);
   void I64x2AllTrue(Register dst, VRegister src);
 

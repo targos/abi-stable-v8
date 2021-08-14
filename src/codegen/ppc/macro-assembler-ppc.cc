@@ -2662,7 +2662,14 @@ void TurboAssembler::MovDoubleToInt64(
   addi(sp, sp, Operand(kDoubleSize));
 }
 
-void TurboAssembler::MovIntToFloat(DoubleRegister dst, Register src) {
+void TurboAssembler::MovIntToFloat(DoubleRegister dst, Register src,
+                                   Register scratch) {
+  if (CpuFeatures::IsSupported(PPC_8_PLUS)) {
+    ShiftLeftU64(scratch, src, Operand(32));
+    mtfprd(dst, scratch);
+    xscvspdpn(dst, dst);
+    return;
+  }
   subi(sp, sp, Operand(kFloatSize));
   stw(src, MemOperand(sp, 0));
   nop(GROUP_ENDING_NOP);  // LHS/RAW optimization
@@ -2670,7 +2677,13 @@ void TurboAssembler::MovIntToFloat(DoubleRegister dst, Register src) {
   addi(sp, sp, Operand(kFloatSize));
 }
 
-void TurboAssembler::MovFloatToInt(Register dst, DoubleRegister src) {
+void TurboAssembler::MovFloatToInt(Register dst, DoubleRegister src,
+                                   DoubleRegister scratch) {
+  if (CpuFeatures::IsSupported(PPC_8_PLUS)) {
+    xscvdpspn(scratch, src);
+    mffprwz(dst, scratch);
+    return;
+  }
   subi(sp, sp, Operand(kFloatSize));
   stfs(src, MemOperand(sp, 0));
   nop(GROUP_ENDING_NOP);  // LHS/RAW optimization
@@ -2757,6 +2770,44 @@ void TurboAssembler::MulS32(Register dst, Register src, Register value, OEBit s,
                             RCBit r) {
   MulS64(dst, src, value, s, r);
   extsw(dst, dst, r);
+}
+
+void TurboAssembler::DivS64(Register dst, Register src, Register value, OEBit s,
+                            RCBit r) {
+  divd(dst, src, value, s, r);
+}
+
+void TurboAssembler::DivU64(Register dst, Register src, Register value, OEBit s,
+                            RCBit r) {
+  divdu(dst, src, value, s, r);
+}
+
+void TurboAssembler::DivS32(Register dst, Register src, Register value, OEBit s,
+                            RCBit r) {
+  divw(dst, src, value, s, r);
+  extsw(dst, dst);
+}
+void TurboAssembler::DivU32(Register dst, Register src, Register value, OEBit s,
+                            RCBit r) {
+  divwu(dst, src, value, s, r);
+  ZeroExtWord32(dst, dst);
+}
+
+void TurboAssembler::ModS64(Register dst, Register src, Register value) {
+  modsd(dst, src, value);
+}
+
+void TurboAssembler::ModU64(Register dst, Register src, Register value) {
+  modud(dst, src, value);
+}
+
+void TurboAssembler::ModS32(Register dst, Register src, Register value) {
+  modsw(dst, src, value);
+  extsw(dst, dst);
+}
+void TurboAssembler::ModU32(Register dst, Register src, Register value) {
+  moduw(dst, src, value);
+  ZeroExtWord32(dst, dst);
 }
 
 void TurboAssembler::AndU64(Register dst, Register src, const Operand& value,
@@ -3451,10 +3502,6 @@ void TurboAssembler::SwapSimd128(MemOperand src, MemOperand dst,
   li(ip, Operand(kSimd128Size));
   LoadSimd128(v1, MemOperand(ip, sp));
   addi(sp, sp, Operand(2 * kSimd128Size));
-}
-
-void TurboAssembler::ResetSpeculationPoisonRegister() {
-  mov(kSpeculationPoisonRegister, Operand(-1));
 }
 
 void TurboAssembler::JumpIfEqual(Register x, int32_t y, Label* dest) {

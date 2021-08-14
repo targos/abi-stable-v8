@@ -837,18 +837,12 @@ void InstructionSelector::VisitLoad(Node* node) {
     case MachineRepresentation::kNone:
       UNREACHABLE();
   }
-  if (node->opcode() == IrOpcode::kPoisonedLoad) {
-    CHECK_NE(poisoning_level_, PoisoningMitigationLevel::kDontPoison);
-    opcode |= AccessModeField::encode(kMemoryAccessPoisoned);
-  }
   if (node->opcode() == IrOpcode::kProtectedLoad) {
     opcode |= AccessModeField::encode(kMemoryAccessProtected);
   }
 
   EmitLoad(this, node, opcode, immediate_mode, rep);
 }
-
-void InstructionSelector::VisitPoisonedLoad(Node* node) { VisitLoad(node); }
 
 void InstructionSelector::VisitProtectedLoad(Node* node) { VisitLoad(node); }
 
@@ -1433,6 +1427,8 @@ void InstructionSelector::VisitWord64Ror(Node* node) {
 #define RR_OP_LIST(V)                                         \
   V(Word64Clz, kArm64Clz)                                     \
   V(Word32Clz, kArm64Clz32)                                   \
+  V(Word32Popcnt, kArm64Cnt32)                                \
+  V(Word64Popcnt, kArm64Cnt64)                                \
   V(Word32ReverseBits, kArm64Rbit32)                          \
   V(Word64ReverseBits, kArm64Rbit)                            \
   V(Word32ReverseBytes, kArm64Rev32)                          \
@@ -1522,10 +1518,6 @@ RRR_OP_LIST(RRR_VISITOR)
 void InstructionSelector::VisitWord32Ctz(Node* node) { UNREACHABLE(); }
 
 void InstructionSelector::VisitWord64Ctz(Node* node) { UNREACHABLE(); }
-
-void InstructionSelector::VisitWord32Popcnt(Node* node) { UNREACHABLE(); }
-
-void InstructionSelector::VisitWord64Popcnt(Node* node) { UNREACHABLE(); }
 
 void InstructionSelector::VisitInt32Add(Node* node) {
   Arm64OperandGenerator g(this);
@@ -2316,9 +2308,6 @@ template <int N>
 bool TryEmitCbzOrTbz(InstructionSelector* selector, Node* node,
                      typename CbzOrTbzMatchTrait<N>::IntegralType value,
                      Node* user, FlagsCondition cond, FlagsContinuation* cont) {
-  // Branch poisoning requires flags to be set, so when it's enabled for
-  // a particular branch, we shouldn't be applying the cbz/tbz optimization.
-  DCHECK(!cont->IsPoisoned());
   // Only handle branches and deoptimisations.
   if (!cont->IsBranch() && !cont->IsDeoptimize()) return false;
 
@@ -2406,7 +2395,7 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
     std::swap(left, right);
   }
 
-  if (opcode == kArm64Cmp && !cont->IsPoisoned()) {
+  if (opcode == kArm64Cmp) {
     Int64Matcher m(right);
     if (m.HasResolvedValue()) {
       if (TryEmitCbzOrTbz<64>(selector, left, m.ResolvedValue(), node,
@@ -2424,19 +2413,17 @@ void VisitWord32Compare(InstructionSelector* selector, Node* node,
                         FlagsContinuation* cont) {
   Int32BinopMatcher m(node);
   FlagsCondition cond = cont->condition();
-  if (!cont->IsPoisoned()) {
-    if (m.right().HasResolvedValue()) {
-      if (TryEmitCbzOrTbz<32>(selector, m.left().node(),
-                              m.right().ResolvedValue(), node, cond, cont)) {
-        return;
-      }
-    } else if (m.left().HasResolvedValue()) {
-      FlagsCondition commuted_cond = CommuteFlagsCondition(cond);
-      if (TryEmitCbzOrTbz<32>(selector, m.right().node(),
-                              m.left().ResolvedValue(), node, commuted_cond,
-                              cont)) {
-        return;
-      }
+  if (m.right().HasResolvedValue()) {
+    if (TryEmitCbzOrTbz<32>(selector, m.left().node(),
+                            m.right().ResolvedValue(), node, cond, cont)) {
+      return;
+    }
+  } else if (m.left().HasResolvedValue()) {
+    FlagsCondition commuted_cond = CommuteFlagsCondition(cond);
+    if (TryEmitCbzOrTbz<32>(selector, m.right().node(),
+                            m.left().ResolvedValue(), node, commuted_cond,
+                            cont)) {
+      return;
     }
   }
   ArchOpcode opcode = kArm64Cmp32;
@@ -2525,8 +2512,7 @@ struct TestAndBranchMatcher {
   Matcher matcher_;
 
   void Initialize() {
-    if (cont_->IsBranch() && !cont_->IsPoisoned() &&
-        matcher_.right().HasResolvedValue() &&
+    if (cont_->IsBranch() && matcher_.right().HasResolvedValue() &&
         base::bits::IsPowerOfTwo(matcher_.right().ResolvedValue())) {
       // If the mask has only one bit set, we can use tbz/tbnz.
       DCHECK((cont_->condition() == kEqual) ||
@@ -2834,7 +2820,7 @@ void InstructionSelector::VisitWordCompareZero(Node* user, Node* value,
   }
 
   // Branch could not be combined with a compare, compare against 0 and branch.
-  if (!cont->IsPoisoned() && cont->IsBranch()) {
+  if (cont->IsBranch()) {
     Emit(cont->Encode(kArm64CompareAndBranch32), g.NoOutput(),
          g.UseRegister(value), g.Label(cont->true_block()),
          g.Label(cont->false_block()));
@@ -4102,6 +4088,8 @@ InstructionSelector::SupportedMachineOperatorFlags() {
          MachineOperatorBuilder::kFloat64RoundTiesAway |
          MachineOperatorBuilder::kFloat32RoundTiesEven |
          MachineOperatorBuilder::kFloat64RoundTiesEven |
+         MachineOperatorBuilder::kWord32Popcnt |
+         MachineOperatorBuilder::kWord64Popcnt |
          MachineOperatorBuilder::kWord32ShiftIsSafe |
          MachineOperatorBuilder::kInt32DivIsSafe |
          MachineOperatorBuilder::kUint32DivIsSafe |

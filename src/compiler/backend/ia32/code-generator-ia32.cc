@@ -684,16 +684,6 @@ void CodeGenerator::BailoutIfDeoptimized() {
   __ bind(&skip);
 }
 
-void CodeGenerator::GenerateSpeculationPoisonFromCodeStartRegister() {
-  // TODO(860429): Remove remaining poisoning infrastructure on ia32.
-  UNREACHABLE();
-}
-
-void CodeGenerator::AssembleRegisterArgumentPoisoning() {
-  // TODO(860429): Remove remaining poisoning infrastructure on ia32.
-  UNREACHABLE();
-}
-
 // Assembles an instruction after register allocation, producing machine code.
 CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     Instruction* instr) {
@@ -712,11 +702,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
             instr->HasCallDescriptorFlag(CallDescriptor::kFixedTargetRegister),
             reg == kJavaScriptCallCodeStartRegister);
         __ LoadCodeObjectEntry(reg, reg);
-        if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-          __ RetpolineCall(reg);
-        } else {
-          __ call(reg);
-        }
+        __ call(reg);
       }
       RecordCallPosition(instr);
       frame_access_state()->ClearSPDelta();
@@ -738,19 +724,10 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         if (DetermineStubCallMode() == StubCallMode::kCallWasmRuntimeStub) {
           __ wasm_call(wasm_code, constant.rmode());
         } else {
-          if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-            __ RetpolineCall(wasm_code, constant.rmode());
-          } else {
-            __ call(wasm_code, constant.rmode());
-          }
+          __ call(wasm_code, constant.rmode());
         }
       } else {
-        Register reg = i.InputRegister(0);
-        if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-          __ RetpolineCall(reg);
-        } else {
-          __ call(reg);
-        }
+        __ call(i.InputRegister(0));
       }
       RecordCallPosition(instr);
       frame_access_state()->ClearSPDelta();
@@ -762,12 +739,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
         Address wasm_code = static_cast<Address>(constant.ToInt32());
         __ jmp(wasm_code, constant.rmode());
       } else {
-        Register reg = i.InputRegister(0);
-        if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-          __ RetpolineJump(reg);
-        } else {
-          __ jmp(reg);
-        }
+        __ jmp(i.InputRegister(0));
       }
       frame_access_state()->ClearSPDelta();
       frame_access_state()->SetFrameAccessToDefault();
@@ -784,11 +756,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
             instr->HasCallDescriptorFlag(CallDescriptor::kFixedTargetRegister),
             reg == kJavaScriptCallCodeStartRegister);
         __ LoadCodeObjectEntry(reg, reg);
-        if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-          __ RetpolineJump(reg);
-        } else {
-          __ jmp(reg);
-        }
+        __ jmp(reg);
       }
       frame_access_state()->ClearSPDelta();
       frame_access_state()->SetFrameAccessToDefault();
@@ -800,11 +768,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       DCHECK_IMPLIES(
           instr->HasCallDescriptorFlag(CallDescriptor::kFixedTargetRegister),
           reg == kJavaScriptCallCodeStartRegister);
-      if (instr->HasCallDescriptorFlag(CallDescriptor::kRetpoline)) {
-        __ RetpolineJump(reg);
-      } else {
-        __ jmp(reg);
-      }
+      __ jmp(reg);
       frame_access_state()->ClearSPDelta();
       frame_access_state()->SetFrameAccessToDefault();
       break;
@@ -1278,9 +1242,6 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kIA32Bswap:
       __ bswap(i.OutputRegister());
       break;
-    case kArchWordPoisonOnSpeculation:
-      // TODO(860429): Remove remaining poisoning infrastructure on ia32.
-      UNREACHABLE();
     case kIA32MFence:
       __ mfence();
       break;
@@ -2445,20 +2406,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kIA32I32x4SConvertF32x4: {
-      XMMRegister dst = i.OutputSimd128Register();
-      XMMRegister src = i.InputSimd128Register(0);
-      // NAN->0
-      __ Cmpeqps(kScratchDoubleReg, src, src);
-      __ Pand(dst, src, kScratchDoubleReg);
-      // Set top bit if >= 0 (but not -0.0!)
-      __ Pxor(kScratchDoubleReg, dst);
-      // Convert
-      __ Cvttps2dq(dst, dst);
-      // Set top bit if >=0 is now < 0
-      __ Pand(kScratchDoubleReg, dst);
-      __ Psrad(kScratchDoubleReg, kScratchDoubleReg, byte{31});
-      // Set positive overflow lanes to 0x7FFFFFFF
-      __ Pxor(dst, kScratchDoubleReg);
+      __ I32x4SConvertF32x4(i.OutputSimd128Register(),
+                            i.InputSimd128Register(0), kScratchDoubleReg);
       break;
     }
     case kIA32I32x4SConvertI16x8Low: {
@@ -3162,64 +3111,30 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kIA32I8x16Shl: {
       XMMRegister dst = i.OutputSimd128Register();
+      // TODO(zhin): remove this restriction from instruction-selector.
       DCHECK_EQ(dst, i.InputSimd128Register(0));
-      Register tmp = i.ToRegister(instr->TempAt(0));
+      Register tmp = i.TempRegister(0);
       XMMRegister tmp_simd = i.TempSimd128Register(1);
-
       if (HasImmediateInput(instr, 1)) {
-        // Perform 16-bit shift, then mask away low bits.
-        uint8_t shift = i.InputInt3(1);
-        __ Psllw(dst, dst, byte{shift});
-
-        uint8_t bmask = static_cast<uint8_t>(0xff << shift);
-        uint32_t mask = bmask << 24 | bmask << 16 | bmask << 8 | bmask;
-        __ mov(tmp, mask);
-        __ Movd(tmp_simd, tmp);
-        __ Pshufd(tmp_simd, tmp_simd, uint8_t{0});
-        __ Pand(dst, tmp_simd);
+        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
+                    kScratchDoubleReg);
       } else {
-        // Take shift value modulo 8.
-        __ mov(tmp, i.InputRegister(1));
-        __ and_(tmp, 7);
-        // Mask off the unwanted bits before word-shifting.
-        __ Pcmpeqw(kScratchDoubleReg, kScratchDoubleReg);
-        __ add(tmp, Immediate(8));
-        __ Movd(tmp_simd, tmp);
-        __ Psrlw(kScratchDoubleReg, kScratchDoubleReg, tmp_simd);
-        __ Packuswb(kScratchDoubleReg, kScratchDoubleReg);
-        __ Pand(dst, kScratchDoubleReg);
-        // TODO(zhin): sub here to avoid asking for another temporary register,
-        // examine codegen for other i8x16 shifts, they use less instructions.
-        __ sub(tmp, Immediate(8));
-        __ Movd(tmp_simd, tmp);
-        __ Psllw(dst, dst, tmp_simd);
+        __ I8x16Shl(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
+                    kScratchDoubleReg, tmp_simd);
       }
       break;
     }
     case kIA32I8x16ShrS: {
       XMMRegister dst = i.OutputSimd128Register();
+      // TODO(zhin): remove this restriction from instruction-selector.
       DCHECK_EQ(dst, i.InputSimd128Register(0));
       if (HasImmediateInput(instr, 1)) {
-        __ Punpckhbw(kScratchDoubleReg, dst);
-        __ Punpcklbw(dst, dst);
-        uint8_t shift = i.InputInt3(1) + 8;
-        __ Psraw(kScratchDoubleReg, shift);
-        __ Psraw(dst, shift);
-        __ Packsswb(dst, kScratchDoubleReg);
+        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputInt3(1),
+                     kScratchDoubleReg);
       } else {
-        Register tmp = i.ToRegister(instr->TempAt(0));
-        XMMRegister tmp_simd = i.TempSimd128Register(1);
-        // Unpack the bytes into words, do arithmetic shifts, and repack.
-        __ Punpckhbw(kScratchDoubleReg, dst);
-        __ Punpcklbw(dst, dst);
-        __ mov(tmp, i.InputRegister(1));
-        // Take shift value modulo 8.
-        __ and_(tmp, 7);
-        __ add(tmp, Immediate(8));
-        __ Movd(tmp_simd, tmp);
-        __ Psraw(kScratchDoubleReg, kScratchDoubleReg, tmp_simd);
-        __ Psraw(dst, dst, tmp_simd);
-        __ Packsswb(dst, kScratchDoubleReg);
+        __ I8x16ShrS(dst, i.InputSimd128Register(0), i.InputRegister(1),
+                     i.TempRegister(0), kScratchDoubleReg,
+                     i.TempSimd128Register(1));
       }
       break;
     }
@@ -3322,34 +3237,18 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     }
     case kIA32I8x16ShrU: {
       XMMRegister dst = i.OutputSimd128Register();
+      // TODO(zhin): remove this restriction from instruction-selector.
       DCHECK_EQ(dst, i.InputSimd128Register(0));
       Register tmp = i.ToRegister(instr->TempAt(0));
-      XMMRegister tmp_simd = i.TempSimd128Register(1);
 
       if (HasImmediateInput(instr, 1)) {
-        // Perform 16-bit shift, then mask away high bits.
-        uint8_t shift = i.InputInt3(1);
-        __ Psrlw(dst, dst, byte{shift});
-
-        uint8_t bmask = 0xff >> shift;
-        uint32_t mask = bmask << 24 | bmask << 16 | bmask << 8 | bmask;
-        __ mov(tmp, mask);
-        __ Movd(tmp_simd, tmp);
-        __ Pshufd(tmp_simd, tmp_simd, uint8_t{0});
-        __ Pand(dst, tmp_simd);
+        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputInt3(1), tmp,
+                     kScratchDoubleReg);
       } else {
-        // Unpack the bytes into words, do logical shifts, and repack.
-        __ Punpckhbw(kScratchDoubleReg, dst);
-        __ Punpcklbw(dst, dst);
-        __ mov(tmp, i.InputRegister(1));
-        // Take shift value modulo 8.
-        __ and_(tmp, 7);
-        __ add(tmp, Immediate(8));
-        __ Movd(tmp_simd, tmp);
-        __ Psrlw(kScratchDoubleReg, kScratchDoubleReg, tmp_simd);
-        __ Psrlw(dst, dst, tmp_simd);
-        __ Packuswb(dst, kScratchDoubleReg);
+        __ I8x16ShrU(dst, i.InputSimd128Register(0), i.InputRegister(1), tmp,
+                     kScratchDoubleReg, i.TempSimd128Register(1));
       }
+
       break;
     }
     case kIA32I8x16MinU: {
@@ -4181,12 +4080,6 @@ void CodeGenerator::AssembleArchBranch(Instruction* instr, BranchInfo* branch) {
 
   // Add a jump if not falling through to the next block.
   if (!branch->fallthru) __ jmp(flabel);
-}
-
-void CodeGenerator::AssembleBranchPoisoning(FlagsCondition condition,
-                                            Instruction* instr) {
-  // TODO(860429): Remove remaining poisoning infrastructure on ia32.
-  UNREACHABLE();
 }
 
 void CodeGenerator::AssembleArchDeoptBranch(Instruction* instr,

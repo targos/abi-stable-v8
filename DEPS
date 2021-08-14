@@ -148,7 +148,7 @@ deps = {
   'test/mozilla/data':
     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
   'test/test262/data':
-    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + 'ab353c6e732b9e175d3ad6779e3acf3ea82d3761',
+    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '45a913c057892bdd26f7bc06a59a0c7420f2d3ec',
   'test/test262/harness':
     Var('chromium_url') + '/external/github.com/test262-utils/test262-harness-py.git' + '@' + '278bcfaed0dcaa13936831fb1769d15e7c1e3b2b',
   'third_party/aemu-linux-x64': {
@@ -232,7 +232,7 @@ deps = {
     'condition': 'checkout_fuchsia',
   },
   'third_party/google_benchmark/src': {
-    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '4124223bf5303d1d65fe2c40f33e28372bbb986c',
+    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '2d054b683f293dbee21f8fe8820d967360e6af83',
   },
   'third_party/googletest/src':
     Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + '47f819c3ca54fb602f432904443e00a0a1fe2f42',

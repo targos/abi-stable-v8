@@ -175,6 +175,12 @@ struct MaybeBoolFlag {
 #define V8_HEAP_SANDBOX_BOOL false
 #endif
 
+#ifdef V8_VIRTUAL_MEMORY_CAGE
+#define V8_VIRTUAL_MEMORY_CAGE_BOOL true
+#else
+#define V8_VIRTUAL_MEMORY_CAGE_BOOL false
+#endif
+
 #ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
 #define ENABLE_CONTROL_FLOW_INTEGRITY_BOOL true
 #else
@@ -287,7 +293,9 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
   V(harmony_array_find_last, "harmony array find last helpers")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
+#define HARMONY_INPROGRESS(V) \
+  HARMONY_INPROGRESS_BASE(V)  \
+  V(harmony_intl_enumeration, "Intl Enumberation API")
 #else
 #define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
 #endif
@@ -881,15 +889,6 @@ DEFINE_BOOL(optimize_for_size, false,
             "Enables optimizations which favor memory size over execution "
             "speed")
 DEFINE_VALUE_IMPLICATION(optimize_for_size, max_semi_space_size, 1)
-
-#ifdef DISABLE_UNTRUSTED_CODE_MITIGATIONS
-#define V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS false
-#else
-#define V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS true
-#endif
-DEFINE_BOOL(untrusted_code_mitigations, V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS,
-            "Enable mitigations for executing untrusted code")
-#undef V8_DEFAULT_UNTRUSTED_CODE_MITIGATIONS
 
 // Flags for WebAssembly.
 #if V8_ENABLE_WEBASSEMBLY
@@ -1778,7 +1777,8 @@ DEFINE_BOOL_READONLY(minor_mc, false,
 
 DEFINE_BOOL(help, false, "Print usage message, including flags, on console")
 DEFINE_BOOL(dump_counters, false, "Dump counters on exit")
-DEFINE_BOOL(slow_histograms, true, "Enable slow histograms with more overhead.")
+DEFINE_BOOL(slow_histograms, false,
+            "Enable slow histograms with more overhead.")
 DEFINE_IMPLICATION(dump_counters, slow_histograms)
 
 DEFINE_BOOL(dump_counters_nvp, false,

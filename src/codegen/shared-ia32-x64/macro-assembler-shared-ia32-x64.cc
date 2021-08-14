@@ -6,6 +6,7 @@
 
 #include "src/codegen/assembler.h"
 #include "src/codegen/cpu-features.h"
+#include "src/codegen/register-arch.h"
 
 #if V8_TARGET_ARCH_IA32
 #include "src/codegen/ia32/register-ia32.h"
@@ -18,6 +19,17 @@
 namespace v8 {
 namespace internal {
 
+void SharedTurboAssembler::Move(Register dst, uint32_t src) {
+  // Helper to paper over the different assembler function names.
+#if V8_TARGET_ARCH_IA32
+  mov(dst, Immediate(src));
+#elif V8_TARGET_ARCH_X64
+  movl(dst, Immediate(src));
+#else
+#error Unsupported target architecture.
+#endif
+}
+
 void SharedTurboAssembler::Move(Register dst, Register src) {
   // Helper to paper over the different assembler function names.
   if (dst != src) {
@@ -29,6 +41,17 @@ void SharedTurboAssembler::Move(Register dst, Register src) {
 #error Unsupported target architecture.
 #endif
   }
+}
+
+void SharedTurboAssembler::Add(Register dst, Immediate src) {
+  // Helper to paper over the different assembler function names.
+#if V8_TARGET_ARCH_IA32
+  add(dst, src);
+#elif V8_TARGET_ARCH_X64
+  addq(dst, src);
+#else
+#error Unsupported target architecture.
+#endif
 }
 
 void SharedTurboAssembler::And(Register dst, Immediate src) {
@@ -231,6 +254,127 @@ void SharedTurboAssembler::S128Store32Lane(Operand dst, XMMRegister src,
   }
 }
 
+void SharedTurboAssembler::I8x16Shl(XMMRegister dst, XMMRegister src1,
+                                    uint8_t src2, Register tmp1,
+                                    XMMRegister tmp2) {
+  DCHECK_NE(dst, tmp2);
+  // Perform 16-bit shift, then mask away low bits.
+  if (!CpuFeatures::IsSupported(AVX) && (dst != src1)) {
+    movaps(dst, src1);
+    src1 = dst;
+  }
+
+  uint8_t shift = truncate_to_int3(src2);
+  Psllw(dst, src1, byte{shift});
+
+  uint8_t bmask = static_cast<uint8_t>(0xff << shift);
+  uint32_t mask = bmask << 24 | bmask << 16 | bmask << 8 | bmask;
+  Move(tmp1, mask);
+  Movd(tmp2, tmp1);
+  Pshufd(tmp2, tmp2, uint8_t{0});
+  Pand(dst, tmp2);
+}
+
+void SharedTurboAssembler::I8x16Shl(XMMRegister dst, XMMRegister src1,
+                                    Register src2, Register tmp1,
+                                    XMMRegister tmp2, XMMRegister tmp3) {
+  DCHECK(!AreAliased(dst, tmp2, tmp3));
+  DCHECK(!AreAliased(src1, tmp2, tmp3));
+
+  // Take shift value modulo 8.
+  Move(tmp1, src2);
+  And(tmp1, Immediate(7));
+  Add(tmp1, Immediate(8));
+  // Create a mask to unset high bits.
+  Movd(tmp3, tmp1);
+  Pcmpeqd(tmp2, tmp2);
+  Psrlw(tmp2, tmp2, tmp3);
+  Packuswb(tmp2, tmp2);
+  if (!CpuFeatures::IsSupported(AVX) && (dst != src1)) {
+    movaps(dst, src1);
+    src1 = dst;
+  }
+  // Mask off the unwanted bits before word-shifting.
+  Pand(dst, src1, tmp2);
+  Add(tmp1, Immediate(-8));
+  Movd(tmp3, tmp1);
+  Psllw(dst, dst, tmp3);
+}
+
+void SharedTurboAssembler::I8x16ShrS(XMMRegister dst, XMMRegister src1,
+                                     uint8_t src2, XMMRegister tmp) {
+  // Unpack bytes into words, do word (16-bit) shifts, and repack.
+  DCHECK_NE(dst, tmp);
+  uint8_t shift = truncate_to_int3(src2) + 8;
+
+  Punpckhbw(tmp, src1);
+  Punpcklbw(dst, src1);
+  Psraw(tmp, shift);
+  Psraw(dst, shift);
+  Packsswb(dst, tmp);
+}
+
+void SharedTurboAssembler::I8x16ShrS(XMMRegister dst, XMMRegister src1,
+                                     Register src2, Register tmp1,
+                                     XMMRegister tmp2, XMMRegister tmp3) {
+  DCHECK(!AreAliased(dst, tmp2, tmp3));
+  DCHECK_NE(src1, tmp2);
+
+  // Unpack the bytes into words, do arithmetic shifts, and repack.
+  Punpckhbw(tmp2, src1);
+  Punpcklbw(dst, src1);
+  // Prepare shift value
+  Move(tmp1, src2);
+  // Take shift value modulo 8.
+  And(tmp1, Immediate(7));
+  Add(tmp1, Immediate(8));
+  Movd(tmp3, tmp1);
+  Psraw(tmp2, tmp3);
+  Psraw(dst, tmp3);
+  Packsswb(dst, tmp2);
+}
+
+void SharedTurboAssembler::I8x16ShrU(XMMRegister dst, XMMRegister src1,
+                                     uint8_t src2, Register tmp1,
+                                     XMMRegister tmp2) {
+  DCHECK_NE(dst, tmp2);
+  if (!CpuFeatures::IsSupported(AVX) && (dst != src1)) {
+    movaps(dst, src1);
+    src1 = dst;
+  }
+
+  // Perform 16-bit shift, then mask away high bits.
+  uint8_t shift = truncate_to_int3(src2);
+  Psrlw(dst, src1, shift);
+
+  uint8_t bmask = 0xff >> shift;
+  uint32_t mask = bmask << 24 | bmask << 16 | bmask << 8 | bmask;
+  Move(tmp1, mask);
+  Movd(tmp2, tmp1);
+  Pshufd(tmp2, tmp2, byte{0});
+  Pand(dst, tmp2);
+}
+
+void SharedTurboAssembler::I8x16ShrU(XMMRegister dst, XMMRegister src1,
+                                     Register src2, Register tmp1,
+                                     XMMRegister tmp2, XMMRegister tmp3) {
+  DCHECK(!AreAliased(dst, tmp2, tmp3));
+  DCHECK_NE(src1, tmp2);
+
+  // Unpack the bytes into words, do logical shifts, and repack.
+  Punpckhbw(tmp2, src1);
+  Punpcklbw(dst, src1);
+  // Prepare shift value.
+  Move(tmp1, src2);
+  // Take shift value modulo 8.
+  And(tmp1, Immediate(7));
+  Add(tmp1, Immediate(8));
+  Movd(tmp3, tmp1);
+  Psrlw(tmp2, tmp3);
+  Psrlw(dst, tmp3);
+  Packuswb(dst, tmp2);
+}
+
 void SharedTurboAssembler::I16x8ExtMulLow(XMMRegister dst, XMMRegister src1,
                                           XMMRegister src2, XMMRegister scratch,
                                           bool is_signed) {
@@ -376,6 +520,31 @@ void SharedTurboAssembler::I32x4ExtMul(XMMRegister dst, XMMRegister src1,
     is_signed ? pmulhw(scratch, src2) : pmulhuw(scratch, src2);
     low ? punpcklwd(dst, scratch) : punpckhwd(dst, scratch);
   }
+}
+
+void SharedTurboAssembler::I32x4SConvertF32x4(XMMRegister dst, XMMRegister src,
+                                              XMMRegister scratch) {
+  // Convert NAN to 0.
+  if (CpuFeatures::IsSupported(AVX)) {
+    CpuFeatureScope scope(this, AVX);
+    vcmpeqps(scratch, src, src);
+    vpand(dst, src, scratch);
+  } else {
+    movaps(scratch, src);
+    cmpeqps(scratch, src);
+    if (dst != src) movaps(dst, src);
+    andps(dst, scratch);
+  }
+
+  // Set top bit if >= 0 (but not -0.0!).
+  Pxor(scratch, dst);
+  // Convert to packed single-precision.
+  Cvttps2dq(dst, dst);
+  // Set top bit if >=0 is now < 0.
+  Pand(scratch, dst);
+  Psrad(scratch, scratch, byte{31});
+  // Set positive overflow lanes to 0x7FFFFFFF.
+  Pxor(dst, scratch);
 }
 
 void SharedTurboAssembler::I32x4SConvertI16x8High(XMMRegister dst,

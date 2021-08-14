@@ -3540,10 +3540,6 @@ void TurboAssembler::ComputeCodeStartAddress(const Register& rd) {
   adr(rd, -pc_offset());
 }
 
-void TurboAssembler::ResetSpeculationPoisonRegister() {
-  Mov(kSpeculationPoisonRegister, -1);
-}
-
 void TurboAssembler::RestoreFPAndLR() {
   static_assert(StandardFrameConstants::kCallerFPOffset + kSystemPointerSize ==
                     StandardFrameConstants::kCallerPCOffset,
@@ -3574,6 +3570,16 @@ void TurboAssembler::StoreReturnAddressInWasmExitFrame(Label* return_location) {
   Str(x17, MemOperand(fp, WasmExitFrameConstants::kCallingPCOffset));
 }
 #endif  // V8_ENABLE_WEBASSEMBLY
+
+void TurboAssembler::PopcntHelper(Register dst, Register src) {
+  UseScratchRegisterScope temps(this);
+  VRegister scratch = temps.AcquireV(kFormat8B);
+  VRegister tmp = src.Is32Bits() ? scratch.S() : scratch.D();
+  Fmov(tmp, src);
+  Cnt(scratch, scratch);
+  Addv(scratch.B(), scratch);
+  Fmov(dst, tmp);
+}
 
 void TurboAssembler::I64x2BitMask(Register dst, VRegister src) {
   ASM_CODE_COMMENT(this);
