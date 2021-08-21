@@ -223,6 +223,7 @@ class V8_EXPORT_PRIVATE SharedTurboAssembler : public TurboAssemblerBase {
   AVX_OP(Pmullw, pmullw)
   AVX_OP(Pmuludq, pmuludq)
   AVX_OP(Por, por)
+  AVX_OP(Pshufb, pshufb)
   AVX_OP(Pshufd, pshufd)
   AVX_OP(Pshufhw, pshufhw)
   AVX_OP(Pshuflw, pshuflw)
@@ -300,6 +301,8 @@ class V8_EXPORT_PRIVATE SharedTurboAssembler : public TurboAssemblerBase {
   void F32x4Splat(XMMRegister dst, DoubleRegister src);
   void F32x4ExtractLane(FloatRegister dst, XMMRegister src, uint8_t lane);
   void S128Store32Lane(Operand dst, XMMRegister src, uint8_t laneidx);
+  void I8x16Splat(XMMRegister dst, Register src, XMMRegister scratch);
+  void I8x16Splat(XMMRegister dst, Operand src, XMMRegister scratch);
   void I8x16Shl(XMMRegister dst, XMMRegister src1, uint8_t src2, Register tmp1,
                 XMMRegister tmp2);
   void I8x16Shl(XMMRegister dst, XMMRegister src1, Register src2, Register tmp1,
@@ -312,6 +315,8 @@ class V8_EXPORT_PRIVATE SharedTurboAssembler : public TurboAssemblerBase {
                  XMMRegister tmp2);
   void I8x16ShrU(XMMRegister dst, XMMRegister src1, Register src2,
                  Register tmp1, XMMRegister tmp2, XMMRegister tmp3);
+  void I16x8Splat(XMMRegister dst, Register src);
+  void I16x8Splat(XMMRegister dst, Operand src);
   void I16x8ExtMulLow(XMMRegister dst, XMMRegister src1, XMMRegister src2,
                       XMMRegister scrat, bool is_signed);
   void I16x8ExtMulHighS(XMMRegister dst, XMMRegister src1, XMMRegister src2,
@@ -350,6 +355,12 @@ class V8_EXPORT_PRIVATE SharedTurboAssembler : public TurboAssemblerBase {
   // Requires dst == mask when AVX is not supported.
   void S128Select(XMMRegister dst, XMMRegister mask, XMMRegister src1,
                   XMMRegister src2, XMMRegister scratch);
+
+ private:
+  template <typename Op>
+  void I8x16SplatPreAvx2(XMMRegister dst, Op src, XMMRegister scratch);
+  template <typename Op>
+  void I16x8SplatPreAvx2(XMMRegister dst, Op src);
 };
 }  // namespace internal
 }  // namespace v8

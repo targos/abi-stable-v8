@@ -2502,16 +2502,12 @@ void LiftoffAssembler::emit_i8x16_popcnt(LiftoffRegister dst,
 
 void LiftoffAssembler::emit_i8x16_splat(LiftoffRegister dst,
                                         LiftoffRegister src) {
-  Movd(dst.fp(), src.gp());
-  Pxor(kScratchDoubleReg, kScratchDoubleReg);
-  Pshufb(dst.fp(), kScratchDoubleReg);
+  I8x16Splat(dst.fp(), src.gp(), kScratchDoubleReg);
 }
 
 void LiftoffAssembler::emit_i16x8_splat(LiftoffRegister dst,
                                         LiftoffRegister src) {
-  Movd(dst.fp(), src.gp());
-  Pshuflw(dst.fp(), dst.fp(), static_cast<uint8_t>(0));
-  Pshufd(dst.fp(), dst.fp(), static_cast<uint8_t>(0));
+  I16x8Splat(dst.fp(), src.gp());
 }
 
 void LiftoffAssembler::emit_i32x4_splat(LiftoffRegister dst,
