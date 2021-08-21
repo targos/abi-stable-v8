@@ -306,7 +306,7 @@ void CheckBailoutAllowed(LiftoffBailoutReason reason, const char* detail,
 
   // Some externally maintained architectures don't fully implement Liftoff yet.
 #if V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_S390X || \
-    V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
+    V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64 || V8_TARGET_ARCH_LOONG64
   return;
 #endif
 
@@ -5018,7 +5018,7 @@ class LiftoffCompiler {
       Label* trap_label =
           AddOutOfLineTrap(decoder, WasmCode::kThrowWasmTrapArrayTooLarge);
       __ emit_i32_cond_jumpi(kUnsignedGreaterThan, trap_label, length.gp(),
-                             static_cast<int>(wasm::kV8MaxWasmArrayLength));
+                             WasmArray::MaxLength(imm.array_type));
     }
     ValueKind elem_kind = imm.array_type->element_type().kind();
     int elem_size = element_size_bytes(elem_kind);

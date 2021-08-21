@@ -42,7 +42,7 @@ BUILD_TARGETS_ALL = ["all"]
 
 # All arches that this script understands.
 ARCHES = ["ia32", "x64", "arm", "arm64", "mipsel", "mips64el", "ppc", "ppc64",
-          "riscv64", "s390", "s390x", "android_arm", "android_arm64"]
+          "riscv64", "s390", "s390x", "android_arm", "android_arm64", "loong64"]
 # Arches that get built/run when you don't specify any.
 DEFAULT_ARCHES = ["ia32", "x64", "arm", "arm64"]
 # Modes that this script understands.
@@ -310,7 +310,7 @@ class Config(object):
     elif self.arch == "android_arm64":
       v8_cpu = "arm64"
     elif self.arch in ("arm", "arm64", "mipsel", "mips64el", "ppc", "ppc64",
-                       "riscv64", "s390", "s390x"):
+                       "riscv64", "s390", "s390x", "loong64"):
       v8_cpu = self.arch
     else:
       return []
@@ -363,7 +363,7 @@ class Config(object):
       csa_trap = re.compile("Specify option( --csa-trap-on-node=[^ ]*)")
       match = csa_trap.search(output)
       extra_opt = match.group(1) if match else ""
-      cmdline = re.compile("python ../../tools/run.py ./mksnapshot (.*)")
+      cmdline = re.compile("python3 ../../tools/run.py ./mksnapshot (.*)")
       orig_cmdline = cmdline.search(output).group(1).strip()
       cmdline = PrepareMksnapshotCmdline(orig_cmdline, path) + extra_opt
       _Notify("V8 build requires your attention",
