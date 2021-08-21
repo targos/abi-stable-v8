@@ -169,14 +169,14 @@ void LiftoffAssembler::LoadConstant(LiftoffRegister reg, WasmValue value,
     case kF32: {
       UseScratchRegisterScope temps(this);
       Register scratch = temps.Acquire();
-      mov(scratch, Operand(value.to_f32_boxed().get_scalar()));
+      mov(scratch, Operand(value.to_f32_boxed().get_bits()));
       MovIntToFloat(reg.fp(), scratch, ip);
       break;
     }
     case kF64: {
       UseScratchRegisterScope temps(this);
       Register scratch = temps.Acquire();
-      mov(scratch, Operand(value.to_f64_boxed().get_scalar()));
+      mov(scratch, Operand(value.to_f64_boxed().get_bits()));
       MovInt64ToDouble(reg.fp(), scratch);
       break;
     }
@@ -750,9 +750,16 @@ void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
 #define SIGN_EXT(r) extsw(r, r)
 #define ROUND_F64_TO_F32(fpr) frsp(fpr, fpr)
 #define INT32_AND_WITH_1F(x) Operand(x & 0x1f)
+#define INT32_AND_WITH_3F(x) Operand(x & 0x3f)
 #define REGISTER_AND_WITH_1F    \
   ([&](Register rhs) {          \
     andi(r0, rhs, Operand(31)); \
+    return r0;                  \
+  })
+
+#define REGISTER_AND_WITH_3F    \
+  ([&](Register rhs) {          \
+    andi(r0, rhs, Operand(63)); \
     return r0;                  \
   })
 
@@ -772,16 +779,12 @@ void LiftoffAssembler::FillStackSlotsWithZero(int start, int size) {
     true, bool)                                                              \
   V(f32_trunc, friz, DoubleRegister, DoubleRegister, , , ROUND_F64_TO_F32,   \
     true, bool)                                                              \
-  V(f32_nearest_int, frin, DoubleRegister, DoubleRegister, , ,               \
-    ROUND_F64_TO_F32, true, bool)                                            \
   V(f64_abs, fabs, DoubleRegister, DoubleRegister, , , USE, , void)          \
   V(f64_neg, fneg, DoubleRegister, DoubleRegister, , , USE, , void)          \
   V(f64_sqrt, fsqrt, DoubleRegister, DoubleRegister, , , USE, , void)        \
   V(f64_floor, frim, DoubleRegister, DoubleRegister, , , USE, true, bool)    \
   V(f64_ceil, frip, DoubleRegister, DoubleRegister, , , USE, true, bool)     \
   V(f64_trunc, friz, DoubleRegister, DoubleRegister, , , USE, true, bool)    \
-  V(f64_nearest_int, frin, DoubleRegister, DoubleRegister, , , USE, true,    \
-    bool)                                                                    \
   V(i32_clz, CountLeadingZerosU32, Register, Register, , , USE, , void)      \
   V(i32_ctz, CountTrailingZerosU32, Register, Register, , , USE, , void)     \
   V(i64_clz, CountLeadingZerosU64, LiftoffRegister, LiftoffRegister,         \
@@ -873,17 +876,17 @@ UNOP_LIST(EMIT_UNOP_FUNCTION)
   V(i32_shr, ShiftRightU32, Register, Register, Register, , ,                 \
     REGISTER_AND_WITH_1F, USE, , void)                                        \
   V(i64_shl, ShiftLeftU64, LiftoffRegister, LiftoffRegister, Register,        \
-    LFR_TO_REG, LFR_TO_REG, , USE, , void)                                    \
+    LFR_TO_REG, LFR_TO_REG, REGISTER_AND_WITH_3F, USE, , void)                \
   V(i64_sar, ShiftRightS64, LiftoffRegister, LiftoffRegister, Register,       \
-    LFR_TO_REG, LFR_TO_REG, , USE, , void)                                    \
+    LFR_TO_REG, LFR_TO_REG, REGISTER_AND_WITH_3F, USE, , void)                \
   V(i64_shr, ShiftRightU64, LiftoffRegister, LiftoffRegister, Register,       \
-    LFR_TO_REG, LFR_TO_REG, , USE, , void)                                    \
+    LFR_TO_REG, LFR_TO_REG, REGISTER_AND_WITH_3F, USE, , void)                \
   V(i64_shli, ShiftLeftU64, LiftoffRegister, LiftoffRegister, int32_t,        \
-    LFR_TO_REG, LFR_TO_REG, Operand, USE, , void)                             \
+    LFR_TO_REG, LFR_TO_REG, INT32_AND_WITH_3F, USE, , void)                   \
   V(i64_sari, ShiftRightS64, LiftoffRegister, LiftoffRegister, int32_t,       \
-    LFR_TO_REG, LFR_TO_REG, Operand, USE, , void)                             \
+    LFR_TO_REG, LFR_TO_REG, INT32_AND_WITH_3F, USE, , void)                   \
   V(i64_shri, ShiftRightU64, LiftoffRegister, LiftoffRegister, int32_t,       \
-    LFR_TO_REG, LFR_TO_REG, Operand, USE, , void)                             \
+    LFR_TO_REG, LFR_TO_REG, INT32_AND_WITH_3F, USE, , void)                   \
   V(f64_add, AddF64, DoubleRegister, DoubleRegister, DoubleRegister, , , ,    \
     USE, , void)                                                              \
   V(f64_sub, SubF64, DoubleRegister, DoubleRegister, DoubleRegister, , , ,    \
@@ -920,6 +923,16 @@ BINOP_LIST(EMIT_BINOP_FUNCTION)
 #undef INT32_AND_WITH_1F
 #undef REGISTER_AND_WITH_1F
 #undef LFR_TO_REG
+
+bool LiftoffAssembler::emit_f32_nearest_int(DoubleRegister dst,
+                                            DoubleRegister src) {
+  return false;
+}
+
+bool LiftoffAssembler::emit_f64_nearest_int(DoubleRegister dst,
+                                            DoubleRegister src) {
+  return false;
+}
 
 void LiftoffAssembler::emit_i32_divs(Register dst, Register lhs, Register rhs,
                                      Label* trap_div_by_zero,
@@ -1159,10 +1172,10 @@ void LiftoffAssembler::emit_i64_set_cond(LiftoffCondition liftoff_cond,
 void LiftoffAssembler::emit_f32_set_cond(LiftoffCondition liftoff_cond,
                                          Register dst, DoubleRegister lhs,
                                          DoubleRegister rhs) {
-  fcmpu(lhs, rhs);
+  fcmpu(lhs, rhs, cr7);
   Label done;
   mov(dst, Operand(1));
-  b(liftoff::ToCondition(liftoff_cond), &done);
+  b(liftoff::ToCondition(liftoff_cond), &done, cr7);
   mov(dst, Operand::Zero());
   bind(&done);
 }
@@ -2342,11 +2355,13 @@ void LiftoffAssembler::AssertUnreachable(AbortReason reason) {
 }
 
 void LiftoffAssembler::PushRegisters(LiftoffRegList regs) {
-  bailout(kUnsupportedArchitecture, "PushRegisters");
+  MultiPush(regs.GetGpList());
+  MultiPushDoubles(regs.GetFpList());
 }
 
 void LiftoffAssembler::PopRegisters(LiftoffRegList regs) {
-  bailout(kUnsupportedArchitecture, "PopRegisters");
+  MultiPopDoubles(regs.GetFpList());
+  MultiPop(regs.GetGpList());
 }
 
 void LiftoffAssembler::RecordSpillsInSafepoint(Safepoint& safepoint,
