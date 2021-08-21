@@ -160,15 +160,6 @@ class V8_EXPORT_PRIVATE Compiler : public AllStatic {
   // Create a shared function info object for a String source.
   static MaybeHandle<SharedFunctionInfo> GetSharedFunctionInfoForScript(
       Isolate* isolate, Handle<String> source,
-      const ScriptDetails& script_details,
-      ScriptCompiler::CompileOptions compile_options,
-      ScriptCompiler::NoCacheReason no_cache_reason,
-      NativesFlag is_natives_code);
-
-  // Create a shared function info object for a String source.
-  static MaybeHandle<SharedFunctionInfo>
-  GetSharedFunctionInfoForScriptWithExtension(
-      Isolate* isolate, Handle<String> source,
       const ScriptDetails& script_details, v8::Extension* extension,
       ScriptData* cached_data, ScriptCompiler::CompileOptions compile_options,
       ScriptCompiler::NoCacheReason no_cache_reason,
