@@ -63,10 +63,8 @@ class ThreadLocalTop {
   // corresponds to the place on the JS stack where the C++ handler
   // would have been if the stack were not separate.
   Address try_catch_handler_address() {
-    if (try_catch_handler_) {
-      return try_catch_handler_->JSStackComparableAddressPrivate();
-    }
-    return kNullAddress;
+    return reinterpret_cast<Address>(
+        v8::TryCatch::JSStackComparableAddress(try_catch_handler_));
   }
 
   // Call depth represents nested v8 api calls. Instead of storing the nesting
