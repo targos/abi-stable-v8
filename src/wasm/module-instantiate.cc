@@ -65,10 +65,9 @@ class CompileImportWrapperJob final : public JobTask {
   }
 
   void Run(JobDelegate* delegate) override {
+    CodeSpaceWriteScope code_space_write_scope(native_module_);
     while (base::Optional<WasmImportWrapperCache::CacheKey> key =
                queue_->pop()) {
-      // TODO(wasm): Batch code publishing, to avoid repeated locking and
-      // permission switching.
       CompileImportWrapper(native_module_, counters_, key->kind, key->signature,
                            key->expected_arity, cache_scope_);
       if (delegate->ShouldYield()) return;
@@ -163,6 +162,7 @@ Handle<Map> CreateStructMap(Isolate* isolate, const WasmModule* module,
   map->SetInstanceDescriptors(isolate, *descriptors,
                               descriptors->number_of_descriptors());
   map->set_is_extensible(false);
+  WasmStruct::EncodeInstanceSizeInMap(real_instance_size, *map);
   return map;
 }
 
@@ -188,6 +188,8 @@ Handle<Map> CreateArrayMap(Isolate* isolate, const WasmModule* module,
   map->SetInstanceDescriptors(isolate, *descriptors,
                               descriptors->number_of_descriptors());
   map->set_is_extensible(false);
+  WasmArray::EncodeElementSizeInMap(type->element_type().element_size_bytes(),
+                                    *map);
   return map;
 }
 

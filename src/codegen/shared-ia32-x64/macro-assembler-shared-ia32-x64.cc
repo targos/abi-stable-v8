@@ -877,11 +877,16 @@ void SharedTurboAssembler::I64x2UConvertI32x4High(XMMRegister dst,
     vpxor(scratch, scratch, scratch);
     vpunpckhdq(dst, src, scratch);
   } else {
-    if (dst != src) {
-      movaps(dst, src);
+    if (dst == src) {
+      // xorps can be executed on more ports than pshufd.
+      xorps(scratch, scratch);
+      punpckhdq(dst, scratch);
+    } else {
+      CpuFeatureScope sse_scope(this, SSE4_1);
+      // No dependency on dst.
+      pshufd(dst, src, 0xEE);
+      pmovzxdq(dst, dst);
     }
-    xorps(scratch, scratch);
-    punpckhdq(dst, scratch);
   }
 }
 
@@ -913,6 +918,73 @@ void SharedTurboAssembler::S128Select(XMMRegister dst, XMMRegister mask,
     andnps(scratch, src2);
     andps(dst, src1);
     orps(dst, scratch);
+  }
+}
+
+void SharedTurboAssembler::S128Load8Splat(XMMRegister dst, Operand src,
+                                          XMMRegister scratch) {
+  // The trap handler uses the current pc to creating a landing, so that it can
+  // determine if a trap occured in Wasm code due to a OOB load. Make sure the
+  // first instruction in each case below is the one that loads.
+  if (CpuFeatures::IsSupported(AVX2)) {
+    CpuFeatureScope avx2_scope(this, AVX2);
+    vpbroadcastb(dst, src);
+  } else if (CpuFeatures::IsSupported(AVX)) {
+    CpuFeatureScope avx_scope(this, AVX);
+    // Avoid dependency on previous value of dst.
+    vpinsrb(dst, scratch, src, uint8_t{0});
+    vpxor(scratch, scratch, scratch);
+    vpshufb(dst, dst, scratch);
+  } else {
+    CpuFeatureScope ssse4_scope(this, SSE4_1);
+    CpuFeatureScope ssse3_scope(this, SSSE3);
+    pinsrb(dst, src, uint8_t{0});
+    xorps(scratch, scratch);
+    pshufb(dst, scratch);
+  }
+}
+
+void SharedTurboAssembler::S128Load16Splat(XMMRegister dst, Operand src,
+                                           XMMRegister scratch) {
+  // The trap handler uses the current pc to creating a landing, so that it can
+  // determine if a trap occured in Wasm code due to a OOB load. Make sure the
+  // first instruction in each case below is the one that loads.
+  if (CpuFeatures::IsSupported(AVX2)) {
+    CpuFeatureScope avx2_scope(this, AVX2);
+    vpbroadcastw(dst, src);
+  } else if (CpuFeatures::IsSupported(AVX)) {
+    CpuFeatureScope avx_scope(this, AVX);
+    // Avoid dependency on previous value of dst.
+    vpinsrw(dst, scratch, src, uint8_t{0});
+    vpshuflw(dst, dst, uint8_t{0});
+    vpunpcklqdq(dst, dst, dst);
+  } else {
+    pinsrw(dst, src, uint8_t{0});
+    pshuflw(dst, dst, uint8_t{0});
+    movlhps(dst, dst);
+  }
+}
+
+void SharedTurboAssembler::S128Load32Splat(XMMRegister dst, Operand src) {
+  // The trap handler uses the current pc to creating a landing, so that it can
+  // determine if a trap occured in Wasm code due to a OOB load. Make sure the
+  // first instruction in each case below is the one that loads.
+  if (CpuFeatures::IsSupported(AVX)) {
+    CpuFeatureScope avx_scope(this, AVX);
+    vbroadcastss(dst, src);
+  } else {
+    movss(dst, src);
+    shufps(dst, dst, byte{0});
+  }
+}
+
+void SharedTurboAssembler::S128Store64Lane(Operand dst, XMMRegister src,
+                                           uint8_t laneidx) {
+  if (laneidx == 0) {
+    Movlps(dst, src);
+  } else {
+    DCHECK_EQ(1, laneidx);
+    Movhps(dst, src);
   }
 }
 

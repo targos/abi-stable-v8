@@ -957,7 +957,8 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       __ bind(ool->exit());
       break;
     }
-    case kArchStoreWithWriteBarrier: {
+    case kArchStoreWithWriteBarrier:  // Fall thrugh.
+    case kArchAtomicStoreWithWriteBarrier: {
       RecordWriteMode mode =
           static_cast<RecordWriteMode>(MiscField::decode(instr->opcode()));
       Register object = i.InputRegister(0);
@@ -969,7 +970,12 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       auto ool = zone()->New<OutOfLineRecordWrite>(this, object, operand, value,
                                                    scratch0, scratch1, mode,
                                                    DetermineStubCallMode());
-      __ mov(operand, value);
+      if (arch_opcode == kArchStoreWithWriteBarrier) {
+        __ mov(operand, value);
+      } else {
+        __ mov(scratch0, value);
+        __ xchg(scratch0, operand);
+      }
       if (mode > RecordWriteMode::kValueIsPointer) {
         __ JumpIfSmi(value, ool->exit());
       }
@@ -3442,20 +3448,17 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kIA32S128Load8Splat: {
-      __ Pinsrb(i.OutputSimd128Register(), i.MemoryOperand(), 0);
-      __ Pxor(kScratchDoubleReg, kScratchDoubleReg);
-      __ Pshufb(i.OutputSimd128Register(), kScratchDoubleReg);
+      __ S128Load8Splat(i.OutputSimd128Register(), i.MemoryOperand(),
+                        kScratchDoubleReg);
       break;
     }
     case kIA32S128Load16Splat: {
-      __ Pinsrw(i.OutputSimd128Register(), i.MemoryOperand(), 0);
-      __ Pshuflw(i.OutputSimd128Register(), i.OutputSimd128Register(),
-                 uint8_t{0});
-      __ Punpcklqdq(i.OutputSimd128Register(), i.OutputSimd128Register());
+      __ S128Load16Splat(i.OutputSimd128Register(), i.MemoryOperand(),
+                         kScratchDoubleReg);
       break;
     }
     case kIA32S128Load32Splat: {
-      __ Vbroadcastss(i.OutputSimd128Register(), i.MemoryOperand());
+      __ S128Load32Splat(i.OutputSimd128Register(), i.MemoryOperand());
       break;
     }
     case kIA32S128Load64Splat: {
@@ -3838,17 +3841,31 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       break;
     }
     case kIA32Word32AtomicPairLoad: {
-      XMMRegister tmp = i.ToDoubleRegister(instr->TempAt(0));
-      __ movq(tmp, i.MemoryOperand());
-      __ Pextrd(i.OutputRegister(0), tmp, 0);
-      __ Pextrd(i.OutputRegister(1), tmp, 1);
+      __ movq(kScratchDoubleReg, i.MemoryOperand());
+      __ Pextrd(i.OutputRegister(0), kScratchDoubleReg, 0);
+      __ Pextrd(i.OutputRegister(1), kScratchDoubleReg, 1);
       break;
     }
-    case kIA32Word32AtomicPairStore: {
+    case kIA32Word32ReleasePairStore: {
+      __ push(ebx);
+      i.MoveInstructionOperandToRegister(ebx, instr->InputAt(1));
+      __ push(ebx);
+      i.MoveInstructionOperandToRegister(ebx, instr->InputAt(0));
+      __ push(ebx);
+      frame_access_state()->IncreaseSPDelta(3);
+      __ movq(kScratchDoubleReg, MemOperand(esp, 0));
+      __ pop(ebx);
+      __ pop(ebx);
+      __ pop(ebx);
+      frame_access_state()->IncreaseSPDelta(-3);
+      __ movq(i.MemoryOperand(2), kScratchDoubleReg);
+      break;
+    }
+    case kIA32Word32SeqCstPairStore: {
       Label store;
       __ bind(&store);
-      __ mov(i.TempRegister(0), i.MemoryOperand(2));
-      __ mov(i.TempRegister(1), i.NextMemoryOperand(2));
+      __ mov(eax, i.MemoryOperand(2));
+      __ mov(edx, i.NextMemoryOperand(2));
       __ push(ebx);
       frame_access_state()->IncreaseSPDelta(1);
       i.MoveInstructionOperandToRegister(ebx, instr->InputAt(0));

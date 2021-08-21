@@ -294,6 +294,17 @@ void TurboAssembler::StoreTaggedSignedField(Operand dst_field_operand,
   }
 }
 
+void TurboAssembler::AtomicStoreTaggedField(Operand dst_field_operand,
+                                            Register value) {
+  if (COMPRESS_POINTERS_BOOL) {
+    movl(kScratchRegister, value);
+    xchgl(kScratchRegister, dst_field_operand);
+  } else {
+    movq(kScratchRegister, value);
+    xchgq(kScratchRegister, dst_field_operand);
+  }
+}
+
 void TurboAssembler::DecompressTaggedSigned(Register destination,
                                             Operand field_operand) {
   ASM_CODE_COMMENT(this);
@@ -2255,16 +2266,6 @@ void TurboAssembler::I16x8Q15MulRSatS(XMMRegister dst, XMMRegister src1,
   Pmulhrsw(dst, src1, src2);
   Pcmpeqw(kScratchDoubleReg, dst);
   Pxor(dst, kScratchDoubleReg);
-}
-
-void TurboAssembler::S128Store64Lane(Operand dst, XMMRegister src,
-                                     uint8_t laneidx) {
-  if (laneidx == 0) {
-    Movlps(dst, src);
-  } else {
-    DCHECK_EQ(1, laneidx);
-    Movhps(dst, src);
-  }
 }
 
 void TurboAssembler::I8x16Popcnt(XMMRegister dst, XMMRegister src,

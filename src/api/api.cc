@@ -6080,7 +6080,7 @@ void v8::V8::InitializeExternalStartupDataFromFile(const char* snapshot_blob) {
 const char* v8::V8::GetVersion() { return i::Version::GetVersion(); }
 
 #ifdef V8_VIRTUAL_MEMORY_CAGE
-PageAllocator* GetVirtualMemoryCageDataPageAllocator() {
+PageAllocator* v8::V8::GetVirtualMemoryCageDataPageAllocator() {
   CHECK(i::GetProcessWideVirtualMemoryCage()->is_initialized());
   return i::GetProcessWideVirtualMemoryCage()->GetDataCagePageAllocator();
 }
@@ -10723,6 +10723,18 @@ bool ConvertDouble(double d) {
 #undef CALLBACK_SETTER
 
 }  // namespace internal
+
+bool CopyAndConvertArrayToCppBufferInt32(Local<Array> src, int32_t* dst,
+                                         uint32_t max_length) {
+  return CopyAndConvertArrayToCppBuffer<&v8::kTypeInfoInt32, int32_t>(
+      src, dst, max_length);
+}
+
+bool CopyAndConvertArrayToCppBufferFloat64(Local<Array> src, double* dst,
+                                           uint32_t max_length) {
+  return CopyAndConvertArrayToCppBuffer<&v8::kTypeInfoFloat64, double>(
+      src, dst, max_length);
+}
 
 }  // namespace v8
 

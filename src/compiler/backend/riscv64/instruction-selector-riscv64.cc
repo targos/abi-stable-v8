@@ -1821,9 +1821,12 @@ void VisitWordCompare(InstructionSelector* selector, Node* node,
 bool IsNodeUnsigned(Node* n) {
   NodeMatcher m(n);
 
-  if (m.IsLoad() || m.IsUnalignedLoad() || m.IsProtectedLoad() ||
-      m.IsWord32AtomicLoad() || m.IsWord64AtomicLoad()) {
+  if (m.IsLoad() || m.IsUnalignedLoad() || m.IsProtectedLoad()) {
     LoadRepresentation load_rep = LoadRepresentationOf(n->op());
+    return load_rep.IsUnsigned();
+  } else if (m.IsWord32AtomicLoad() || m.IsWord64AtomicLoad()) {
+    AtomicLoadParameters atomic_load_params = AtomicLoadParametersOf(n->op());
+    LoadRepresentation load_rep = atomic_load_params.representation();
     return load_rep.IsUnsigned();
   } else {
     return m.IsUint32Div() || m.IsUint32LessThan() ||
@@ -2405,7 +2408,8 @@ void InstructionSelector::VisitMemoryBarrier(Node* node) {
 }
 
 void InstructionSelector::VisitWord32AtomicLoad(Node* node) {
-  LoadRepresentation load_rep = LoadRepresentationOf(node->op());
+  AtomicLoadParameters atomic_load_params = AtomicLoadParametersOf(node->op());
+  LoadRepresentation load_rep = atomic_load_params.representation();
   ArchOpcode opcode;
   switch (load_rep.representation()) {
     case MachineRepresentation::kWord8:
@@ -2424,7 +2428,8 @@ void InstructionSelector::VisitWord32AtomicLoad(Node* node) {
 }
 
 void InstructionSelector::VisitWord32AtomicStore(Node* node) {
-  MachineRepresentation rep = AtomicStoreRepresentationOf(node->op());
+  AtomicStoreParameters store_params = AtomicStoreParametersOf(node->op());
+  MachineRepresentation rep = store_params.representation();
   ArchOpcode opcode;
   switch (rep) {
     case MachineRepresentation::kWord8:
@@ -2444,7 +2449,8 @@ void InstructionSelector::VisitWord32AtomicStore(Node* node) {
 }
 
 void InstructionSelector::VisitWord64AtomicLoad(Node* node) {
-  LoadRepresentation load_rep = LoadRepresentationOf(node->op());
+  AtomicLoadParameters atomic_load_params = AtomicLoadParametersOf(node->op());
+  LoadRepresentation load_rep = atomic_load_params.representation();
   ArchOpcode opcode;
   switch (load_rep.representation()) {
     case MachineRepresentation::kWord8:
@@ -2459,6 +2465,32 @@ void InstructionSelector::VisitWord64AtomicLoad(Node* node) {
     case MachineRepresentation::kWord64:
       opcode = kRiscvWord64AtomicLoadUint64;
       break;
+#ifdef V8_COMPRESS_POINTERS
+    case MachineRepresentation::kTaggedSigned:
+      opcode = kRiscv64LdDecompressTaggedSigned;
+      break;
+    case MachineRepresentation::kTaggedPointer:
+      opcode = kRiscv64LdDecompressTaggedPointer;
+      break;
+    case MachineRepresentation::kTagged:
+      opcode = kRiscv64LdDecompressAnyTagged;
+      break;
+#else
+    case MachineRepresentation::kTaggedSigned:   // Fall through.
+    case MachineRepresentation::kTaggedPointer:  // Fall through.
+    case MachineRepresentation::kTagged:
+      if (kTaggedSize == 8) {
+        opcode = kRiscvWord64AtomicLoadUint64;
+      } else {
+        opcode = kAtomicLoadWord32;
+      }
+      break;
+#endif
+    case MachineRepresentation::kCompressedPointer:  // Fall through.
+    case MachineRepresentation::kCompressed:
+      DCHECK(COMPRESS_POINTERS_BOOL);
+      opcode = kAtomicLoadWord32;
+      break;
     default:
       UNREACHABLE();
   }
@@ -2466,7 +2498,8 @@ void InstructionSelector::VisitWord64AtomicLoad(Node* node) {
 }
 
 void InstructionSelector::VisitWord64AtomicStore(Node* node) {
-  MachineRepresentation rep = AtomicStoreRepresentationOf(node->op());
+  AtomicStoreParameters store_params = AtomicStoreParametersOf(node->op());
+  MachineRepresentation rep = store_params.representation();
   ArchOpcode opcode;
   switch (rep) {
     case MachineRepresentation::kWord8:
@@ -2480,6 +2513,16 @@ void InstructionSelector::VisitWord64AtomicStore(Node* node) {
       break;
     case MachineRepresentation::kWord64:
       opcode = kRiscvWord64AtomicStoreWord64;
+      break;
+    case MachineRepresentation::kTaggedSigned:   // Fall through.
+    case MachineRepresentation::kTaggedPointer:  // Fall through.
+    case MachineRepresentation::kTagged:
+      opcode = kRiscvWord64AtomicStoreWord64;
+      break;
+    case MachineRepresentation::kCompressedPointer:  // Fall through.
+    case MachineRepresentation::kCompressed:
+      CHECK(COMPRESS_POINTERS_BOOL);
+      opcode = kAtomicStoreWord32;
       break;
     default:
       UNREACHABLE();

@@ -481,8 +481,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public SharedTurboAssembler {
   // Defined here to allow usage on both TurboFan and Liftoff.
   void I16x8Q15MulRSatS(XMMRegister dst, XMMRegister src1, XMMRegister src2);
 
-  void S128Store64Lane(Operand dst, XMMRegister src, uint8_t laneidx);
-
   void I8x16Popcnt(XMMRegister dst, XMMRegister src, XMMRegister tmp);
 
   void F64x2ConvertLowI32x4U(XMMRegister dst, XMMRegister src);
@@ -669,6 +667,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public SharedTurboAssembler {
   void StoreTaggedField(Operand dst_field_operand, Immediate immediate);
   void StoreTaggedField(Operand dst_field_operand, Register value);
   void StoreTaggedSignedField(Operand dst_field_operand, Smi value);
+  void AtomicStoreTaggedField(Operand dst_field_operand, Register value);
 
   // The following macros work even when pointer compression is not enabled.
   void DecompressTaggedSigned(Register destination, Operand field_operand);
