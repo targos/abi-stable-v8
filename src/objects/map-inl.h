@@ -726,7 +726,7 @@ bool Map::ConcurrentIsMap(PtrComprCageBase cage_base,
 }
 
 DEF_GETTER(Map, GetBackPointer, HeapObject) {
-  Object object = constructor_or_back_pointer(cage_base);
+  Object object = constructor_or_back_pointer(cage_base, kRelaxedLoad);
   if (ConcurrentIsMap(cage_base, object)) {
     return Map::cast(object);
   }
@@ -754,6 +754,9 @@ ACCESSORS(Map, prototype_validity_cell, Object, kPrototypeValidityCellOffset)
 ACCESSORS_CHECKED2(Map, constructor_or_back_pointer, Object,
                    kConstructorOrBackPointerOrNativeContextOffset,
                    !IsContextMap(), value.IsNull() || !IsContextMap())
+RELAXED_ACCESSORS_CHECKED2(Map, constructor_or_back_pointer, Object,
+                           kConstructorOrBackPointerOrNativeContextOffset,
+                           !IsContextMap(), value.IsNull() || !IsContextMap())
 ACCESSORS_CHECKED(Map, native_context, NativeContext,
                   kConstructorOrBackPointerOrNativeContextOffset,
                   IsContextMap())
