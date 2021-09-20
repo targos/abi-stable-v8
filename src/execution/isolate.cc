@@ -3050,6 +3050,12 @@ void Isolate::CheckIsolateLayout() {
   CHECK_EQ(static_cast<int>(OFFSET_OF(Isolate, isolate_data_.roots_table_)),
            Internals::kIsolateRootsOffset);
 
+  STATIC_ASSERT(Internals::kStackGuardSize == sizeof(StackGuard));
+  STATIC_ASSERT(Internals::kBuiltinTier0TableSize ==
+                Builtins::kBuiltinTier0Count * kSystemPointerSize);
+  STATIC_ASSERT(Internals::kBuiltinTier0EntryTableSize ==
+                Builtins::kBuiltinTier0Count * kSystemPointerSize);
+
 #ifdef V8_HEAP_SANDBOX
   CHECK_EQ(static_cast<int>(OFFSET_OF(ExternalPointerTable, buffer_)),
            Internals::kExternalPointerTableBufferOffset);
@@ -3748,7 +3754,7 @@ bool Isolate::Init(SnapshotData* startup_snapshot_data,
   delete setup_delegate_;
   setup_delegate_ = nullptr;
 
-  Builtins::InitializeBuiltinEntryTable(this);
+  Builtins::InitializeIsolateDataTables(this);
   Builtins::EmitCodeCreateEvents(this);
 
 #ifdef DEBUG
