@@ -465,16 +465,21 @@ class V8_EXPORT ScriptCompiler {
     virtual size_t GetMoreData(const uint8_t** src) = 0;
 
     /**
-     * [DEPRECATED]: No longer used, will be removed soon.
+     * V8 calls this method to set a 'bookmark' at the current position in
+     * the source stream, for the purpose of (maybe) later calling
+     * ResetToBookmark. If ResetToBookmark is called later, then subsequent
+     * calls to GetMoreData should return the same data as they did when
+     * SetBookmark was called earlier.
+     *
+     * The embedder may return 'false' to indicate it cannot provide this
+     * functionality.
      */
-    V8_DEPRECATED("Not used")
-    virtual bool SetBookmark() { return false; }
+    virtual bool SetBookmark();
 
     /**
-     * [DEPRECATED]: No longer used, will be removed soon.
+     * V8 calls this to return to a previously set bookmark.
      */
-    V8_DEPRECATED("Not used")
-    virtual void ResetToBookmark() {}
+    virtual void ResetToBookmark();
   };
 
   /**
