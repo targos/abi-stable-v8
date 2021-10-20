@@ -281,12 +281,6 @@ class V8_EXPORT Isolate {
      */
     int embedder_wrapper_type_index = -1;
     int embedder_wrapper_object_index = -1;
-
-    /**
-     * The following parameter is experimental and may change significantly.
-     * This is currently for internal testing.
-     */
-    Isolate* experimental_attach_to_shared_isolate = nullptr;
   };
 
   /**
@@ -564,6 +558,9 @@ class V8_EXPORT Isolate {
    */
   static void Initialize(Isolate* isolate, const CreateParams& params);
 
+  static void InitializeV8_97(Isolate* isolate, const CreateParams& params,
+                              Isolate* experimental_attach_to_shared_isolate);
+
   /**
    * Creates a new isolate.  Does not change the currently entered
    * isolate.
@@ -574,6 +571,9 @@ class V8_EXPORT Isolate {
    * V8::Initialize() must have run prior to this.
    */
   static Isolate* New(const CreateParams& params);
+
+  static Isolate* NewV8_97(const CreateParams& params,
+                           Isolate* experimental_attach_to_shared_isolate);
 
   /**
    * Returns the entered isolate for the current thread or NULL in

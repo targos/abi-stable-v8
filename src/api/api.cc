@@ -8442,6 +8442,12 @@ Isolate::CreateParams::~CreateParams() = default;
 // This is separate so that tests can provide a different |isolate|.
 void Isolate::Initialize(Isolate* isolate,
                          const v8::Isolate::CreateParams& params) {
+  InitializeV8_97(isolate, params, nullptr);
+}
+
+void Isolate::InitializeV8_97(Isolate* isolate,
+                              const v8::Isolate::CreateParams& params,
+                              Isolate* experimental_attach_to_shared_isolate) {
   i::Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
   if (auto allocator = params.array_buffer_allocator_shared) {
     CHECK(params.array_buffer_allocator == nullptr ||
@@ -8480,9 +8486,9 @@ void Isolate::Initialize(Isolate* isolate,
     i_isolate->stack_guard()->SetStackLimit(limit);
   }
 
-  if (params.experimental_attach_to_shared_isolate != nullptr) {
+  if (experimental_attach_to_shared_isolate != nullptr) {
     i_isolate->set_shared_isolate(reinterpret_cast<i::Isolate*>(
-        params.experimental_attach_to_shared_isolate));
+        experimental_attach_to_shared_isolate));
   }
 
   // TODO(jochen): Once we got rid of Isolate::Current(), we can remove this.
@@ -8538,8 +8544,13 @@ void Isolate::Initialize(Isolate* isolate,
 }
 
 Isolate* Isolate::New(const Isolate::CreateParams& params) {
+  return NewV8_97(params, nullptr);
+}
+
+Isolate* Isolate::NewV8_97(const Isolate::CreateParams& params,
+                           Isolate* experimental_attach_to_shared_isolate) {
   Isolate* isolate = Allocate();
-  Initialize(isolate, params);
+  InitializeV8_97(isolate, params, experimental_attach_to_shared_isolate);
   return isolate;
 }
 

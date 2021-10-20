@@ -48,8 +48,7 @@ class MultiClientIsolateTest {
         v8::ArrayBuffer::Allocator::NewDefaultAllocator());
     v8::Isolate::CreateParams create_params;
     create_params.array_buffer_allocator = allocator.get();
-    create_params.experimental_attach_to_shared_isolate = shared_isolate_;
-    v8::Isolate* client = v8::Isolate::New(create_params);
+    v8::Isolate* client = v8::Isolate::NewV8_97(create_params, shared_isolate_);
     {
       base::MutexGuard vector_write_guard(&vector_mutex_);
       client_isolates_.push_back(client);

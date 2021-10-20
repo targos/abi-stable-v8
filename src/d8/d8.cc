@@ -3864,8 +3864,7 @@ SourceGroup::IsolateThread::IsolateThread(SourceGroup* group)
 void SourceGroup::ExecuteInThread() {
   Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = Shell::array_buffer_allocator;
-  create_params.experimental_attach_to_shared_isolate = Shell::shared_isolate;
-  Isolate* isolate = Isolate::New(create_params);
+  Isolate* isolate = Isolate::NewV8_97(create_params, Shell::shared_isolate);
   Shell::SetWaitUntilDone(isolate, false);
   D8Console console(isolate);
   Shell::Initialize(isolate, &console, false);
@@ -4099,8 +4098,7 @@ void Worker::ProcessMessages() {
 void Worker::ExecuteInThread() {
   Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = Shell::array_buffer_allocator;
-  create_params.experimental_attach_to_shared_isolate = Shell::shared_isolate;
-  isolate_ = Isolate::New(create_params);
+  isolate_ = Isolate::NewV8_97(create_params, Shell::shared_isolate);
   {
     base::MutexGuard lock_guard(&worker_mutex_);
     task_runner_ = g_default_platform->GetForegroundTaskRunner(isolate_);
@@ -5148,15 +5146,17 @@ int Shell::Main(int argc, char* argv[]) {
   }
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+  Isolate* isolate = nullptr;
+
   if (HasFlagThatRequiresSharedIsolate()) {
     Isolate::CreateParams shared_create_params;
     shared_create_params.array_buffer_allocator = Shell::array_buffer_allocator;
     shared_isolate =
         reinterpret_cast<Isolate*>(i::Isolate::NewShared(create_params));
-    create_params.experimental_attach_to_shared_isolate = shared_isolate;
+    isolate = Isolate::NewV8_97(create_params, shared_isolate);
+  } else {
+    isolate = Isolate::New(create_params);
   }
-
-  Isolate* isolate = Isolate::New(create_params);
 
   {
     D8Console console(isolate);
@@ -5229,10 +5229,8 @@ int Shell::Main(int argc, char* argv[]) {
         // First run to produce the cache
         Isolate::CreateParams create_params2;
         create_params2.array_buffer_allocator = Shell::array_buffer_allocator;
-        create_params2.experimental_attach_to_shared_isolate =
-            Shell::shared_isolate;
         i::FLAG_hash_seed ^= 1337;  // Use a different hash seed.
-        Isolate* isolate2 = Isolate::New(create_params2);
+        Isolate* isolate2 = Isolate::NewV8_97(create_params2, Shell::shared_isolate);
         i::FLAG_hash_seed ^= 1337;  // Restore old hash seed.
         {
           D8Console console2(isolate2);
