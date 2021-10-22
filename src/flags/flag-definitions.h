@@ -925,6 +925,8 @@ DEFINE_BOOL(turbo_inline_js_wasm_calls, true, "inline JS->Wasm calls")
 DEFINE_BOOL(turbo_use_mid_tier_regalloc_for_huge_functions, false,
             "fall back to the mid-tier register allocator for huge functions "
             "(experimental)")
+DEFINE_BOOL(turbo_force_mid_tier_regalloc, false,
+            "always use the mid-tier register allocator (for testing)")
 
 DEFINE_BOOL(turbo_optimize_apply, true, "optimize Function.prototype.apply")
 
@@ -1576,6 +1578,9 @@ DEFINE_BOOL(
     trace_side_effect_free_debug_evaluate, false,
     "print debug messages for side-effect-free debug-evaluate for testing")
 DEFINE_BOOL(hard_abort, true, "abort by crashing")
+
+DEFINE_BOOL(experimental_async_stack_tagging_api, false,
+            "enable experimental async stacks tagging API")
 
 // disassembler
 DEFINE_BOOL(log_colour, ENABLE_LOG_COLOUR,

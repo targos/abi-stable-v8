@@ -6,9 +6,6 @@ use_relative_paths = True
 
 gclient_gn_args_file = 'build/config/gclient_args.gni'
 gclient_gn_args = [
-  # TODO(https://crbug.com/1137662, https://crbug.com/1080854)
-  # Remove when migration is complete.
-  'checkout_fuchsia_for_arm64_host',
 ]
 
 vars = {
@@ -26,12 +23,6 @@ vars = {
   #
   # Wildcards are supported (e.g. "qemu.*").
   'checkout_fuchsia_boot_images': "qemu.x64,qemu.arm64",
-
-  # TODO(https://crbug.com/1137662, https://crbug.com/1080854)
-  # Remove when migration is complete.
-  # By default, do not check out files required to run fuchsia tests in
-  # qemu on linux-arm64 machines.
-  'checkout_fuchsia_for_arm64_host': False,
 
   'checkout_instrumented_libraries': False,
   'checkout_ittapi': False,
@@ -92,9 +83,9 @@ deps = {
   'base/trace_event/common':
     Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + '68d816952258c9d817bba656ee2664b35507f01b',
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + 'f78b0bd09847b94e9ec9cb520855d6785fd082ab',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + '4d4596dc668ecab4879b024d2d027634f3c6fa95',
   'buildtools':
-    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + 'a9bc3e283182a586998338a665c7eae17406ec54',
+    Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + 'f5750f5bbad77db363ca4231d5132015589a360f',
   'buildtools/clang_format/script':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/clang/tools/clang-format.git' + '@' + '99876cacf78329e5f99c244dbe42ccd1654517a0',
   'buildtools/linux64': {
@@ -120,9 +111,9 @@ deps = {
   'buildtools/third_party/libc++/trunk':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxx.git' + '@' + '79a2e924d96e2fc1e4b937c42efd08898fa472d7',
   'buildtools/third_party/libc++abi/trunk':
-    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxxabi.git' + '@' + '9eb0245224c2d7f6b20f76d4d24eab1d60a2b281',
+    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxxabi.git' + '@' + 'be63497336e46a3882a16e2d4e5b817abe7c661d',
   'buildtools/third_party/libunwind/trunk':
-    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + '557b51a0ccab9b3dbce61bdd57aa5f7d5c7c6206',
+    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + '6f77fbf9fa51d9696b48151709e90f03364243de',
   'buildtools/win': {
     'packages': [
       {
@@ -148,14 +139,14 @@ deps = {
   'test/mozilla/data':
     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
   'test/test262/data':
-    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '8d420cef415f3501cb24d674b8c032d1f09402a0',
+    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '1ad9bb7626a0836708ef4601668aa54af272e17d',
   'test/test262/harness':
     Var('chromium_url') + '/external/github.com/test262-utils/test262-harness-py.git' + '@' + '278bcfaed0dcaa13936831fb1769d15e7c1e3b2b',
   'third_party/aemu-linux-x64': {
       'packages': [
           {
               'package': 'fuchsia/third_party/aemu/linux-amd64',
-              'version': 'oT0j0p3wnLGyIs4qDcea3sRhW4YKoAhTY2LDWkJ4T4QC'
+              'version': 'KDNRxWTmjlQIxZYPFEwIygxfih4aexkTD2JwU6hED-8C'
           },
       ],
       'condition': 'host_os == "linux" and checkout_fuchsia',
@@ -218,7 +209,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'third_party/catapult': {
-    'url': Var('chromium_url') + '/catapult.git' + '@' + '876bab7910dc34d647002e2c2d649ca04b82d037',
+    'url': Var('chromium_url') + '/catapult.git' + '@' + 'e9a87dc9e565dae8066af18697590fbe01ff674b',
     'condition': 'checkout_android',
   },
   'third_party/colorama/src': {
@@ -226,20 +217,20 @@ deps = {
     'condition': 'checkout_android',
   },
   'third_party/depot_tools':
-    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '756e98f5aac7fb163e558a5a5cc5f3dc0098b1d7',
+    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '7a6ff9824d74a90f7d9a6811b00a35598c8cf3ef',
   'third_party/fuchsia-sdk': {
     'url': Var('chromium_url') + '/chromium/src/third_party/fuchsia-sdk.git' + '@' + '18896843130c33372c455c153ad07d2217bd2085',
     'condition': 'checkout_fuchsia',
   },
   'third_party/google_benchmark/src': {
-    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '1e3ab7fa434d1b4aebdd22b760dbf99c498ae7cd',
+    'url': Var('chromium_url') + '/external/github.com/google/benchmark.git' + '@' + '80d70ddd943aea41f105cd337b3efcf62c94eea0',
   },
   'third_party/googletest/src':
-    Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + '075810f7a20405ea09a93f68847d6e963212fa62',
+    Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + '16f637fbf4ffc3f7a01fa4eceb7906634565242f',
   'third_party/icu':
-    Var('chromium_url') + '/chromium/deps/icu.git' + '@' + '4df07a2d158218b77369b82f9fe3190725beb815',
+    Var('chromium_url') + '/chromium/deps/icu.git' + '@' + 'eedbaf76e49d28465d9119b10c30b82906e606ff',
   'third_party/instrumented_libraries':
-    Var('chromium_url') + '/chromium/src/third_party/instrumented_libraries.git' + '@' + '6527a4e98a746f5324e21e813a41af25419bfae7',
+    Var('chromium_url') + '/chromium/src/third_party/instrumented_libraries.git' + '@' + '3c149f5611237dc59a7ec229e8ea009d8be8f51d',
   'third_party/ittapi': {
     # Force checkout ittapi libraries to pass v8 header includes check on
     # bots that has check_v8_header_includes enabled.
@@ -285,7 +276,7 @@ deps = {
   'third_party/zlib':
     Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + '6da1d53b97c89b07e47714d88cab61f1ce003c68',
   'tools/clang':
-    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'c00aa10009548ad073810d810cc4a71d2965f75b',
+    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'e193c0af0ae8c32a4c7c8faa32421f449b2db8bb',
   'tools/clang/dsymutil': {
     'packages': [
       {
@@ -494,7 +485,7 @@ hooks = [
                 '--no_resume',
                 '--no_auth',
                 '--bucket', 'chromium-instrumented-libraries',
-                '-s', 'third_party/instrumented_libraries/binaries/msan-chained-origins-xenial.tgz.sha1',
+                '-s', 'third_party/instrumented_libraries/binaries/msan-chained-origins.tgz.sha1',
               ],
   },
   {
@@ -505,7 +496,7 @@ hooks = [
                 '--no_resume',
                 '--no_auth',
                 '--bucket', 'chromium-instrumented-libraries',
-                '-s', 'third_party/instrumented_libraries/binaries/msan-no-origins-xenial.tgz.sha1',
+                '-s', 'third_party/instrumented_libraries/binaries/msan-no-origins.tgz.sha1',
               ],
   },
   {
