@@ -83,7 +83,7 @@ deps = {
   'base/trace_event/common':
     Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + '68d816952258c9d817bba656ee2664b35507f01b',
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + '4d4596dc668ecab4879b024d2d027634f3c6fa95',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + 'acad0f2115f6a79e82bde9f2d4d06969b37453e1',
   'buildtools':
     Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + 'f5750f5bbad77db363ca4231d5132015589a360f',
   'buildtools/clang_format/script':
@@ -111,9 +111,9 @@ deps = {
   'buildtools/third_party/libc++/trunk':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxx.git' + '@' + '79a2e924d96e2fc1e4b937c42efd08898fa472d7',
   'buildtools/third_party/libc++abi/trunk':
-    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxxabi.git' + '@' + 'be63497336e46a3882a16e2d4e5b817abe7c661d',
+    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxxabi.git' + '@' + '9b8228b4a9be26e0881f36089d9a8d62df851acc',
   'buildtools/third_party/libunwind/trunk':
-    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + '6f77fbf9fa51d9696b48151709e90f03364243de',
+    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + '21acd3f62203c561edc54fedf549eb38da6081c5',
   'buildtools/win': {
     'packages': [
       {
@@ -146,7 +146,7 @@ deps = {
       'packages': [
           {
               'package': 'fuchsia/third_party/aemu/linux-amd64',
-              'version': 'KDNRxWTmjlQIxZYPFEwIygxfih4aexkTD2JwU6hED-8C'
+              'version': '8buMrGFlldiiEGiS-u8rclQGhORwxrcN14vZGo5U8sgC'
           },
       ],
       'condition': 'host_os == "linux" and checkout_fuchsia',
