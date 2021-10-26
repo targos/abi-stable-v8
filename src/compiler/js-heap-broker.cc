@@ -631,10 +631,10 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForGlobalAccess(
     int const script_context_index =
         FeedbackNexus::ContextIndexBits::decode(number);
     int const context_slot_index = FeedbackNexus::SlotIndexBits::decode(number);
-    ContextRef context = MakeRef(
+    ContextRef context = MakeRefAssumeMemoryFence(
         this,
         target_native_context().script_context_table().object()->get_context(
-            script_context_index));
+            script_context_index, kAcquireLoad));
 
     base::Optional<ObjectRef> contents = context.get(context_slot_index);
     if (contents.has_value()) CHECK(!contents->IsTheHole());
@@ -905,6 +905,10 @@ ElementAccessFeedback const& JSHeapBroker::ProcessFeedbackMapsForElementAccess(
 
     // Don't generate elements kind transitions from stable maps.
     if (!map.is_stable()) {
+      // The lock is needed for UnusedPropertyFields (called deep inside
+      // FindElementsKindTransitionedMap).
+      MapUpdaterGuardIfNeeded mumd_scope(this);
+
       transition_target = map.object()->FindElementsKindTransitionedMap(
           isolate(), possible_transition_targets, ConcurrencyMode::kConcurrent);
     }
