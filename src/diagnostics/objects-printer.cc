@@ -688,9 +688,11 @@ void JSPromise::JSPromisePrint(std::ostream& os) {
 }
 
 void JSRegExp::JSRegExpPrint(std::ostream& os) {
+  Isolate* isolate = GetIsolate();
   JSObjectPrintHeader(os, *this, "JSRegExp");
   os << "\n - data: " << Brief(data());
   os << "\n - source: " << Brief(source());
+  os << "\n - flags: " << Brief(*JSRegExp::StringFromFlags(isolate, flags()));
   JSObjectPrintBody(os, *this);
 }
 
@@ -1843,7 +1845,8 @@ void WasmContinuationObject::WasmContinuationObjectPrint(std::ostream& os) {
   PrintHeader(os, "WasmContinuationObject");
   os << "\n - parent: " << parent();
   os << "\n - jmpbuf: " << jmpbuf();
-  os << "\n - stack: " << stack();
+  os << "\n - managed_stack: " << managed_stack();
+  os << "\n - managed_jmpbuf: " << managed_jmpbuf();
   os << "\n";
 }
 

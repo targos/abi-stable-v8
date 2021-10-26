@@ -1157,6 +1157,7 @@
 ['system == aix', {
   # stack overflow
   'regress/regress-crbug-178790': [PASS, ['mode == debug', SKIP]],
+  'regress/regress-1067270': [PASS, ['mode == debug', SKIP]],
   # PASE environment currently ships with no tzdata database
   'tzoffset-transition-new-york-noi18n': [SKIP],
   'tzoffset-seoul-noi18n': [SKIP],
@@ -1644,6 +1645,8 @@
 ['arch != x64', {
   # Tests that include types only supported on x64.
   'compiler/fast-api-sequences-x64': [SKIP],
+  # Stack switching is only supported on x64.
+  'wasm/stack-switching': [SKIP],
 }],  # arch != x64
 
 ]
