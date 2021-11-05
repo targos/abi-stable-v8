@@ -4886,8 +4886,12 @@ void Heap::IterateBuiltins(RootVisitor* v) {
   Builtins* builtins = isolate()->builtins();
   for (Builtin builtin = Builtins::kFirst; builtin <= Builtins::kLast;
        ++builtin) {
-    v->VisitRootPointer(Root::kBuiltins, Builtins::name(builtin),
-                        builtins->builtin_slot(builtin));
+    const char* name = Builtins::name(builtin);
+    v->VisitRootPointer(Root::kBuiltins, name, builtins->builtin_slot(builtin));
+    if (V8_EXTERNAL_CODE_SPACE_BOOL) {
+      v->VisitRootPointer(Root::kBuiltins, name,
+                          builtins->builtin_code_data_container_slot(builtin));
+    }
   }
 
   for (Builtin builtin = Builtins::kFirst; builtin <= Builtins::kLastTier0;
@@ -6118,7 +6122,9 @@ void Heap::AddRetainedMap(Handle<NativeContext> context, Handle<Map> map) {
   if (map->is_in_retained_map_list()) {
     return;
   }
-  Handle<WeakArrayList> array(context->retained_maps(), isolate());
+
+  Handle<WeakArrayList> array(WeakArrayList::cast(context->retained_maps()),
+                              isolate());
   if (array->IsFull()) {
     CompactRetainedMaps(*array);
   }
@@ -6819,7 +6825,7 @@ std::vector<WeakArrayList> Heap::FindAllRetainedMaps() {
   Object context = native_contexts_list();
   while (!context.IsUndefined(isolate())) {
     NativeContext native_context = NativeContext::cast(context);
-    result.push_back(native_context.retained_maps());
+    result.push_back(WeakArrayList::cast(native_context.retained_maps()));
     context = native_context.next_context_link();
   }
   return result;
