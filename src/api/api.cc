@@ -6148,8 +6148,7 @@ HeapObjectStatistics::HeapObjectStatistics()
 HeapCodeStatistics::HeapCodeStatistics()
     : code_and_metadata_size_(0),
       bytecode_and_metadata_size_(0),
-      external_script_source_size_(0),
-      cpu_profiler_metadata_size_(0) {}
+      external_script_source_size_(0) {}
 
 bool v8::V8::InitializeICU(const char* icu_data_file) {
   return i::InitializeICU(icu_data_file);
@@ -8913,10 +8912,6 @@ bool Isolate::GetHeapCodeAndMetadataStatistics(
       isolate->bytecode_and_metadata_size();
   code_statistics->external_script_source_size_ =
       isolate->external_script_source_size();
-  code_statistics->cpu_profiler_metadata_size_ =
-      i::CpuProfiler::GetAllProfilersMemorySize(
-          reinterpret_cast<i::Isolate*>(isolate));
-
   return true;
 }
 
