@@ -1765,7 +1765,7 @@ MaybeHandle<Object> StoreIC::Store(Handle<Object> object, Handle<Name> name,
       Handle<String> name_string(
           String::cast(Symbol::cast(*name).description()), isolate());
       if (exists) {
-        return TypeError(MessageTemplate::kInvalidPrivateFieldReitialization,
+        return TypeError(MessageTemplate::kInvalidPrivateFieldReinitialization,
                          object, name_string);
       } else {
         return TypeError(MessageTemplate::kInvalidPrivateMemberWrite, object,
@@ -2351,8 +2351,8 @@ MaybeHandle<Object> KeyedStoreIC::Store(Handle<Object> object,
     ASSIGN_RETURN_ON_EXCEPTION(
         isolate(), result,
         IsDefineOwnIC()
-            ? Runtime::DefineClassField(isolate(), object, key, value,
-                                        StoreOrigin::kMaybeKeyed)
+            ? Runtime::DefineObjectOwnProperty(isolate(), object, key, value,
+                                               StoreOrigin::kMaybeKeyed)
             : Runtime::SetObjectProperty(isolate(), object, key, value,
                                          StoreOrigin::kMaybeKeyed),
         Object);
@@ -2419,8 +2419,8 @@ MaybeHandle<Object> KeyedStoreIC::Store(Handle<Object> object,
   ASSIGN_RETURN_ON_EXCEPTION(
       isolate(), store_handle,
       IsDefineOwnIC()
-          ? Runtime::DefineClassField(isolate(), object, key, value,
-                                      StoreOrigin::kMaybeKeyed)
+          ? Runtime::DefineObjectOwnProperty(isolate(), object, key, value,
+                                             StoreOrigin::kMaybeKeyed)
           : Runtime::SetObjectProperty(isolate(), object, key, value,
                                        StoreOrigin::kMaybeKeyed),
       Object);
@@ -2920,6 +2920,18 @@ RUNTIME_FUNCTION(Runtime_KeyedStoreIC_Slow) {
   RETURN_RESULT_OR_FAILURE(
       isolate, Runtime::SetObjectProperty(isolate, object, key, value,
                                           StoreOrigin::kMaybeKeyed));
+}
+
+RUNTIME_FUNCTION(Runtime_KeyedDefineOwnIC_Slow) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(3, args.length());
+  // Runtime functions don't follow the IC's calling convention.
+  Handle<Object> value = args.at(0);
+  Handle<Object> object = args.at(1);
+  Handle<Object> key = args.at(2);
+  RETURN_RESULT_OR_FAILURE(
+      isolate, Runtime::DefineObjectOwnProperty(isolate, object, key, value,
+                                                StoreOrigin::kMaybeKeyed));
 }
 
 RUNTIME_FUNCTION(Runtime_StoreInArrayLiteralIC_Slow) {

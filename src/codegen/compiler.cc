@@ -209,8 +209,9 @@ struct ScopedTimer {
 // static
 void Compiler::LogFunctionCompilation(Isolate* isolate,
                                       CodeEventListener::LogEventsAndTags tag,
-                                      Handle<SharedFunctionInfo> shared,
                                       Handle<Script> script,
+                                      Handle<SharedFunctionInfo> shared,
+                                      Handle<FeedbackVector> vector,
                                       Handle<AbstractCode> abstract_code,
                                       CodeKind kind, double time_taken_ms) {
   DCHECK(!abstract_code.is_null());
@@ -235,6 +236,9 @@ void Compiler::LogFunctionCompilation(Isolate* isolate,
       Logger::ToNativeByScript(tag, *script);
   PROFILE(isolate, CodeCreateEvent(log_tag, abstract_code, shared, script_name,
                                    line_num, column_num));
+  if (!vector.is_null()) {
+    LOG(isolate, FeedbackVectorEvent(*vector, *abstract_code));
+  }
   if (!FLAG_log_function_events) return;
 
   std::string name;
@@ -363,9 +367,9 @@ void RecordUnoptimizedFunctionCompilation(
                          time_taken_to_finalize.InMillisecondsF();
 
   Handle<Script> script(Script::cast(shared->script()), isolate);
-  Compiler::LogFunctionCompilation(isolate, tag, shared, script, abstract_code,
-                                   CodeKind::INTERPRETED_FUNCTION,
-                                   time_taken_ms);
+  Compiler::LogFunctionCompilation(
+      isolate, tag, script, shared, Handle<FeedbackVector>(), abstract_code,
+      CodeKind::INTERPRETED_FUNCTION, time_taken_ms);
 }
 
 }  // namespace
@@ -499,9 +503,11 @@ void OptimizedCompilationJob::RecordFunctionCompilation(
 
   Handle<Script> script(
       Script::cast(compilation_info()->shared_info()->script()), isolate);
+  Handle<FeedbackVector> feedback_vector(
+      compilation_info()->closure()->feedback_vector(), isolate);
   Compiler::LogFunctionCompilation(
-      isolate, tag, compilation_info()->shared_info(), script, abstract_code,
-      compilation_info()->code_kind(), time_taken_ms);
+      isolate, tag, script, compilation_info()->shared_info(), feedback_vector,
+      abstract_code, compilation_info()->code_kind(), time_taken_ms);
 }
 
 // ----------------------------------------------------------------------------
@@ -2019,9 +2025,10 @@ bool Compiler::CompileSharedWithBaseline(Isolate* isolate,
 
   if (shared->script().IsScript()) {
     Compiler::LogFunctionCompilation(
-        isolate, CodeEventListener::FUNCTION_TAG, shared,
-        handle(Script::cast(shared->script()), isolate),
-        Handle<AbstractCode>::cast(code), CodeKind::BASELINE, time_taken_ms);
+        isolate, CodeEventListener::FUNCTION_TAG,
+        handle(Script::cast(shared->script()), isolate), shared,
+        Handle<FeedbackVector>(), Handle<AbstractCode>::cast(code),
+        CodeKind::BASELINE, time_taken_ms);
   }
   return true;
 }
@@ -2149,7 +2156,8 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
     Handle<String> source, Handle<SharedFunctionInfo> outer_info,
     Handle<Context> context, LanguageMode language_mode,
     ParseRestriction restriction, int parameters_end_pos,
-    int eval_scope_position, int eval_position) {
+    int eval_scope_position, int eval_position,
+    ParsingWhileDebugging parsing_while_debugging) {
   Isolate* isolate = context->GetIsolate();
   int source_length = source->length();
   isolate->counters()->total_eval_size()->Increment(source_length);
@@ -2192,6 +2200,7 @@ MaybeHandle<JSFunction> Compiler::GetFunctionFromEval(
         isolate, true, language_mode, REPLMode::kNo, ScriptType::kClassic,
         FLAG_lazy_eval);
     flags.set_is_eval(true);
+    flags.set_parsing_while_debugging(parsing_while_debugging);
     DCHECK(!flags.is_module());
     flags.set_parse_restriction(restriction);
 

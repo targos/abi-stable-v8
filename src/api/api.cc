@@ -830,17 +830,19 @@ void ResourceConstraints::ConfigureDefaults(uint64_t physical_memory,
   }
 }
 
-namespace api_internal {
-i::Address* GlobalizeTracedReference(i::Isolate* isolate, i::Address* obj,
-                                     internal::Address* slot,
-                                     bool has_destructor) {
+namespace internal {
+
+i::Address* GlobalizeTracedReference(
+    i::Isolate* isolate, i::Address* obj, internal::Address* slot,
+    GlobalHandleDestructionMode destruction_mode,
+    GlobalHandleStoreMode store_mode) {
   LOG_API(isolate, TracedGlobal, New);
 #ifdef DEBUG
   Utils::ApiCheck((slot != nullptr), "v8::GlobalizeTracedReference",
                   "the address slot must be not null");
 #endif
-  i::Handle<i::Object> result =
-      isolate->global_handles()->CreateTraced(*obj, slot, has_destructor);
+  i::Handle<i::Object> result = isolate->global_handles()->CreateTraced(
+      *obj, slot, destruction_mode, store_mode);
 #ifdef VERIFY_HEAP
   if (i::FLAG_verify_heap) {
     i::Object(*obj).ObjectVerify(isolate);
@@ -848,6 +850,30 @@ i::Address* GlobalizeTracedReference(i::Isolate* isolate, i::Address* obj,
 #endif  // VERIFY_HEAP
   return result.location();
 }
+
+void MoveTracedGlobalReference(internal::Address** from,
+                               internal::Address** to) {
+  GlobalHandles::MoveTracedGlobal(from, to);
+}
+
+void CopyTracedGlobalReference(const internal::Address* const* from,
+                               internal::Address** to) {
+  GlobalHandles::CopyTracedGlobal(from, to);
+}
+
+void DisposeTracedGlobal(internal::Address* location) {
+  GlobalHandles::DestroyTraced(location);
+}
+
+void SetFinalizationCallbackTraced(internal::Address* location, void* parameter,
+                                   WeakCallbackInfo<void>::Callback callback) {
+  GlobalHandles::SetFinalizationCallbackForTraced(location, parameter,
+                                                  callback);
+}
+
+}  // namespace internal
+
+namespace api_internal {
 
 i::Address* GlobalizeReference(i::Isolate* isolate, i::Address* obj) {
   LOG_API(isolate, Persistent, New);
@@ -898,26 +924,6 @@ Value* Eternalize(Isolate* v8_isolate, Value* value) {
   isolate->eternal_handles()->Create(isolate, object, &index);
   return reinterpret_cast<Value*>(
       isolate->eternal_handles()->Get(index).location());
-}
-
-void MoveTracedGlobalReference(internal::Address** from,
-                               internal::Address** to) {
-  i::GlobalHandles::MoveTracedGlobal(from, to);
-}
-
-void CopyTracedGlobalReference(const internal::Address* const* from,
-                               internal::Address** to) {
-  i::GlobalHandles::CopyTracedGlobal(from, to);
-}
-
-void DisposeTracedGlobal(internal::Address* location) {
-  i::GlobalHandles::DestroyTraced(location);
-}
-
-void SetFinalizationCallbackTraced(internal::Address* location, void* parameter,
-                                   WeakCallbackInfo<void>::Callback callback) {
-  i::GlobalHandles::SetFinalizationCallbackForTraced(location, parameter,
-                                                     callback);
 }
 
 void FromJustIsNothing() {
@@ -9224,7 +9230,7 @@ JSEntryStubs Isolate::GetJSEntryStubs() {
        {i::Builtin::kJSRunMicrotasksEntry,
         &entry_stubs.js_run_microtasks_entry_stub}}};
   for (auto& pair : stubs) {
-    i::Code js_entry = isolate->heap()->builtin(pair.first);
+    i::Code js_entry = isolate->builtins()->code(pair.first);
     pair.second->code.start =
         reinterpret_cast<const void*>(js_entry.InstructionStart());
     pair.second->code.length_in_bytes = js_entry.InstructionSize();
@@ -10546,9 +10552,10 @@ bool ConvertDouble(double d) {
 }  // namespace internal
 
 template <>
-bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
-    internal::CTypeInfoBuilder<int32_t>::Build().GetId(), int32_t>(
-    Local<Array> src, int32_t* dst, uint32_t max_length) {
+bool V8_EXPORT V8_WARN_UNUSED_RESULT
+TryToCopyAndConvertArrayToCppBuffer<CTypeInfoBuilder<int32_t>::Build().GetId(),
+                                    int32_t>(Local<Array> src, int32_t* dst,
+                                             uint32_t max_length) {
   return CopyAndConvertArrayToCppBuffer<
       CTypeInfo(CTypeInfo::Type::kInt32, CTypeInfo::SequenceType::kIsSequence)
           .GetId(),
@@ -10556,9 +10563,10 @@ bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
 }
 
 template <>
-bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
-    internal::CTypeInfoBuilder<uint32_t>::Build().GetId(), uint32_t>(
-    Local<Array> src, uint32_t* dst, uint32_t max_length) {
+bool V8_EXPORT V8_WARN_UNUSED_RESULT
+TryToCopyAndConvertArrayToCppBuffer<CTypeInfoBuilder<uint32_t>::Build().GetId(),
+                                    uint32_t>(Local<Array> src, uint32_t* dst,
+                                              uint32_t max_length) {
   return CopyAndConvertArrayToCppBuffer<
       CTypeInfo(CTypeInfo::Type::kUint32, CTypeInfo::SequenceType::kIsSequence)
           .GetId(),
@@ -10566,9 +10574,10 @@ bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
 }
 
 template <>
-bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
-    internal::CTypeInfoBuilder<float>::Build().GetId(), float>(
-    Local<Array> src, float* dst, uint32_t max_length) {
+bool V8_EXPORT V8_WARN_UNUSED_RESULT
+TryToCopyAndConvertArrayToCppBuffer<CTypeInfoBuilder<float>::Build().GetId(),
+                                    float>(Local<Array> src, float* dst,
+                                           uint32_t max_length) {
   return CopyAndConvertArrayToCppBuffer<
       CTypeInfo(CTypeInfo::Type::kFloat32, CTypeInfo::SequenceType::kIsSequence)
           .GetId(),
@@ -10576,9 +10585,10 @@ bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
 }
 
 template <>
-bool V8_EXPORT V8_WARN_UNUSED_RESULT TryToCopyAndConvertArrayToCppBuffer<
-    internal::CTypeInfoBuilder<double>::Build().GetId(), double>(
-    Local<Array> src, double* dst, uint32_t max_length) {
+bool V8_EXPORT V8_WARN_UNUSED_RESULT
+TryToCopyAndConvertArrayToCppBuffer<CTypeInfoBuilder<double>::Build().GetId(),
+                                    double>(Local<Array> src, double* dst,
+                                            uint32_t max_length) {
   return CopyAndConvertArrayToCppBuffer<
       CTypeInfo(CTypeInfo::Type::kFloat64, CTypeInfo::SequenceType::kIsSequence)
           .GetId(),

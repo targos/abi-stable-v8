@@ -360,10 +360,6 @@ RUNTIME_FUNCTION(Runtime_ObjectHasOwnProperty) {
   Handle<Object> object = args.at(0);
 
   if (object->IsJSModuleNamespace()) {
-    if (key.is_element()) {
-      // Namespace objects can't have indexed properties.
-      return ReadOnlyRoots(isolate).false_value();
-    }
     LookupIterator it(isolate, object, key, LookupIterator::OWN);
     PropertyDescriptor desc;
     Maybe<bool> result = JSReceiver::GetOwnPropertyDescriptor(&it, &desc);
@@ -552,12 +548,10 @@ MaybeHandle<Object> Runtime::SetObjectProperty(
   return value;
 }
 
-MaybeHandle<Object> Runtime::DefineClassField(Isolate* isolate,
-                                              Handle<Object> object,
-                                              Handle<Object> key,
-                                              Handle<Object> value,
-                                              StoreOrigin store_origin,
-                                              Maybe<ShouldThrow> should_throw) {
+MaybeHandle<Object> Runtime::DefineObjectOwnProperty(
+    Isolate* isolate, Handle<Object> object, Handle<Object> key,
+    Handle<Object> value, StoreOrigin store_origin,
+    Maybe<ShouldThrow> should_throw) {
   if (object->IsNullOrUndefined(isolate)) {
     THROW_NEW_ERROR(
         isolate,
@@ -576,7 +570,7 @@ MaybeHandle<Object> Runtime::DefineClassField(Isolate* isolate,
     DCHECK(name_string->IsString());
     THROW_NEW_ERROR(
         isolate,
-        NewTypeError(MessageTemplate::kInvalidPrivateFieldReitialization,
+        NewTypeError(MessageTemplate::kInvalidPrivateFieldReinitialization,
                      name_string),
         Object);
   }
@@ -857,7 +851,7 @@ RUNTIME_FUNCTION(Runtime_SetKeyedProperty) {
                                           StoreOrigin::kMaybeKeyed));
 }
 
-RUNTIME_FUNCTION(Runtime_DefineClassField) {
+RUNTIME_FUNCTION(Runtime_DefineObjectOwnProperty) {
   HandleScope scope(isolate);
   DCHECK_EQ(3, args.length());
 
@@ -866,8 +860,8 @@ RUNTIME_FUNCTION(Runtime_DefineClassField) {
   CONVERT_ARG_HANDLE_CHECKED(Object, value, 2);
 
   RETURN_RESULT_OR_FAILURE(
-      isolate, Runtime::DefineClassField(isolate, object, key, value,
-                                         StoreOrigin::kMaybeKeyed));
+      isolate, Runtime::DefineObjectOwnProperty(isolate, object, key, value,
+                                                StoreOrigin::kMaybeKeyed));
 }
 
 RUNTIME_FUNCTION(Runtime_SetNamedProperty) {
@@ -1486,7 +1480,8 @@ RUNTIME_FUNCTION(Runtime_AddPrivateField) {
   if (it.IsFound()) {
     THROW_NEW_ERROR_RETURN_FAILURE(
         isolate,
-        NewTypeError(MessageTemplate::kInvalidPrivateFieldReitialization, key));
+        NewTypeError(MessageTemplate::kInvalidPrivateFieldReinitialization,
+                     key));
   }
 
   CHECK(Object::AddDataProperty(&it, value, NONE, Just(kDontThrow),

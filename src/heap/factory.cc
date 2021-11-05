@@ -1473,6 +1473,22 @@ Handle<WasmTypeInfo> Factory::NewWasmTypeInfo(
   return handle(result, isolate());
 }
 
+Handle<WasmApiFunctionRef> Factory::NewWasmApiFunctionRef(
+    Handle<JSReceiver> callable) {
+  Map map = *wasm_api_function_ref_map();
+  auto result = WasmApiFunctionRef::cast(AllocateRawWithImmortalMap(
+      map.instance_size(), AllocationType::kOld, map));
+  DisallowGarbageCollection no_gc;
+  result.set_foreign_address(isolate(), isolate()->isolate_root());
+  result.set_native_context(*isolate()->native_context());
+  if (!callable.is_null()) {
+    result.set_callable(*callable);
+  } else {
+    result.set_callable(*undefined_value());
+  }
+  return handle(result, isolate());
+}
+
 Handle<WasmJSFunctionData> Factory::NewWasmJSFunctionData(
     Address opt_call_target, Handle<JSReceiver> callable, int return_count,
     int parameter_count, Handle<PodArray<wasm::ValueType>> serialized_sig,
@@ -1492,7 +1508,7 @@ Handle<WasmJSFunctionData> Factory::NewWasmJSFunctionData(
   result.set_serialized_signature(*serialized_sig);
   // Default value, will be overwritten by the caller.
   result.set_wasm_to_js_wrapper_code(
-      isolate()->heap()->builtin(Builtin::kAbort));
+      isolate()->builtins()->code(Builtin::kAbort));
   return handle(result, isolate());
 }
 
