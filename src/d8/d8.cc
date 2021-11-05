@@ -756,8 +756,14 @@ bool Shell::ExecuteString(Isolate* isolate, Local<String> source,
       StoreInCodeCache(isolate, source, cached_data);
       delete cached_data;
     }
-    if (options.compile_only) {
-      return true;
+    if (options.compile_only) return true;
+    if (options.compile_options == ScriptCompiler::kConsumeCodeCache) {
+      i::Handle<i::Script> i_script(
+          i::Script::cast(Utils::OpenHandle(*script)->shared().script()),
+          i_isolate);
+      // TODO(cbruni, chromium:1244145): remove once context-allocated.
+      i_script->set_host_defined_options(
+          *Utils::OpenHandle(*(origin.HostDefinedOptions())));
     }
     maybe_result = script->Run(realm);
     if (options.code_cache_options ==

@@ -1724,10 +1724,12 @@ void MarkCompactCollector::MarkRoots(RootVisitor* root_visitor,
   // Custom marking for top optimized frame.
   ProcessTopOptimizedFrame(custom_root_body_visitor, isolate());
 
-  isolate()->IterateClientIsolates(
-      [this, custom_root_body_visitor](Isolate* client) {
-        ProcessTopOptimizedFrame(custom_root_body_visitor, client);
-      });
+  if (isolate()->global_safepoint()) {
+    isolate()->global_safepoint()->IterateClientIsolates(
+        [this, custom_root_body_visitor](Isolate* client) {
+          ProcessTopOptimizedFrame(custom_root_body_visitor, client);
+        });
+  }
 }
 
 void MarkCompactCollector::VisitObject(HeapObject obj) {
@@ -4260,6 +4262,11 @@ void MarkCompactCollector::UpdatePointersAfterEvacuation() {
     CollectRememberedSetUpdatingItems(&updating_items, heap()->map_space(),
                                       RememberedSetUpdatingMode::ALL);
 
+    // In order to update pointers in map space at the same time as other spaces
+    // we need to ensure that young generation is empty. Otherwise, iterating
+    // to space may require a valid body descriptor for e.g. WasmStruct which
+    // races with updating a slot in Map.
+    CHECK(FLAG_always_promote_young_mc);
     CollectToSpaceUpdatingItems(&updating_items);
     updating_items.push_back(
         std::make_unique<EphemeronTableUpdatingItem>(heap()));
