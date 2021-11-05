@@ -5,6 +5,7 @@
 #include "include/v8-cppgc.h"
 #include "include/v8-traced-handle.h"
 #include "src/api/api-inl.h"
+#include "src/handles/global-handles.h"
 #include "src/heap/cppgc/visitor.h"
 #include "test/unittests/heap/heap-utils.h"
 #include "test/unittests/test-utils.h"
@@ -215,7 +216,9 @@ TEST_F(TracedReferenceTest, NoWriteBarrierOnConstruction) {
     SimulateIncrementalMarking();
     MarkCompactCollector::MarkingState state;
     ASSERT_TRUE(state.IsWhite(HeapObject::cast(*Utils::OpenHandle(*local))));
-    std::make_unique<v8::TracedReference<v8::Object>>(v8_isolate(), local);
+    auto ref =
+        std::make_unique<v8::TracedReference<v8::Object>>(v8_isolate(), local);
+    USE(ref);
     EXPECT_TRUE(state.IsWhite(HeapObject::cast(*Utils::OpenHandle(*local))));
   }
 }

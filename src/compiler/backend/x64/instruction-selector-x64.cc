@@ -297,6 +297,13 @@ ArchOpcode GetLoadOpcode(LoadRepresentation load_rep) {
     case MachineRepresentation::kWord64:
       opcode = kX64Movq;
       break;
+    case MachineRepresentation::kCagedPointer:
+#ifdef V8_CAGED_POINTERS
+      opcode = kX64MovqDecodeCagedPointer;
+      break;
+#else
+      UNREACHABLE();
+#endif
     case MachineRepresentation::kSimd128:
       opcode = kX64Movdqu;
       break;
@@ -333,6 +340,12 @@ ArchOpcode GetStoreOpcode(StoreRepresentation store_rep) {
       return kX64MovqCompressTagged;
     case MachineRepresentation::kWord64:
       return kX64Movq;
+    case MachineRepresentation::kCagedPointer:
+#ifdef V8_CAGED_POINTERS
+      return kX64MovqEncodeCagedPointer;
+#else
+      UNREACHABLE();
+#endif
     case MachineRepresentation::kSimd128:
       return kX64Movdqu;
     case MachineRepresentation::kNone:  // Fall through.
@@ -3870,6 +3883,22 @@ void InstructionSelector::VisitI32x4TruncSatF64x2UZero(Node* node) {
                                ? g.DefineAsRegister(node)
                                : g.DefineSameAsFirst(node);
   Emit(kX64I32x4TruncSatF64x2UZero, dst, g.UseRegister(node->InputAt(0)));
+}
+
+void InstructionSelector::VisitI32x4RelaxedTruncF64x2SZero(Node* node) {
+  VisitFloatUnop(this, node, node->InputAt(0), kX64Cvttpd2dq);
+}
+
+void InstructionSelector::VisitI32x4RelaxedTruncF64x2UZero(Node* node) {
+  VisitFloatUnop(this, node, node->InputAt(0), kX64I32x4TruncF64x2UZero);
+}
+
+void InstructionSelector::VisitI32x4RelaxedTruncF32x4S(Node* node) {
+  VisitFloatUnop(this, node, node->InputAt(0), kX64Cvttps2dq);
+}
+
+void InstructionSelector::VisitI32x4RelaxedTruncF32x4U(Node* node) {
+  VisitFloatUnop(this, node, node->InputAt(0), kX64I32x4TruncF32x4U);
 }
 
 void InstructionSelector::VisitI64x2GtS(Node* node) {

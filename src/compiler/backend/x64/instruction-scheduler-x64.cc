@@ -126,6 +126,10 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kX64Pinsrw:
     case kX64Pinsrd:
     case kX64Pinsrq:
+    case kX64Cvttps2dq:
+    case kX64Cvttpd2dq:
+    case kX64I32x4TruncF64x2UZero:
+    case kX64I32x4TruncF32x4U:
     case kX64F64x2Splat:
     case kX64F64x2ExtractLane:
     case kX64F64x2ReplaceLane:
@@ -392,6 +396,8 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kX64MovqDecompressTaggedPointer:
     case kX64MovqDecompressAnyTagged:
     case kX64MovqCompressTagged:
+    case kX64MovqDecodeCagedPointer:
+    case kX64MovqEncodeCagedPointer:
     case kX64Movq:
     case kX64Movsd:
     case kX64Movss:

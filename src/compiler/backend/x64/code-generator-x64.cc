@@ -344,6 +344,9 @@ void EmitStore(TurboAssembler* tasm, Operand operand, Register value,
       case MachineRepresentation::kTagged:
         tasm->StoreTaggedField(operand, value);
         break;
+      case MachineRepresentation::kCagedPointer:
+        tasm->StoreCagedPointerField(operand, value);
+        break;
       default:
         UNREACHABLE();
     }
@@ -509,19 +512,33 @@ void EmitTSANStoreOOL(Zone* zone, CodeGenerator* codegen, TurboAssembler* tasm,
 
 template <std::memory_order order>
 Register GetTSANValueRegister(TurboAssembler* tasm, Register value,
-                              X64OperandConverter& i) {
+                              X64OperandConverter& i,
+                              MachineRepresentation rep) {
+  if (rep == MachineRepresentation::kCagedPointer) {
+    // CagedPointers need to be encoded.
+    Register value_reg = i.TempRegister(1);
+    tasm->movq(value_reg, value);
+    tasm->EncodeCagedPointer(value_reg);
+    return value_reg;
+  }
   return value;
 }
 
 template <std::memory_order order>
 Register GetTSANValueRegister(TurboAssembler* tasm, Immediate value,
-                              X64OperandConverter& i);
+                              X64OperandConverter& i,
+                              MachineRepresentation rep);
 
 template <>
 Register GetTSANValueRegister<std::memory_order_relaxed>(
-    TurboAssembler* tasm, Immediate value, X64OperandConverter& i) {
+    TurboAssembler* tasm, Immediate value, X64OperandConverter& i,
+    MachineRepresentation rep) {
   Register value_reg = i.TempRegister(1);
   tasm->movq(value_reg, value);
+  if (rep == MachineRepresentation::kCagedPointer) {
+    // CagedPointers need to be encoded.
+    tasm->EncodeCagedPointer(value_reg);
+  }
   return value_reg;
 }
 
@@ -539,7 +556,7 @@ void EmitTSANAwareStore(Zone* zone, CodeGenerator* codegen,
     int size = ElementSizeInBytes(rep);
     EmitMemoryProbeForTrapHandlerIfNeeded(tasm, i.TempRegister(0), operand,
                                           stub_call_mode, size);
-    Register value_reg = GetTSANValueRegister<order>(tasm, value, i);
+    Register value_reg = GetTSANValueRegister<order>(tasm, value, i, rep);
     EmitTSANStoreOOL(zone, codegen, tasm, operand, value_reg, i, stub_call_mode,
                      size, order);
   } else {
@@ -2369,6 +2386,28 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
       }
       break;
     }
+    case kX64MovqDecodeCagedPointer: {
+      CHECK(instr->HasOutput());
+      Operand address(i.MemoryOperand());
+      Register dst = i.OutputRegister();
+      __ movq(dst, address);
+      __ DecodeCagedPointer(dst);
+      EmitTSANRelaxedLoadOOLIfNeeded(zone(), this, tasm(), address, i,
+                                     DetermineStubCallMode(),
+                                     kSystemPointerSize);
+      break;
+    }
+    case kX64MovqEncodeCagedPointer: {
+      CHECK(!instr->HasOutput());
+      size_t index = 0;
+      Operand operand = i.MemoryOperand(&index);
+      CHECK(!HasImmediateInput(instr, index));
+      Register value(i.InputRegister(index));
+      EmitTSANAwareStore<std::memory_order_relaxed>(
+          zone(), this, tasm(), operand, value, i, DetermineStubCallMode(),
+          MachineRepresentation::kCagedPointer);
+      break;
+    }
     case kX64Movq:
       EmitOOLTrapIfNeeded(zone(), this, opcode, instr, __ pc_offset());
       if (instr->HasOutput()) {
@@ -4072,6 +4111,25 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleArchInstruction(
     case kX64Pblendvb: {
       __ Pblendvb(i.OutputSimd128Register(), i.InputSimd128Register(0),
                   i.InputSimd128Register(1), i.InputSimd128Register(2));
+      break;
+    }
+    case kX64I32x4TruncF64x2UZero: {
+      __ I32x4TruncF64x2UZero(i.OutputSimd128Register(),
+                              i.InputSimd128Register(0), kScratchRegister,
+                              kScratchDoubleReg);
+      break;
+    }
+    case kX64I32x4TruncF32x4U: {
+      __ I32x4TruncF32x4U(i.OutputSimd128Register(), i.InputSimd128Register(0),
+                          kScratchRegister, kScratchDoubleReg);
+      break;
+    }
+    case kX64Cvttps2dq: {
+      __ Cvttps2dq(i.OutputSimd128Register(), i.InputSimd128Register(0));
+      break;
+    }
+    case kX64Cvttpd2dq: {
+      __ Cvttpd2dq(i.OutputSimd128Register(), i.InputSimd128Register(0));
       break;
     }
     case kAtomicStoreWord8: {

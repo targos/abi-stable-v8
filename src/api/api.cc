@@ -8491,6 +8491,10 @@ Isolate* Isolate::TryGetCurrent() {
   return reinterpret_cast<Isolate*>(isolate);
 }
 
+bool Isolate::IsCurrent() const {
+  return reinterpret_cast<const i::Isolate*>(this)->IsCurrent();
+}
+
 // static
 Isolate* Isolate::Allocate() {
   return reinterpret_cast<Isolate*>(i::Isolate::New());

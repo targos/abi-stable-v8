@@ -211,6 +211,9 @@
   'regress/regress-crbug-941743': [PASS, HEAVY],
   'regress/regress-crbug-1191886': [PASS, HEAVY],
   'wasm/externref-globals': [PASS, HEAVY],
+
+  # Enable when stack-switching supports GC.
+  'wasm/stack-switching': [SKIP],
 }],  # ALWAYS
 
 ##############################################################################
@@ -1671,7 +1674,6 @@
   'compiler/native-context-specialization-hole-check': [FAIL],
   'compiler/test-literal-map-migration': [FAIL],
   'regress/regress-4121': [FAIL],
-  'regress/regress-crbug-1052647': [FAIL],
   'regress/regress-trap-allocation-memento': [FAIL],
 }], # variant == google3_nociu or variant == google3_icu
 

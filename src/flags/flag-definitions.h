@@ -181,6 +181,12 @@ struct MaybeBoolFlag {
 #define V8_VIRTUAL_MEMORY_CAGE_BOOL false
 #endif
 
+#ifdef V8_CAGED_POINTERS
+#define V8_CAGED_POINTERS_BOOL true
+#else
+#define V8_CAGED_POINTERS_BOOL false
+#endif
+
 // D8's MultiMappedAllocator is only available on Linux, and only if the virtual
 // memory cage is not enabled.
 #if V8_OS_LINUX && !V8_VIRTUAL_MEMORY_CAGE_BOOL
@@ -549,6 +555,9 @@ DEFINE_NEG_IMPLICATION(jitless, interpreted_frames_native_stack)
 
 DEFINE_BOOL(assert_types, false,
             "generate runtime type assertions to test the typer")
+// TODO(tebbi): Support allocating types from background thread.
+DEFINE_NEG_IMPLICATION(assert_types, concurrent_recompilation)
+DEFINE_NEG_IMPLICATION(assert_types, concurrent_inlining)
 
 DEFINE_BOOL(trace_compilation_dependencies, false, "trace code dependencies")
 // Depend on --trace-deopt-verbose for reporting dependency invalidations.
