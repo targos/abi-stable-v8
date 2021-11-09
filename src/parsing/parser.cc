@@ -2696,12 +2696,14 @@ FunctionLiteral* Parser::ParseFunctionLiteral(
 
   RecordFunctionLiteralSourceRange(function_literal);
 
-  if (should_post_parallel_task) {
+  if (should_post_parallel_task && !has_error()) {
     // Start a parallel parse / compile task on the compiler dispatcher.
     Handle<SharedFunctionInfo> shared_info =
         local_isolate_->factory()->NewSharedFunctionInfoForLiteral(
             function_literal, script_, false);
-    info()->dispatcher()->Enqueue(info(), shared_info, function_literal);
+    info()->dispatcher()->Enqueue(shared_info,
+                                  info()->character_stream()->Clone(),
+                                  function_literal->produced_preparse_data());
   }
 
   if (should_infer_name) {
