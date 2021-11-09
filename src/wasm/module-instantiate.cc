@@ -668,11 +668,7 @@ MaybeHandle<WasmInstanceObject> InstanceBuilder::Build() {
 
   {
     Handle<FixedArray> tables = isolate_->factory()->NewFixedArray(table_count);
-    // Table 0 is handled specially. See {InitializeIndirectFunctionTable} for
-    // the initilization. All generated and runtime code will use this optimized
-    // shortcut in the instance. Hence it is safe to start with table 1 in the
-    // iteration below.
-    for (int i = 1; i < table_count; ++i) {
+    for (int i = 0; i < table_count; ++i) {
       const WasmTable& table = module_->tables[i];
       if (IsSubtypeOf(table.type, kWasmFuncRef, module_)) {
         Handle<WasmIndirectFunctionTable> table_obj =
@@ -682,6 +678,8 @@ MaybeHandle<WasmInstanceObject> InstanceBuilder::Build() {
     }
     instance->set_indirect_function_tables(*tables);
   }
+
+  instance->SetIndirectFunctionTableShortcuts(isolate_);
 
   //--------------------------------------------------------------------------
   // Process the imports for the module.
@@ -1187,9 +1185,10 @@ bool InstanceBuilder::InitializeImportedIndirectFunctionTable(
     // Look up the signature's canonical id. If there is no canonical
     // id, then the signature does not appear at all in this module,
     // so putting {-1} in the table will cause checks to always fail.
-    IndirectFunctionTableEntry(instance, table_index, i)
-        .Set(module_->signature_map.Find(*sig), target_instance,
-             function_index);
+    FunctionTargetAndRef entry(target_instance, function_index);
+    instance->GetIndirectFunctionTable(isolate_, table_index)
+        ->Set(i, module_->signature_map.Find(*sig), entry.call_target(),
+              *entry.ref());
   }
   return true;
 }
@@ -1871,7 +1870,8 @@ void SetNullTableEntry(Isolate* isolate, Handle<WasmInstanceObject> instance,
                        uint32_t table_index, uint32_t entry_index) {
   const WasmModule* module = instance->module();
   if (IsSubtypeOf(table_object->type(), kWasmFuncRef, module)) {
-    IndirectFunctionTableEntry(instance, table_index, entry_index).clear();
+    instance->GetIndirectFunctionTable(isolate, table_index)
+        ->Clear(entry_index);
   }
   WasmTableObject::Set(isolate, table_object, entry_index,
                        isolate->factory()->null_value());
@@ -1898,8 +1898,9 @@ void SetFunctionTableEntry(Isolate* isolate,
 
     // Update the local dispatch table first if necessary.
     uint32_t sig_id = module->canonicalized_type_ids[function->sig_index];
-    IndirectFunctionTableEntry(instance, table_index, entry_index)
-        .Set(sig_id, instance, func_index);
+    FunctionTargetAndRef entry(instance, func_index);
+    instance->GetIndirectFunctionTable(isolate, table_index)
+        ->Set(entry_index, sig_id, entry.call_target(), *entry.ref());
 
     // Update the table object's other dispatch tables.
     MaybeHandle<WasmExternalFunction> wasm_external_function =

@@ -52,6 +52,7 @@ TQ_OBJECT_CONSTRUCTORS_IMPL(WasmTypeInfo)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmStruct)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmArray)
 TQ_OBJECT_CONSTRUCTORS_IMPL(WasmContinuationObject)
+TQ_OBJECT_CONSTRUCTORS_IMPL(WasmSuspenderObject)
 
 CAST_ACCESSOR(WasmInstanceObject)
 
@@ -266,32 +267,6 @@ void WasmInstanceObject::clear_padding() {
     memset(reinterpret_cast<void*>(address() + kOptionalPaddingOffset), 0,
            FIELD_SIZE(kOptionalPaddingOffset));
   }
-}
-
-IndirectFunctionTableEntry::IndirectFunctionTableEntry(
-    Handle<WasmInstanceObject> instance, int table_index, int entry_index)
-    : instance_(table_index == 0 ? instance
-                                 : Handle<WasmInstanceObject>::null()),
-      table_(table_index != 0
-                 ? handle(WasmIndirectFunctionTable::cast(
-                              instance->indirect_function_tables().get(
-                                  table_index)),
-                          instance->GetIsolate())
-                 : Handle<WasmIndirectFunctionTable>::null()),
-      index_(entry_index) {
-  DCHECK_GE(entry_index, 0);
-  DCHECK_LT(entry_index, table_index == 0
-                             ? instance->indirect_function_table_size()
-                             : table_->size());
-}
-
-IndirectFunctionTableEntry::IndirectFunctionTableEntry(
-    Handle<WasmIndirectFunctionTable> table, int entry_index)
-    : instance_(Handle<WasmInstanceObject>::null()),
-      table_(table),
-      index_(entry_index) {
-  DCHECK_GE(entry_index, 0);
-  DCHECK_LT(entry_index, table_->size());
 }
 
 ImportedFunctionEntry::ImportedFunctionEntry(
