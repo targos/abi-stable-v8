@@ -343,8 +343,7 @@ uint32_t TestingModuleBuilder::AddPassiveElementSegment(
 
 CompilationEnv TestingModuleBuilder::CreateCompilationEnv() {
   return {test_module_.get(), native_module_->bounds_checks(),
-          runtime_exception_support_, enabled_features_,
-          DynamicTiering::kDisabled};
+          runtime_exception_support_, enabled_features_, kNoDynamicTiering};
 }
 
 const WasmGlobal* TestingModuleBuilder::AddGlobal(ValueType type) {
@@ -360,12 +359,10 @@ const WasmGlobal* TestingModuleBuilder::AddGlobal(ValueType type) {
 
 Handle<WasmInstanceObject> TestingModuleBuilder::InitInstanceObject() {
   const bool kUsesLiftoff = true;
-  DynamicTiering dynamic_tiering = FLAG_wasm_dynamic_tiering
-                                       ? DynamicTiering::kEnabled
-                                       : DynamicTiering::kDisabled;
   size_t code_size_estimate =
       wasm::WasmCodeManager::EstimateNativeModuleCodeSize(
-          test_module_.get(), kUsesLiftoff, dynamic_tiering);
+          test_module_.get(), kUsesLiftoff,
+          DynamicTiering{FLAG_wasm_dynamic_tiering});
   auto native_module = GetWasmEngine()->NewNativeModule(
       isolate_, enabled_features_, test_module_, code_size_estimate);
   native_module->SetWireBytes(base::OwnedVector<const uint8_t>());
@@ -585,8 +582,10 @@ void WasmFunctionCompiler::Build(const byte* start, const byte* end) {
   if (builder_->test_execution_tier() ==
       TestExecutionTier::kLiftoffForFuzzing) {
     result.emplace(ExecuteLiftoffCompilation(
-        &env, func_body, function_->func_index, kForDebugging,
+        &env, func_body,
         LiftoffOptions{}
+            .set_func_index(function_->func_index)
+            .set_for_debugging(kForDebugging)
             .set_max_steps(builder_->max_steps_ptr())
             .set_nondeterminism(builder_->non_determinism_ptr())));
   } else {

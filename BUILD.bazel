@@ -579,7 +579,6 @@ filegroup(
         "src/base/address-region.h",
         "src/base/atomic-utils.h",
         "src/base/atomicops.h",
-        "src/base/atomicops_internals_atomicword_compat.h",
         "src/base/base-export.h",
         "src/base/bit-field.h",
         "src/base/bits-iterator.h",
@@ -689,6 +688,7 @@ filegroup(
         "@v8//bazel/config:is_linux": [
             "src/base/debug/stack_trace_posix.cc",
             "src/base/platform/platform-linux.cc",
+            "src/base/platform/platform-linux.h",
         ],
         "@v8//bazel/config:is_android": [
             "src/base/debug/stack_trace_android.cc",
@@ -1121,6 +1121,7 @@ filegroup(
         "src/builtins/builtins-utils-inl.h",
         "src/builtins/builtins-utils.h",
         "src/builtins/builtins-weak-refs.cc",
+        "src/builtins/builtins-web-snapshots.cc",
         "src/builtins/builtins.cc",
         "src/builtins/builtins.h",
         "src/builtins/constants-table-builder.cc",
@@ -1205,6 +1206,9 @@ filegroup(
         "src/common/assert-scope.h",
         "src/common/allow-deprecated.h",
         "src/common/checks.h",
+        "src/common/code-memory-access-inl.h",
+        "src/common/code-memory-access.cc",
+        "src/common/code-memory-access.h",
         "src/common/high-allocation-throughput-scope.h",
         "src/common/message-template.h",
         "src/common/operation.h",

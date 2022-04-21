@@ -192,10 +192,9 @@ const char* FeedbackMetadata::Kind2String(FeedbackSlotKind kind) {
       return "InstanceOf";
     case FeedbackSlotKind::kCloneObject:
       return "CloneObject";
-    case FeedbackSlotKind::kKindsNumber:
-      break;
+    case FeedbackSlotKind::kJumpLoop:
+      return "JumpLoop";
   }
-  UNREACHABLE();
 }
 
 bool FeedbackMetadata::HasTypeProfileSlot() const {
@@ -282,6 +281,7 @@ Handle<FeedbackVector> FeedbackVector::New(
       case FeedbackSlotKind::kLoadGlobalNotInsideTypeof:
       case FeedbackSlotKind::kStoreGlobalSloppy:
       case FeedbackSlotKind::kStoreGlobalStrict:
+      case FeedbackSlotKind::kJumpLoop:
         vector->Set(slot, HeapObjectReference::ClearedValue(isolate),
                     SKIP_WRITE_BARRIER);
         break;
@@ -315,7 +315,6 @@ Handle<FeedbackVector> FeedbackVector::New(
         break;
 
       case FeedbackSlotKind::kInvalid:
-      case FeedbackSlotKind::kKindsNumber:
         UNREACHABLE();
     }
     for (int j = 1; j < entry_size; j++) {
@@ -412,6 +411,13 @@ void FeedbackVector::ClearOptimizedCode() {
   set_maybe_has_optimized_code(false);
 }
 
+void FeedbackVector::SetOptimizedOsrCode(FeedbackSlot slot, CodeT code) {
+  DCHECK(CodeKindIsOptimizedJSFunction(code.kind()));
+  DCHECK(!slot.IsInvalid());
+  Set(slot, HeapObjectReference::Weak(code));
+  set_maybe_has_optimized_osr_code(true);
+}
+
 void FeedbackVector::reset_tiering_state() {
   set_tiering_state(TieringState::kNone);
 }
@@ -424,8 +430,9 @@ void FeedbackVector::set_tiering_state(TieringState state) {
 
 void FeedbackVector::reset_flags() {
   set_flags(TieringStateBits::encode(TieringState::kNone) |
+            MaybeHasOptimizedCodeBit::encode(false) |
             OsrTieringStateBit::encode(TieringState::kNone) |
-            MaybeHasOptimizedCodeBit::encode(false));
+            MaybeHasOptimizedOsrCodeBit::encode(false));
 }
 
 TieringState FeedbackVector::osr_tiering_state() {
@@ -550,22 +557,19 @@ void FeedbackNexus::ConfigureUninitialized() {
     case FeedbackSlotKind::kStoreGlobalSloppy:
     case FeedbackSlotKind::kStoreGlobalStrict:
     case FeedbackSlotKind::kLoadGlobalNotInsideTypeof:
-    case FeedbackSlotKind::kLoadGlobalInsideTypeof: {
+    case FeedbackSlotKind::kLoadGlobalInsideTypeof:
       SetFeedback(HeapObjectReference::ClearedValue(isolate),
                   SKIP_WRITE_BARRIER, UninitializedSentinel(),
                   SKIP_WRITE_BARRIER);
       break;
-    }
     case FeedbackSlotKind::kCloneObject:
-    case FeedbackSlotKind::kCall: {
+    case FeedbackSlotKind::kCall:
       SetFeedback(UninitializedSentinel(), SKIP_WRITE_BARRIER, Smi::zero(),
                   SKIP_WRITE_BARRIER);
       break;
-    }
-    case FeedbackSlotKind::kInstanceOf: {
+    case FeedbackSlotKind::kInstanceOf:
       SetFeedback(UninitializedSentinel(), SKIP_WRITE_BARRIER);
       break;
-    }
     case FeedbackSlotKind::kSetNamedSloppy:
     case FeedbackSlotKind::kSetNamedStrict:
     case FeedbackSlotKind::kSetKeyedSloppy:
@@ -576,11 +580,14 @@ void FeedbackNexus::ConfigureUninitialized() {
     case FeedbackSlotKind::kLoadProperty:
     case FeedbackSlotKind::kLoadKeyed:
     case FeedbackSlotKind::kHasKeyed:
-    case FeedbackSlotKind::kDefineKeyedOwnPropertyInLiteral: {
+    case FeedbackSlotKind::kDefineKeyedOwnPropertyInLiteral:
       SetFeedback(UninitializedSentinel(), SKIP_WRITE_BARRIER,
                   UninitializedSentinel(), SKIP_WRITE_BARRIER);
       break;
-    }
+    case FeedbackSlotKind::kJumpLoop:
+      SetFeedback(HeapObjectReference::ClearedValue(isolate),
+                  SKIP_WRITE_BARRIER);
+      break;
     default:
       UNREACHABLE();
   }
@@ -623,6 +630,7 @@ bool FeedbackNexus::Clear() {
     case FeedbackSlotKind::kInstanceOf:
     case FeedbackSlotKind::kDefineKeyedOwnPropertyInLiteral:
     case FeedbackSlotKind::kCloneObject:
+    case FeedbackSlotKind::kJumpLoop:
       if (!IsCleared()) {
         ConfigureUninitialized();
         feedback_updated = true;
@@ -630,7 +638,6 @@ bool FeedbackNexus::Clear() {
       break;
 
     case FeedbackSlotKind::kInvalid:
-    case FeedbackSlotKind::kKindsNumber:
       UNREACHABLE();
   }
   return feedback_updated;
@@ -692,7 +699,8 @@ InlineCacheState FeedbackNexus::ic_state() const {
     case FeedbackSlotKind::kStoreGlobalSloppy:
     case FeedbackSlotKind::kStoreGlobalStrict:
     case FeedbackSlotKind::kLoadGlobalNotInsideTypeof:
-    case FeedbackSlotKind::kLoadGlobalInsideTypeof: {
+    case FeedbackSlotKind::kLoadGlobalInsideTypeof:
+    case FeedbackSlotKind::kJumpLoop: {
       if (feedback->IsSmi()) return InlineCacheState::MONOMORPHIC;
 
       DCHECK(feedback->IsWeakOrCleared());
@@ -834,7 +842,6 @@ InlineCacheState FeedbackNexus::ic_state() const {
     }
 
     case FeedbackSlotKind::kInvalid:
-    case FeedbackSlotKind::kKindsNumber:
       UNREACHABLE();
   }
   return InlineCacheState::UNINITIALIZED;

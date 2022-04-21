@@ -4,12 +4,15 @@
 
 #include "src/maglev/maglev-graph-builder.h"
 
+#include "src/common/globals.h"
 #include "src/compiler/compilation-dependencies.h"
 #include "src/compiler/feedback-source.h"
 #include "src/compiler/heap-refs.h"
 #include "src/compiler/processed-feedback.h"
 #include "src/handles/maybe-handles-inl.h"
 #include "src/ic/handler-configuration-inl.h"
+#include "src/maglev/maglev-compilation-unit.h"
+#include "src/maglev/maglev-interpreter-frame-state.h"
 #include "src/maglev/maglev-ir.h"
 #include "src/objects/feedback-vector.h"
 #include "src/objects/name-inl.h"
@@ -34,16 +37,17 @@ int LoadSimpleFieldHandler(FieldIndex field_index) {
 }  // namespace
 
 MaglevGraphBuilder::MaglevGraphBuilder(LocalIsolate* local_isolate,
-                                       MaglevCompilationUnit* compilation_unit)
+                                       MaglevCompilationUnit* compilation_unit,
+                                       Graph* graph)
     : local_isolate_(local_isolate),
       compilation_unit_(compilation_unit),
+      graph_(graph),
       iterator_(bytecode().object()),
       jump_targets_(zone()->NewArray<BasicBlockRef>(bytecode().length())),
       // Overallocate merge_states_ by one to allow always looking up the
       // next offset.
       merge_states_(zone()->NewArray<MergePointInterpreterFrameState*>(
           bytecode().length() + 1)),
-      graph_(Graph::New(zone())),
       current_interpreter_frame_(*compilation_unit_) {
   memset(merge_states_, 0,
          bytecode().length() * sizeof(InterpreterFrameState*));
@@ -142,15 +146,15 @@ using GenericNodeForOperation =
 template <Operation kOperation>
 void MaglevGraphBuilder::BuildGenericUnaryOperationNode() {
   FeedbackSlot slot_index = GetSlotOperand(0);
-  ValueNode* value = GetAccumulatorTaggedValue();
+  ValueNode* value = GetAccumulatorTagged();
   SetAccumulator(AddNewNode<GenericNodeForOperation<kOperation>>(
       {value}, compiler::FeedbackSource{feedback(), slot_index}));
 }
 
 template <Operation kOperation>
 void MaglevGraphBuilder::BuildGenericBinaryOperationNode() {
-  ValueNode* left = LoadRegisterTaggedValue(0);
-  ValueNode* right = GetAccumulatorTaggedValue();
+  ValueNode* left = LoadRegisterTagged(0);
+  ValueNode* right = GetAccumulatorTagged();
   FeedbackSlot slot_index = GetSlotOperand(1);
   SetAccumulator(AddNewNode<GenericNodeForOperation<kOperation>>(
       {left, right}, compiler::FeedbackSource{feedback(), slot_index}));
@@ -158,7 +162,7 @@ void MaglevGraphBuilder::BuildGenericBinaryOperationNode() {
 
 template <Operation kOperation>
 void MaglevGraphBuilder::BuildGenericBinarySmiOperationNode() {
-  ValueNode* left = GetAccumulatorTaggedValue();
+  ValueNode* left = GetAccumulatorTagged();
   Smi constant = Smi::FromInt(iterator_.GetImmediateOperand(0));
   ValueNode* right = AddNewNode<SmiConstant>({}, constant);
   FeedbackSlot slot_index = GetSlotOperand(1);
@@ -183,10 +187,10 @@ void MaglevGraphBuilder::VisitBinaryOperation() {
       if (hint == BinaryOperationHint::kSignedSmall) {
         ValueNode *left, *right;
         if (IsRegisterEqualToAccumulator(0)) {
-          left = right = LoadRegisterSmiUntaggedValue(0);
+          left = right = LoadRegisterInt32(0);
         } else {
-          left = LoadRegisterSmiUntaggedValue(0);
-          right = GetAccumulatorSmiUntaggedValue();
+          left = LoadRegisterInt32(0);
+          right = GetAccumulatorInt32();
         }
 
         if (kOperation == Operation::kAdd) {
@@ -210,7 +214,7 @@ void MaglevGraphBuilder::VisitBinarySmiOperation() {
       BinaryOperationHint hint = nexus.GetBinaryOperationFeedback();
 
       if (hint == BinaryOperationHint::kSignedSmall) {
-        ValueNode* left = GetAccumulatorSmiUntaggedValue();
+        ValueNode* left = GetAccumulatorInt32();
         int32_t constant = iterator_.GetImmediateOperand(0);
 
         if (kOperation == Operation::kAdd) {
@@ -395,7 +399,7 @@ MAGLEV_UNIMPLEMENTED_BYTECODE(LdaLookupGlobalSlotInsideTypeof)
 MAGLEV_UNIMPLEMENTED_BYTECODE(StaLookupSlot)
 void MaglevGraphBuilder::VisitGetNamedProperty() {
   // GetNamedProperty <object> <name_index> <slot>
-  ValueNode* object = LoadRegisterTaggedValue(0);
+  ValueNode* object = LoadRegisterTagged(0);
   compiler::NameRef name = GetRefOperand<Name>(1);
   FeedbackSlot slot = GetSlotOperand(2);
   compiler::FeedbackSource feedback_source{feedback(), slot};
@@ -449,7 +453,7 @@ MAGLEV_UNIMPLEMENTED_BYTECODE(StaModuleVariable)
 
 void MaglevGraphBuilder::VisitSetNamedProperty() {
   // SetNamedProperty <object> <name_index> <slot>
-  ValueNode* object = LoadRegisterTaggedValue(0);
+  ValueNode* object = LoadRegisterTagged(0);
   compiler::NameRef name = GetRefOperand<Name>(1);
   FeedbackSlot slot = GetSlotOperand(2);
   compiler::FeedbackSource feedback_source{feedback(), slot};
@@ -477,7 +481,7 @@ void MaglevGraphBuilder::VisitSetNamedProperty() {
           StoreHandler::Kind kind = StoreHandler::KindBits::decode(smi_handler);
           if (kind == StoreHandler::Kind::kField) {
             AddNewNode<CheckMaps>({object}, named_feedback.maps()[0]);
-            ValueNode* value = GetAccumulatorTaggedValue();
+            ValueNode* value = GetAccumulatorTagged();
             AddNewNode<StoreField>({object, value}, smi_handler);
             return;
           }
@@ -595,7 +599,7 @@ MAGLEV_UNIMPLEMENTED_BYTECODE(GetSuperConstructor)
 // TODO(v8:7700): Read feedback and implement inlining
 void MaglevGraphBuilder::BuildCallFromRegisterList(
     ConvertReceiverMode receiver_mode) {
-  ValueNode* function = LoadRegisterTaggedValue(0);
+  ValueNode* function = LoadRegisterTagged(0);
 
   interpreter::RegisterList args = iterator_.GetRegisterListOperand(1);
   ValueNode* context = GetContext();
@@ -625,7 +629,7 @@ void MaglevGraphBuilder::BuildCallFromRegisterList(
 void MaglevGraphBuilder::BuildCallFromRegisters(
     int argc_count, ConvertReceiverMode receiver_mode) {
   DCHECK_LE(argc_count, 2);
-  ValueNode* function = LoadRegisterTaggedValue(0);
+  ValueNode* function = LoadRegisterTagged(0);
   ValueNode* context = GetContext();
 
   int argc_count_with_recv = argc_count + 1;
@@ -646,7 +650,7 @@ void MaglevGraphBuilder::BuildCallFromRegisters(
     call->set_arg(arg_index++, undefined_constant);
   }
   for (int i = 0; i < reg_count; i++) {
-    call->set_arg(arg_index++, LoadRegisterTaggedValue(i + 1));
+    call->set_arg(arg_index++, LoadRegisterTagged(i + 1));
   }
 
   SetAccumulator(call);
@@ -807,19 +811,19 @@ void MaglevGraphBuilder::BuildBranchIfToBooleanTrue(ValueNode* node,
   MergeIntoFrameState(block, iterator_.GetJumpTargetOffset());
 }
 void MaglevGraphBuilder::VisitJumpIfToBooleanTrue() {
-  BuildBranchIfToBooleanTrue(GetAccumulatorTaggedValue(),
+  BuildBranchIfToBooleanTrue(GetAccumulatorTagged(),
                              iterator_.GetJumpTargetOffset(), next_offset());
 }
 void MaglevGraphBuilder::VisitJumpIfToBooleanFalse() {
-  BuildBranchIfToBooleanTrue(GetAccumulatorTaggedValue(), next_offset(),
+  BuildBranchIfToBooleanTrue(GetAccumulatorTagged(), next_offset(),
                              iterator_.GetJumpTargetOffset());
 }
 void MaglevGraphBuilder::VisitJumpIfTrue() {
-  BuildBranchIfTrue(GetAccumulatorTaggedValue(),
-                    iterator_.GetJumpTargetOffset(), next_offset());
+  BuildBranchIfTrue(GetAccumulatorTagged(), iterator_.GetJumpTargetOffset(),
+                    next_offset());
 }
 void MaglevGraphBuilder::VisitJumpIfFalse() {
-  BuildBranchIfTrue(GetAccumulatorTaggedValue(), next_offset(),
+  BuildBranchIfTrue(GetAccumulatorTagged(), next_offset(),
                     iterator_.GetJumpTargetOffset());
 }
 MAGLEV_UNIMPLEMENTED_BYTECODE(JumpIfNull)
@@ -838,7 +842,7 @@ MAGLEV_UNIMPLEMENTED_BYTECODE(SetPendingMessage)
 MAGLEV_UNIMPLEMENTED_BYTECODE(Throw)
 MAGLEV_UNIMPLEMENTED_BYTECODE(ReThrow)
 void MaglevGraphBuilder::VisitReturn() {
-  FinishBlock<Return>(next_offset(), {GetAccumulatorTaggedValue()});
+  FinishBlock<Return>(next_offset(), {GetAccumulatorTagged()});
 }
 MAGLEV_UNIMPLEMENTED_BYTECODE(ThrowReferenceErrorIfHole)
 MAGLEV_UNIMPLEMENTED_BYTECODE(ThrowSuperNotCalledIfHole)

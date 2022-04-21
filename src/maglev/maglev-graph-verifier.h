@@ -5,6 +5,7 @@
 #ifndef V8_MAGLEV_MAGLEV_GRAPH_VERIFIER_H_
 #define V8_MAGLEV_MAGLEV_GRAPH_VERIFIER_H_
 
+#include "src/maglev/maglev-compilation-info.h"
 #include "src/maglev/maglev-graph-labeller.h"
 #include "src/maglev/maglev-ir.h"
 
@@ -15,10 +16,13 @@ namespace maglev {
 std::ostream& operator<<(std::ostream& os, const ValueRepresentation& repr) {
   switch (repr) {
     case ValueRepresentation::kTagged:
-      os << "TaggedValue";
+      os << "Tagged";
       break;
-    case ValueRepresentation::kUntagged:
-      os << "UntaggedValue";
+    case ValueRepresentation::kInt32:
+      os << "Int32";
+      break;
+    case ValueRepresentation::kFloat64:
+      os << "Float64";
       break;
   }
   return os;
@@ -30,25 +34,26 @@ class Graph;
 // are expected to be tagged/untagged. Add more verification later.
 class MaglevGraphVerifier {
  public:
-  void PreProcessGraph(MaglevCompilationUnit* compilation_unit, Graph* graph) {
-    if (compilation_unit->has_graph_labeller()) {
-      graph_labeller_ = compilation_unit->graph_labeller();
+  void PreProcessGraph(MaglevCompilationInfo* compilation_info, Graph* graph) {
+    if (compilation_info->has_graph_labeller()) {
+      graph_labeller_ = compilation_info->graph_labeller();
     }
   }
 
-  void PostProcessGraph(MaglevCompilationUnit*, Graph* graph) {}
-  void PreProcessBasicBlock(MaglevCompilationUnit*, BasicBlock* block) {}
+  void PostProcessGraph(MaglevCompilationInfo*, Graph* graph) {}
+  void PreProcessBasicBlock(MaglevCompilationInfo*, BasicBlock* block) {}
 
-  void CheckValueInputIs(NodeBase* node, int i, ValueRepresentation repr) {
+  void CheckValueInputIs(NodeBase* node, int i, ValueRepresentation expected) {
     ValueNode* input = node->input(i).node();
-    if (input->value_representation() != repr) {
+    ValueRepresentation got = input->properties().value_representation();
+    if (got != expected) {
       std::ostringstream str;
       str << "Type representation error: node ";
       if (graph_labeller_) {
         str << "#" << graph_labeller_->NodeId(node) << " : ";
       }
       str << node->opcode() << " (input @" << i << " = " << input->opcode()
-          << ") type " << input->value_representation() << " is not " << repr;
+          << ") type " << got << " is not " << expected;
       FATAL("%s", str.str().c_str());
     }
   }
@@ -86,7 +91,7 @@ class MaglevGraphVerifier {
         break;
       case Opcode::kCheckedSmiTag:
         // Untagged unary operations.
-        CheckValueInputIs(node, 0, ValueRepresentation::kUntagged);
+        CheckValueInputIs(node, 0, ValueRepresentation::kInt32);
         break;
       case Opcode::kGenericAdd:
       case Opcode::kGenericSubtract:
@@ -119,8 +124,8 @@ class MaglevGraphVerifier {
         break;
       case Opcode::kInt32AddWithOverflow:
         // Untagged binary operations.
-        CheckValueInputIs(node, 0, ValueRepresentation::kUntagged);
-        CheckValueInputIs(node, 1, ValueRepresentation::kUntagged);
+        CheckValueInputIs(node, 0, ValueRepresentation::kInt32);
+        CheckValueInputIs(node, 1, ValueRepresentation::kInt32);
         break;
       case Opcode::kCall:
       case Opcode::kPhi:

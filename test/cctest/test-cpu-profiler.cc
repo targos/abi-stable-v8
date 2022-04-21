@@ -187,23 +187,23 @@ TEST(CodeEvents) {
   ProfilerListener profiler_listener(isolate, processor,
                                      *code_observer.code_entries(),
                                      *code_observer.weak_code_registry());
-  isolate->logger()->AddCodeEventListener(&profiler_listener);
+  isolate->logger()->AddLogEventListener(&profiler_listener);
 
   // Enqueue code creation events.
   const char* aaa_str = "aaa";
   i::Handle<i::String> aaa_name = factory->NewStringFromAsciiChecked(aaa_str);
-  profiler_listener.CodeCreateEvent(i::Logger::FUNCTION_TAG, aaa_code,
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::FUNCTION_TAG, aaa_code,
                                     aaa_name);
-  profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, comment_code,
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::BUILTIN_TAG, comment_code,
                                     "comment");
-  profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, comment2_code,
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::BUILTIN_TAG, comment2_code,
                                     "comment2");
   profiler_listener.CodeMoveEvent(*comment2_code, *moved_code);
 
   // Enqueue a tick event to enable code events processing.
   EnqueueTickSampleEvent(processor, aaa_code->InstructionStart());
 
-  isolate->logger()->RemoveCodeEventListener(&profiler_listener);
+  isolate->logger()->RemoveLogEventListener(&profiler_listener);
   processor->StopSynchronously();
 
   // Check the state of the symbolizer.
@@ -255,11 +255,14 @@ TEST(TickEvents) {
   ProfilerListener profiler_listener(isolate, processor,
                                      *code_observer->code_entries(),
                                      *code_observer->weak_code_registry());
-  isolate->logger()->AddCodeEventListener(&profiler_listener);
+  isolate->logger()->AddLogEventListener(&profiler_listener);
 
-  profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, frame1_code, "bbb");
-  profiler_listener.CodeCreateEvent(i::Logger::STUB_TAG, frame2_code, "ccc");
-  profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, frame3_code, "ddd");
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::BUILTIN_TAG, frame1_code,
+                                    "bbb");
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::STUB_TAG, frame2_code,
+                                    "ccc");
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::BUILTIN_TAG, frame3_code,
+                                    "ddd");
 
   EnqueueTickSampleEvent(processor, frame1_code->raw_instruction_start());
   EnqueueTickSampleEvent(processor,
@@ -271,7 +274,7 @@ TEST(TickEvents) {
                          frame2_code->raw_instruction_end() - 1,
                          frame1_code->raw_instruction_end() - 1);
 
-  isolate->logger()->RemoveCodeEventListener(&profiler_listener);
+  isolate->logger()->RemoveLogEventListener(&profiler_listener);
   processor->StopSynchronously();
   CpuProfile* profile = profiles->StopProfiling(id);
   CHECK(profile);
@@ -415,7 +418,7 @@ TEST(Issue1398) {
                                      *code_observer->code_entries(),
                                      *code_observer->weak_code_registry());
 
-  profiler_listener.CodeCreateEvent(i::Logger::BUILTIN_TAG, code, "bbb");
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::BUILTIN_TAG, code, "bbb");
 
   v8::internal::TickSample sample;
   sample.pc = reinterpret_cast<void*>(code->InstructionStart());
@@ -1303,7 +1306,7 @@ static void TickLines(bool optimize) {
   i::Handle<i::String> str = factory->NewStringFromAsciiChecked(func_name);
   int line = 1;
   int column = 1;
-  profiler_listener.CodeCreateEvent(i::Logger::FUNCTION_TAG, code,
+  profiler_listener.CodeCreateEvent(i::V8FileLogger::FUNCTION_TAG, code,
                                     handle(func->shared(), isolate), str, line,
                                     column);
 

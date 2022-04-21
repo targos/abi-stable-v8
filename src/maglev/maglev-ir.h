@@ -165,10 +165,7 @@ class ConditionalControlNode;
 class UnconditionalControlNode;
 class ValueNode;
 
-enum class ValueRepresentation {
-  kTagged,
-  kUntagged,
-};
+enum class ValueRepresentation : uint8_t { kTagged, kInt32, kFloat64 };
 
 #define DEF_FORWARD_DECLARATION(type, ...) class type;
 NODE_BASE_LIST(DEF_FORWARD_DECLARATION)
@@ -191,10 +188,9 @@ class OpProperties {
   constexpr bool non_memory_side_effects() const {
     return kNonMemorySideEffectsBit::decode(bitfield_);
   }
-  constexpr bool is_untagged_value() const {
-    return kUntaggedValueBit::decode(bitfield_);
+  constexpr ValueRepresentation value_representation() const {
+    return kValueRepresentationBits::decode(bitfield_);
   }
-
   constexpr bool is_pure() const {
     return (bitfield_ | kPureMask) == kPureValue;
   }
@@ -225,8 +221,17 @@ class OpProperties {
   static constexpr OpProperties NonMemorySideEffects() {
     return OpProperties(kNonMemorySideEffectsBit::encode(true));
   }
-  static constexpr OpProperties UntaggedValue() {
-    return OpProperties(kUntaggedValueBit::encode(true));
+  static constexpr OpProperties TaggedValue() {
+    return OpProperties(
+        kValueRepresentationBits::encode(ValueRepresentation::kTagged));
+  }
+  static constexpr OpProperties Int32() {
+    return OpProperties(
+        kValueRepresentationBits::encode(ValueRepresentation::kInt32));
+  }
+  static constexpr OpProperties Float64() {
+    return OpProperties(
+        kValueRepresentationBits::encode(ValueRepresentation::kFloat64));
   }
   static constexpr OpProperties JSCall() {
     return Call() | NonMemorySideEffects() | LazyDeopt();
@@ -245,7 +250,8 @@ class OpProperties {
   using kCanReadBit = kCanLazyDeoptBit::Next<bool, 1>;
   using kCanWriteBit = kCanReadBit::Next<bool, 1>;
   using kNonMemorySideEffectsBit = kCanWriteBit::Next<bool, 1>;
-  using kUntaggedValueBit = kNonMemorySideEffectsBit::Next<bool, 1>;
+  using kValueRepresentationBits =
+      kNonMemorySideEffectsBit::Next<ValueRepresentation, 2>;
 
   static const uint32_t kPureMask = kCanReadBit::kMask | kCanWriteBit::kMask |
                                     kNonMemorySideEffectsBit::kMask;
@@ -256,7 +262,7 @@ class OpProperties {
   const uint32_t bitfield_;
 
  public:
-  static const size_t kSize = kUntaggedValueBit::kLastUsedBit + 1;
+  static const size_t kSize = kValueRepresentationBits::kLastUsedBit + 1;
 };
 
 class ValueLocation {
@@ -436,7 +442,8 @@ class NodeBase : public ZoneObject {
   }
 
   // Overwritten by subclasses.
-  static constexpr OpProperties kProperties = OpProperties::Pure();
+  static constexpr OpProperties kProperties =
+      OpProperties::Pure() | OpProperties::TaggedValue();
 
   constexpr Opcode opcode() const { return OpcodeField::decode(bit_field_); }
   OpProperties properties() const {
@@ -659,18 +666,9 @@ constexpr bool NodeBase::Is<UnconditionalControlNode>() const {
 // The Node class hierarchy contains all non-control nodes.
 class Node : public NodeBase {
  public:
-  using List = base::ThreadedList<Node>;
+  using List = base::ThreadedListWithUnsafeInsertions<Node>;
 
   inline ValueLocation& result();
-
-  // This might break ThreadedList invariants.
-  // Run ThreadedList::RevalidateTail afterwards.
-  void AddNodeAfter(Node* node) {
-    DCHECK_NOT_NULL(node);
-    DCHECK_NULL(node->next_);
-    node->next_ = next_;
-    next_ = node;
-  }
 
   Node* NextNode() const { return next_; }
 
@@ -754,14 +752,44 @@ class ValueNode : public Node {
   // A node is dead once it has no more upcoming uses.
   bool is_dead() const { return next_use_ == kInvalidNodeId; }
 
-  void AddRegister(Register reg) { registers_with_result_.set(reg); }
-  void RemoveRegister(Register reg) { registers_with_result_.clear(reg); }
-  RegList ClearRegisters() {
-    return std::exchange(registers_with_result_, kEmptyRegList);
+  constexpr bool use_double_register() const {
+    return (properties().value_representation() ==
+            ValueRepresentation::kFloat64);
   }
 
-  int num_registers() const { return registers_with_result_.Count(); }
-  bool has_register() const { return registers_with_result_ != kEmptyRegList; }
+  void AddRegister(Register reg) {
+    DCHECK(!use_double_register());
+    registers_with_result_.set(reg);
+  }
+  void AddRegister(DoubleRegister reg) {
+    DCHECK(use_double_register());
+    double_registers_with_result_.set(reg);
+  }
+
+  void RemoveRegister(Register reg) {
+    DCHECK(!use_double_register());
+    registers_with_result_.clear(reg);
+  }
+  void RemoveRegister(DoubleRegister reg) {
+    DCHECK(use_double_register());
+    double_registers_with_result_.clear(reg);
+  }
+
+  template <typename T>
+  inline RegListBase<T> ClearRegisters();
+
+  int num_registers() const {
+    if (use_double_register()) {
+      return double_registers_with_result_.Count();
+    }
+    return registers_with_result_.Count();
+  }
+  bool has_register() const {
+    if (use_double_register()) {
+      return double_registers_with_result_ != kEmptyDoubleRegList;
+    }
+    return registers_with_result_ != kEmptyRegList;
+  }
 
   compiler::AllocatedOperand allocation() const {
     if (has_register()) {
@@ -773,13 +801,6 @@ class ValueNode : public Node {
     return compiler::AllocatedOperand::cast(spill_or_hint_);
   }
 
-  bool is_untagged_value() const { return properties().is_untagged_value(); }
-
-  ValueRepresentation value_representation() const {
-    return is_untagged_value() ? ValueRepresentation::kUntagged
-                               : ValueRepresentation::kTagged;
-  }
-
  protected:
   explicit ValueNode(uint32_t bitfield)
       : Node(bitfield),
@@ -789,6 +810,11 @@ class ValueNode : public Node {
         state_(kLastUse)
 #endif  // DEBUG
   {
+    if (use_double_register()) {
+      double_registers_with_result_ = kEmptyDoubleRegList;
+    } else {
+      registers_with_result_ = kEmptyRegList;
+    }
   }
 
   // Rename for better pairing with `end_id`.
@@ -797,7 +823,10 @@ class ValueNode : public Node {
   NodeIdT end_id_ = kInvalidNodeId;
   NodeIdT next_use_ = kInvalidNodeId;
   ValueLocation result_;
-  RegList registers_with_result_ = kEmptyRegList;
+  union {
+    RegList registers_with_result_;
+    DoubleRegList double_registers_with_result_;
+  };
   union {
     // Pointer to the current last use's next_use_id field. Most of the time
     // this will be a pointer to an Input's next_use_id_ field, but it's
@@ -810,6 +839,18 @@ class ValueNode : public Node {
   enum { kLastUse, kSpillOrHint } state_;
 #endif  // DEBUG
 };
+
+template <>
+inline RegList ValueNode::ClearRegisters() {
+  DCHECK(!use_double_register());
+  return std::exchange(registers_with_result_, kEmptyRegList);
+}
+
+template <>
+inline DoubleRegList ValueNode::ClearRegisters() {
+  DCHECK(use_double_register());
+  return std::exchange(double_registers_with_result_, kEmptyDoubleRegList);
+}
 
 ValueLocation& Node::result() {
   DCHECK(Is<ValueNode>());
@@ -975,7 +1016,7 @@ class CheckedSmiUntag : public FixedInputValueNodeT<1, CheckedSmiUntag> {
   explicit CheckedSmiUntag(uint32_t bitfield) : Base(bitfield) {}
 
   static constexpr OpProperties kProperties =
-      OpProperties::EagerDeopt() | OpProperties::UntaggedValue();
+      OpProperties::EagerDeopt() | OpProperties::Int32();
 
   Input& input() { return Node::input(0); }
 
@@ -991,7 +1032,7 @@ class Int32Constant : public FixedInputValueNodeT<0, Int32Constant> {
   explicit Int32Constant(uint32_t bitfield, int32_t value)
       : Base(bitfield), value_(value) {}
 
-  static constexpr OpProperties kProperties = OpProperties::UntaggedValue();
+  static constexpr OpProperties kProperties = OpProperties::Int32();
 
   int32_t value() const { return value_; }
 
@@ -1011,7 +1052,7 @@ class Int32AddWithOverflow
   explicit Int32AddWithOverflow(uint32_t bitfield) : Base(bitfield) {}
 
   static constexpr OpProperties kProperties =
-      OpProperties::EagerDeopt() | OpProperties::UntaggedValue();
+      OpProperties::EagerDeopt() | OpProperties::Int32();
 
   static constexpr int kLeftIndex = 0;
   static constexpr int kRightIndex = 1;

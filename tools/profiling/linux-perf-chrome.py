@@ -5,18 +5,14 @@
 
 import optparse
 from pathlib import Path
-from re import A
 import os
 import shlex
-from signal import SIGQUIT
 import subprocess
 import signal
 import tempfile
 import time
 import psutil
 import multiprocessing
-
-from unittest import result
 
 renderer_cmd_file = Path(__file__).parent / 'linux-perf-renderer-cmd.sh'
 assert renderer_cmd_file.is_file()
@@ -46,7 +42,7 @@ parser.add_option(
     help="Also start linux-perf for the browser process. "
     "By default only renderer processes are sampled. "
     "Outputs 'browser_*.perf.data' in the CDW")
-parser.add_option("--timeout", type=int, help="Stop chrome after N seconds")
+parser.add_option("--timeout", type=float, help="Stop chrome after N seconds")
 
 chrome_options = optparse.OptionGroup(
     parser, "Chrome-forwarded Options",
@@ -85,7 +81,7 @@ def log(*args):
 if len(args) == 0:
   parser.error("No chrome binary provided")
 
-chrome_bin = Path(args.pop(0))
+chrome_bin = Path(args.pop(0)).absolute()
 if not chrome_bin.exists():
   parser.error(f"Chrome '{chrome_bin}' does not exist")
 
@@ -115,6 +111,17 @@ os.chdir(options.perf_data_dir)
 # ==============================================================================
 JS_FLAGS_PERF = ("--perf-prof --no-write-protect-code-memory "
                  "--interpreted-frames-native-stack")
+
+
+def wait_for_process_timeout(process):
+  sleeping_time = 0
+  while (sleeping_time < options.timeout):
+    processHasStopped = process.poll() is not None
+    if processHasStopped:
+      return True
+    time.sleep(0.5)
+  return False
+
 
 with tempfile.TemporaryDirectory(prefix="chrome-") as tmp_dir_path:
   tempdir = Path(tmp_dir_path)
@@ -148,11 +155,14 @@ with tempfile.TemporaryDirectory(prefix="chrome-") as tmp_dir_path:
     log("LINUX PERF CMD: ", shlex.join(cmd))
 
   if options.timeout is None:
-    subprocess.run(cmd)
+    try:
+      subprocess.check_call(cmd)
+    except:
+      log("ERROR running perf record")
   else:
     process = subprocess.Popen(cmd)
-    time.sleep(options.timeout)
-    log(f"QUITING chrome child processes after {options.timeout}s timeout")
+    if not wait_for_process_timeout(process):
+      log(f"QUITING chrome child processes after {options.timeout}s timeout")
     current_process = psutil.Process()
     children = current_process.children(recursive=True)
     for child in children:
@@ -161,10 +171,14 @@ with tempfile.TemporaryDirectory(prefix="chrome-") as tmp_dir_path:
         child.send_signal(signal.SIGQUIT)
     # Wait for linux-perf to write out files
     time.sleep(1)
-    process.send_signal(signal.SIGQUIT)
-    process.wait()
-
-# ==============================================================================
+    return_status = process.poll()
+    if return_status is None:
+      log("Force quitting linux-perf")
+      process.send_signal(signal.SIGQUIT)
+      process.wait()
+    elif return_status != 0:
+      log("ERROR running perf record")
+  # ==============================================================================
 log("PARALLEL POST PROCESSING: Injecting JS symbols")
 
 
@@ -175,7 +189,7 @@ def inject_v8_symbols(perf_dat_file):
       f"--output={output_file}"
   ]
   try:
-    subprocess.run(cmd)
+    subprocess.check_call(cmd)
     print(f"Processed: {output_file}")
   except:
     print(shlex.join(cmd))
@@ -202,6 +216,6 @@ for output_file in reversed(results):
       f"{output_file.name:67}{(output_file.stat().st_size*BYTES_TO_MIB):10.2f}MiB"
   )
 
-log("PPROF EXAMPLE")
+log("PPROF")
 path_strings = map(lambda f: str(f.relative_to(old_cwd)), results)
 print(f"pprof -flame { ' '.join(path_strings)}")

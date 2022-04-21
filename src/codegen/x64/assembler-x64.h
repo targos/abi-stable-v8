@@ -172,13 +172,13 @@ class V8_EXPORT_PRIVATE Operand {
  public:
   struct Data {
     byte rex = 0;
-    byte buf[9];
-    byte len = 1;   // number of bytes of buf_ in use.
-    int8_t addend;  // for rip + offset + addend.
+    byte buf[9] = {0};
+    byte len = 1;       // number of bytes of buf_ in use.
+    int8_t addend = 0;  // for rip + offset + addend.
   };
 
   // [base + disp/r]
-  V8_INLINE Operand(Register base, int32_t disp) {
+  V8_INLINE constexpr Operand(Register base, int32_t disp) {
     if (base == rsp || base == r12) {
       // SIB byte is needed to encode (rsp + offset) or (r12 + offset).
       set_sib(times_1, rsp, base);
@@ -245,14 +245,15 @@ class V8_EXPORT_PRIVATE Operand {
   bool AddressUsesRegister(Register reg) const;
 
  private:
-  V8_INLINE void set_modrm(int mod, Register rm_reg) {
+  V8_INLINE constexpr void set_modrm(int mod, Register rm_reg) {
     DCHECK(is_uint2(mod));
     data_.buf[0] = mod << 6 | rm_reg.low_bits();
     // Set REX.B to the high bit of rm.code().
     data_.rex |= rm_reg.high_bit();
   }
 
-  V8_INLINE void set_sib(ScaleFactor scale, Register index, Register base) {
+  V8_INLINE constexpr void set_sib(ScaleFactor scale, Register index,
+                                   Register base) {
     DCHECK_EQ(data_.len, 1);
     DCHECK(is_uint2(scale));
     // Use SIB with no index register only for base rsp or r12. Otherwise we
@@ -263,11 +264,10 @@ class V8_EXPORT_PRIVATE Operand {
     data_.len = 2;
   }
 
-  V8_INLINE void set_disp8(int disp) {
+  V8_INLINE constexpr void set_disp8(int disp) {
     DCHECK(is_int8(disp));
     DCHECK(data_.len == 1 || data_.len == 2);
-    int8_t* p = reinterpret_cast<int8_t*>(&data_.buf[data_.len]);
-    *p = disp;
+    data_.buf[data_.len] = disp;
     data_.len += sizeof(int8_t);
   }
 
@@ -287,6 +287,28 @@ class V8_EXPORT_PRIVATE Operand {
 
   Data data_;
 };
+
+class V8_EXPORT_PRIVATE Operand256 : public Operand {
+ public:
+  // [base + disp/r]
+  V8_INLINE Operand256(Register base, int32_t disp) : Operand(base, disp) {}
+
+  // [base + index*scale + disp/r]
+  V8_INLINE Operand256(Register base, Register index, ScaleFactor scale,
+                       int32_t disp)
+      : Operand(base, index, scale, disp) {}
+
+  // [index*scale + disp/r]
+  V8_INLINE Operand256(Register index, ScaleFactor scale, int32_t disp)
+      : Operand(index, scale, disp) {}
+
+  Operand256(const Operand256&) V8_NOEXCEPT = default;
+  Operand256& operator=(const Operand256&) V8_NOEXCEPT = default;
+
+ private:
+  friend class Operand;
+};
+
 ASSERT_TRIVIALLY_COPYABLE(Operand);
 static_assert(sizeof(Operand) <= 2 * kSystemPointerSize,
               "Operand must be small enough to pass it by value");
@@ -1045,6 +1067,24 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
 
   SSE2_UNOP_INSTRUCTION_LIST(DECLARE_SSE2_UNOP_AVX_INSTRUCTION)
 #undef DECLARE_SSE2_UNOP_AVX_INSTRUCTION
+
+#define DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION(                 \
+    instruction, opcode, DSTRegister, SRCRegister, MemOperand) \
+  void v##instruction(DSTRegister dst, SRCRegister src) {      \
+    vpd(0x##opcode, dst, ymm0, src);                           \
+  }                                                            \
+  void v##instruction(DSTRegister dst, MemOperand src) {       \
+    vpd(0x##opcode, dst, ymm0, src);                           \
+  }
+  DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION(sqrtpd, 51, YMMRegister, YMMRegister,
+                                        Operand)
+  DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION(cvtpd2ps, 5A, XMMRegister, YMMRegister,
+                                        Operand256)
+  DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION(cvtps2dq, 5B, YMMRegister, YMMRegister,
+                                        Operand)
+  DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION(cvttpd2dq, E6, XMMRegister, YMMRegister,
+                                        Operand256)
+#undef DECLARE_SSE2_UNOP_AVX_YMM_INSTRUCTION
 
   // SSE3
   void lddqu(XMMRegister dst, Operand src);
@@ -1863,8 +1903,10 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
            byte imm8);
   void vpd(byte op, XMMRegister dst, XMMRegister src1, XMMRegister src2);
   void vpd(byte op, YMMRegister dst, YMMRegister src1, YMMRegister src2);
+  void vpd(byte op, XMMRegister dst, YMMRegister src1, YMMRegister src2);
   void vpd(byte op, XMMRegister dst, XMMRegister src1, Operand src2);
   void vpd(byte op, YMMRegister dst, YMMRegister src1, Operand src2);
+  void vpd(byte op, XMMRegister dst, YMMRegister src1, Operand src2);
 
   // AVX2 instructions
 #define AVX2_INSTRUCTION(instr, prefix, escape1, escape2, opcode)           \

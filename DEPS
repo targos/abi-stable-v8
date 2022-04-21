@@ -40,7 +40,7 @@ vars = {
   'reclient_version': 're_client_version:0.40.0.40ff5a5',
 
   # GN CIPD package version.
-  'gn_version': 'git_revision:ae110f8b525009255ba1f9ae96982176d3bfad3d',
+  'gn_version': 'git_revision:1cdd270be9803dbfcdd0343f6104ad4dc30c38ce',
 
   # luci-go CIPD package version.
   'luci_go': 'git_revision:6da0608e4fa8a3c6d1fa4f855485c0038b05bf72',
@@ -83,7 +83,7 @@ deps = {
   'base/trace_event/common':
     Var('chromium_url') + '/chromium/src/base/trace_event/common.git' + '@' + 'd115b033c4e53666b535cbd1985ffe60badad082',
   'build':
-    Var('chromium_url') + '/chromium/src/build.git' + '@' + 'b37c340767cf9e7777d4ca5a588c34c5744df9b2',
+    Var('chromium_url') + '/chromium/src/build.git' + '@' + '28bea73326715ae8bc8673b16046d0c32df48a3e',
   'buildtools':
     Var('chromium_url') + '/chromium/src/buildtools.git' + '@' + 'c2e4795660817c2776dbabd778b92ed58c074032',
   'buildtools/clang_format/script':
@@ -113,7 +113,7 @@ deps = {
   'buildtools/third_party/libc++abi/trunk':
     Var('chromium_url') + '/external/github.com/llvm/llvm-project/libcxxabi.git' + '@' + 'e025ba5dc85202540099d7cd8e72eae2d4ee9e33',
   'buildtools/third_party/libunwind/trunk':
-    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + 'c39fea88739be63a2d5590a938ce19d762b915fc',
+    Var('chromium_url') + '/external/github.com/llvm/llvm-project/libunwind.git' + '@' + '1acfbbb4747081789ba48bc8c042fa3c5c8ccaa3',
   'buildtools/win': {
     'packages': [
       {
@@ -139,7 +139,7 @@ deps = {
   'test/mozilla/data':
     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
   'test/test262/data':
-    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + 'd7c0a2076c2b0c1531aef7069d4abe70eec44ee3',
+    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '33a5433d1bd1f38af7967fca0dd0665fd1f7f1cc',
   'third_party/aemu-linux-x64': {
       'packages': [
           {
@@ -207,7 +207,7 @@ deps = {
       'dep_type': 'cipd',
   },
   'third_party/catapult': {
-    'url': Var('chromium_url') + '/catapult.git' + '@' + '3a1ae18f882d024686144edbec3050aae055f146',
+    'url': Var('chromium_url') + '/catapult.git' + '@' + '960c656c2fe229173bf8b0a10c45f28447d594f5',
     'condition': 'checkout_android',
   },
   'third_party/colorama/src': {
@@ -215,7 +215,7 @@ deps = {
     'condition': 'checkout_android',
   },
   'third_party/depot_tools':
-    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '3b97fa826eee4bd1978c4c049038b1e4f201e8f2',
+    Var('chromium_url') + '/chromium/tools/depot_tools.git' + '@' + '89ccf4a8054906ad20ac112306e511246c90cb81',
   'third_party/fuchsia-sdk': {
     'url': Var('chromium_url') + '/chromium/src/third_party/fuchsia-sdk.git' + '@' + '7c9c220d13ab367d49420144a257886ebfbce278',
     'condition': 'checkout_fuchsia',
@@ -226,7 +226,7 @@ deps = {
   'third_party/googletest/src':
     Var('chromium_url') + '/external/github.com/google/googletest.git' + '@' + 'af29db7ec28d6df1c7f0f745186884091e602e07',
   'third_party/icu':
-    Var('chromium_url') + '/chromium/deps/icu.git' + '@' + '1fd0dbea04448c3f73fe5cb7599f9472f0f107f1',
+    Var('chromium_url') + '/chromium/deps/icu.git' + '@' + 'd2858cb5ee4335a08ae35c9779ab8bed67e89ef5',
   'third_party/instrumented_libraries':
     Var('chromium_url') + '/chromium/src/third_party/instrumented_libraries.git' + '@' + 'e09c4b66b6e87116eb190651421f1a6e2f3b9c52',
   'third_party/ittapi': {
@@ -272,9 +272,9 @@ deps = {
       'condition': 'checkout_android',
   },
   'third_party/zlib':
-    Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + 'a6d209ab932df0f1c9d5b7dc67cfa74e8a3272c0',
+    Var('chromium_url') + '/chromium/src/third_party/zlib.git'+ '@' + 'a0906c76e8ddef3b2d0aef7a3a31b3796dfda827',
   'tools/clang':
-    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + 'b5e2f7c16bbf3aefc9354e8fbad3de0a543f2193',
+    Var('chromium_url') + '/chromium/src/tools/clang.git' + '@' + '4dd2e32ad6c53cd4fc27420001bfe8139746931c',
   'tools/luci-go': {
       'packages': [
         {

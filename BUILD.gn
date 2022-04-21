@@ -418,7 +418,7 @@ if (v8_enable_zone_compression == "") {
 }
 if (v8_enable_short_builtin_calls == "") {
   v8_enable_short_builtin_calls =
-      v8_current_cpu == "x64" || (!is_android && v8_current_cpu == "arm64")
+      v8_current_cpu == "x64" || v8_current_cpu == "arm64"
 }
 if (v8_enable_external_code_space == "") {
   v8_enable_external_code_space =
@@ -2750,6 +2750,8 @@ v8_header_set("v8_internal_headers") {
     "src/common/allow-deprecated.h",
     "src/common/assert-scope.h",
     "src/common/checks.h",
+    "src/common/code-memory-access-inl.h",
+    "src/common/code-memory-access.h",
     "src/common/high-allocation-throughput-scope.h",
     "src/common/message-template.h",
     "src/common/operation.h",
@@ -4131,6 +4133,7 @@ v8_source_set("v8_base_without_compiler") {
     "src/builtins/builtins-trace.cc",
     "src/builtins/builtins-typed-array.cc",
     "src/builtins/builtins-weak-refs.cc",
+    "src/builtins/builtins-web-snapshots.cc",
     "src/builtins/builtins.cc",
     "src/builtins/constants-table-builder.cc",
     "src/codegen/aligned-slot-allocator.cc",
@@ -4163,6 +4166,7 @@ v8_source_set("v8_base_without_compiler") {
     "src/codegen/turbo-assembler.cc",
     "src/codegen/unoptimized-compilation-info.cc",
     "src/common/assert-scope.cc",
+    "src/common/code-memory-access.cc",
     "src/compiler-dispatcher/lazy-compile-dispatcher.cc",
     "src/compiler-dispatcher/optimizing-compile-dispatcher.cc",
     "src/date/date.cc",
@@ -5101,7 +5105,6 @@ v8_component("v8_libbase") {
     "src/base/address-region.h",
     "src/base/atomic-utils.h",
     "src/base/atomicops.h",
-    "src/base/atomicops_internals_atomicword_compat.h",
     "src/base/base-export.h",
     "src/base/bit-field.h",
     "src/base/bits-iterator.h",
@@ -5243,6 +5246,7 @@ v8_component("v8_libbase") {
     sources += [
       "src/base/debug/stack_trace_posix.cc",
       "src/base/platform/platform-linux.cc",
+      "src/base/platform/platform-linux.h",
     ]
 
     libs = [

@@ -310,8 +310,9 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
   V(harmony_struct, "harmony structs and shared structs")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_INPROGRESS(V) \
-  HARMONY_INPROGRESS_BASE(V)  \
+#define HARMONY_INPROGRESS(V)                             \
+  HARMONY_INPROGRESS_BASE(V)                              \
+  V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher") \
   V(harmony_intl_number_format_v3, "Intl.NumberFormat v3")
 #else
 #define HARMONY_INPROGRESS(V) HARMONY_INPROGRESS_BASE(V)
@@ -322,9 +323,7 @@ DEFINE_BOOL(harmony_shipping, true, "enable all shipped harmony features")
   V(harmony_array_grouping, "harmony array grouping")
 
 #ifdef V8_INTL_SUPPORT
-#define HARMONY_STAGED(V) \
-  HARMONY_STAGED_BASE(V)  \
-  V(harmony_intl_best_fit_matcher, "Intl BestFitMatcher")
+#define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
 #else
 #define HARMONY_STAGED(V) HARMONY_STAGED_BASE(V)
 #endif
@@ -713,7 +712,7 @@ DEFINE_BOOL(baseline_batch_compilation, true, "batch compile Sparkplug code")
 DEFINE_BOOL_READONLY(concurrent_sparkplug, false,
                      "compile Sparkplug code in a background thread")
 #else
-DEFINE_BOOL(concurrent_sparkplug, false,
+DEFINE_BOOL(concurrent_sparkplug, true,
             "compile Sparkplug code in a background thread")
 DEFINE_WEAK_IMPLICATION(future, concurrent_sparkplug)
 DEFINE_NEG_IMPLICATION(predictable, concurrent_sparkplug)
@@ -721,7 +720,7 @@ DEFINE_NEG_IMPLICATION(single_threaded, concurrent_sparkplug)
 DEFINE_NEG_IMPLICATION(jitless, concurrent_sparkplug)
 #endif
 DEFINE_UINT(
-    concurrent_sparkplug_max_threads, 0,
+    concurrent_sparkplug_max_threads, 2,
     "max number of threads that concurrent Sparkplug can use (0 for unbounded)")
 #else
 DEFINE_BOOL(baseline_batch_compilation, false, "batch compile Sparkplug code")
@@ -880,7 +879,8 @@ DEFINE_BOOL(trace_turbo_inlining, false, "trace TurboFan inlining")
 DEFINE_BOOL(turbo_inline_array_builtins, true,
             "inline array builtins in TurboFan code")
 DEFINE_BOOL(use_osr, true, "use on-stack replacement")
-DEFINE_BOOL(concurrent_osr, true, "enable concurrent OSR")
+DEFINE_BOOL(concurrent_osr, false, "enable concurrent OSR")
+DEFINE_WEAK_IMPLICATION(future, concurrent_osr)
 DEFINE_BOOL(trace_osr, false, "trace on-stack replacement")
 DEFINE_BOOL(analyze_environment_liveness, true,
             "analyze liveness of environment slots and zap dead values")
@@ -1225,6 +1225,8 @@ DEFINE_BOOL(
     trace_allocations_origins, false,
     "Show statistics about the origins of allocations. "
     "Combine with --no-inline-new to track allocations from generated code")
+DEFINE_NEG_IMPLICATION(trace_allocations_origins, inline_new)
+
 DEFINE_BOOL(trace_pending_allocations, false,
             "trace calls to Heap::IsAllocationPending that return true")
 
@@ -2223,11 +2225,10 @@ DEFINE_NEG_IMPLICATION(single_threaded_gc, parallel_scavenge)
 DEFINE_NEG_IMPLICATION(single_threaded_gc, concurrent_array_buffer_sweeping)
 DEFINE_NEG_IMPLICATION(single_threaded_gc, stress_concurrent_allocation)
 
-// Web snapshots
+// Web snapshots: 1) expose WebSnapshot.* API 2) interpret scripts as web
+// snapshots if they start with a magic number.
 // TODO(v8:11525): Remove this flag once proper embedder integration is done.
-DEFINE_BOOL(
-    experimental_web_snapshots, false,
-    "interpret scripts as web snapshots if they start with a magic number")
+DEFINE_BOOL(experimental_web_snapshots, false, "enable Web Snapshots")
 DEFINE_NEG_IMPLICATION(experimental_web_snapshots, script_streaming)
 
 #undef FLAG

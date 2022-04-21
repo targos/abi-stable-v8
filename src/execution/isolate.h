@@ -96,7 +96,7 @@ class AstStringConstants;
 class Bootstrapper;
 class BuiltinsConstantsTableBuilder;
 class CancelableTaskManager;
-class CodeEventDispatcher;
+class LogEventDispatcher;
 class CodeTracer;
 class CommonFrame;
 class CompilationCache;
@@ -115,7 +115,7 @@ class HeapProfiler;
 class InnerPointerToCodeCache;
 class LazyCompileDispatcher;
 class LocalIsolate;
-class Logger;
+class V8FileLogger;
 class MaterializedObjectStore;
 class Microtask;
 class MicrotaskQueue;
@@ -1111,11 +1111,11 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   }
   TieringManager* tiering_manager() { return tiering_manager_; }
   CompilationCache* compilation_cache() { return compilation_cache_; }
-  Logger* logger() {
+  V8FileLogger* logger() {
     // Call InitializeLoggingAndCounters() if logging is needed before
     // the isolate is fully initialized.
-    DCHECK_NOT_NULL(logger_);
-    return logger_;
+    DCHECK_NOT_NULL(v8_file_logger_);
+    return v8_file_logger_;
   }
   StackGuard* stack_guard() { return isolate_data()->stack_guard(); }
   Heap* heap() { return &heap_; }
@@ -1315,8 +1315,8 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
     is_profiling_.store(enabled, std::memory_order_relaxed);
   }
 
-  CodeEventDispatcher* code_event_dispatcher() const {
-    return code_event_dispatcher_.get();
+  LogEventDispatcher* log_event_dispatcher() const {
+    return log_event_dispatcher_;
   }
   HeapProfiler* heap_profiler() const { return heap_profiler_; }
 
@@ -2098,7 +2098,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
   base::SharedMutex shared_function_info_access_;
   base::SharedMutex map_updater_access_;
   base::SharedMutex boilerplate_migration_access_;
-  Logger* logger_ = nullptr;
+  V8FileLogger* v8_file_logger_ = nullptr;
   StubCache* load_stub_cache_ = nullptr;
   StubCache* store_stub_cache_ = nullptr;
   Deoptimizer* current_deoptimizer_ = nullptr;
@@ -2221,7 +2221,7 @@ class V8_EXPORT_PRIVATE Isolate final : private HiddenFactory {
 
   Debug* debug_ = nullptr;
   HeapProfiler* heap_profiler_ = nullptr;
-  std::unique_ptr<CodeEventDispatcher> code_event_dispatcher_;
+  LogEventDispatcher* log_event_dispatcher_ = nullptr;
 
   const AstStringConstants* ast_string_constants_ = nullptr;
 

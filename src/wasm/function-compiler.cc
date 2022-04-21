@@ -120,8 +120,10 @@ WasmCompilationResult WasmCompilationUnit::ExecuteFunctionCompilation(
           debug_sidetable_ptr = &unused_debug_sidetable;
         }
         result = ExecuteLiftoffCompilation(
-            env, func_body, func_index_, for_debugging_,
+            env, func_body,
             LiftoffOptions{}
+                .set_func_index(func_index_)
+                .set_for_debugging(for_debugging_)
                 .set_counters(counters)
                 .set_detected_features(detected)
                 .set_debug_sidetable(debug_sidetable_ptr));
@@ -244,7 +246,7 @@ Handle<Code> JSToWasmWrapperCompilationUnit::Finalize() {
       isolate_->is_profiling()) {
     Handle<String> name = isolate_->factory()->NewStringFromAsciiChecked(
         job_->compilation_info()->GetDebugName().get());
-    PROFILE(isolate_, CodeCreateEvent(CodeEventListener::STUB_TAG,
+    PROFILE(isolate_, CodeCreateEvent(LogEventListener::STUB_TAG,
                                       Handle<AbstractCode>::cast(code), name));
   }
   return code;

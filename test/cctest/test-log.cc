@@ -47,7 +47,7 @@
 
 using v8::base::EmbeddedVector;
 using v8::internal::Address;
-using v8::internal::Logger;
+using v8::internal::V8FileLogger;
 
 namespace {
 
@@ -95,7 +95,7 @@ class V8_NODISCARD ScopedLoggerInitializer {
 
   i::Isolate* i_isolate() { return reinterpret_cast<i::Isolate*>(isolate()); }
 
-  Logger* logger() { return logger_; }
+  V8FileLogger* logger() { return logger_; }
 
   v8::Local<v8::String> GetLogString() {
     int length = static_cast<int>(raw_log_.size());
@@ -214,7 +214,7 @@ class V8_NODISCARD ScopedLoggerInitializer {
   v8::Isolate::Scope isolate_scope_;
   v8::HandleScope scope_;
   v8::Local<v8::Context> env_;
-  Logger* logger_;
+  V8FileLogger* logger_;
 
   std::string raw_log_;
   std::vector<std::string> log_;
@@ -477,7 +477,7 @@ UNINITIALIZED_TEST(Issue539892) {
 
   {
     ScopedLoggerInitializer logger(isolate);
-    logger.logger()->AddCodeEventListener(&code_event_logger);
+    logger.logger()->AddLogEventListener(&code_event_logger);
 
     // Function with a really large name.
     const char* source_text =
@@ -656,7 +656,7 @@ UNINITIALIZED_TEST(LogInterpretedFramesNativeStackWithSerialization) {
 }
 #endif  // V8_TARGET_ARCH_ARM
 
-UNINITIALIZED_TEST(ExternalCodeEventListener) {
+UNINITIALIZED_TEST(ExternalLogEventListener) {
   i::FLAG_log = false;
   i::FLAG_prof = false;
 
@@ -673,36 +673,36 @@ UNINITIALIZED_TEST(ExternalCodeEventListener) {
     TestCodeEventHandler code_event_handler(isolate);
 
     const char* source_text_before_start =
-        "function testCodeEventListenerBeforeStart(a,b) { return a + b };"
-        "testCodeEventListenerBeforeStart('1', 1);";
+        "function testLogEventListenerBeforeStart(a,b) { return a + b };"
+        "testLogEventListenerBeforeStart('1', 1);";
     CompileRun(source_text_before_start);
 
     CHECK_EQ(code_event_handler.CountLines("Function",
-                                           "testCodeEventListenerBeforeStart"),
+                                           "testLogEventListenerBeforeStart"),
              0);
     CHECK_EQ(code_event_handler.CountLines("LazyCompile",
-                                           "testCodeEventListenerBeforeStart"),
+                                           "testLogEventListenerBeforeStart"),
              0);
 
     code_event_handler.Enable();
 
     CHECK_GE(code_event_handler.CountLines("Function",
-                                           "testCodeEventListenerBeforeStart"),
+                                           "testLogEventListenerBeforeStart"),
              1);
 
     const char* source_text_after_start =
-        "function testCodeEventListenerAfterStart(a,b) { return a + b };"
-        "testCodeEventListenerAfterStart('1', 1);";
+        "function testLogEventListenerAfterStart(a,b) { return a + b };"
+        "testLogEventListenerAfterStart('1', 1);";
     CompileRun(source_text_after_start);
 
     CHECK_GE(code_event_handler.CountLines("LazyCompile",
-                                           "testCodeEventListenerAfterStart"),
+                                           "testLogEventListenerAfterStart"),
              1);
   }
   isolate->Dispose();
 }
 
-UNINITIALIZED_TEST(ExternalCodeEventListenerInnerFunctions) {
+UNINITIALIZED_TEST(ExternalLogEventListenerInnerFunctions) {
   i::FLAG_log = false;
   i::FLAG_prof = false;
 
@@ -765,7 +765,7 @@ UNINITIALIZED_TEST(ExternalCodeEventListenerInnerFunctions) {
 }
 
 #ifndef V8_TARGET_ARCH_ARM
-UNINITIALIZED_TEST(ExternalCodeEventListenerWithInterpretedFramesNativeStack) {
+UNINITIALIZED_TEST(ExternalLogEventListenerWithInterpretedFramesNativeStack) {
   i::FLAG_log = false;
   i::FLAG_prof = false;
   i::FLAG_interpreted_frames_native_stack = true;
@@ -783,27 +783,27 @@ UNINITIALIZED_TEST(ExternalCodeEventListenerWithInterpretedFramesNativeStack) {
     TestCodeEventHandler code_event_handler(isolate);
 
     const char* source_text_before_start =
-        "function testCodeEventListenerBeforeStart(a,b) { return a + b };"
-        "testCodeEventListenerBeforeStart('1', 1);";
+        "function testLogEventListenerBeforeStart(a,b) { return a + b };"
+        "testLogEventListenerBeforeStart('1', 1);";
     CompileRun(source_text_before_start);
 
     CHECK_EQ(code_event_handler.CountLines("Function",
-                                           "testCodeEventListenerBeforeStart"),
+                                           "testLogEventListenerBeforeStart"),
              0);
 
     code_event_handler.Enable();
 
     CHECK_GE(code_event_handler.CountLines("Function",
-                                           "testCodeEventListenerBeforeStart"),
+                                           "testLogEventListenerBeforeStart"),
              2);
 
     const char* source_text_after_start =
-        "function testCodeEventListenerAfterStart(a,b) { return a + b };"
-        "testCodeEventListenerAfterStart('1', 1);";
+        "function testLogEventListenerAfterStart(a,b) { return a + b };"
+        "testLogEventListenerAfterStart('1', 1);";
     CompileRun(source_text_after_start);
 
     CHECK_GE(code_event_handler.CountLines("LazyCompile",
-                                           "testCodeEventListenerAfterStart"),
+                                           "testLogEventListenerAfterStart"),
              2);
 
     CHECK_EQ(

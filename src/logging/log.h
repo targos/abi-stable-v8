@@ -27,7 +27,7 @@ namespace internal {
 
 struct TickSample;
 
-// Logger is used for collecting logging information from V8 during
+// V8FileLogger is used for collecting logging information from V8 during
 // execution. The result is dumped to a file.
 //
 // Available command line flags:
@@ -58,13 +58,13 @@ struct TickSample;
 // Android).
 
 // Forward declarations.
-class CodeEventListener;
+class LogEventListener;
 class Isolate;
 class JitLogger;
 class Log;
 class LowLevelLogger;
-class PerfBasicLogger;
-class PerfJitLogger;
+class LinuxPerfBasicLogger;
+class LinuxPerfJitLogger;
 class Profiler;
 class SourcePosition;
 class Ticker;
@@ -84,27 +84,26 @@ class Ticker;
 class ExistingCodeLogger {
  public:
   explicit ExistingCodeLogger(Isolate* isolate,
-                              CodeEventListener* listener = nullptr)
+                              LogEventListener* listener = nullptr)
       : isolate_(isolate), listener_(listener) {}
 
   void LogCodeObjects();
   void LogBuiltins();
 
   void LogCompiledFunctions();
-  void LogExistingFunction(Handle<SharedFunctionInfo> shared,
-                           Handle<AbstractCode> code,
-                           CodeEventListener::LogEventsAndTags tag =
-                               CodeEventListener::FUNCTION_TAG);
+  void LogExistingFunction(
+      Handle<SharedFunctionInfo> shared, Handle<AbstractCode> code,
+      LogEventListener::LogEventsAndTags tag = LogEventListener::FUNCTION_TAG);
   void LogCodeObject(Object object);
 
  private:
   Isolate* isolate_;
-  CodeEventListener* listener_;
+  LogEventListener* listener_;
 };
 
 enum class LogSeparator;
 
-class Logger : public CodeEventListener {
+class V8FileLogger : public LogEventListener {
  public:
   enum class ScriptEventType {
     kReserveId,
@@ -114,8 +113,8 @@ class Logger : public CodeEventListener {
     kStreamingCompile
   };
 
-  explicit Logger(Isolate* isolate);
-  ~Logger() override;
+  explicit V8FileLogger(Isolate* isolate);
+  ~V8FileLogger() override;
 
   // The separator is used to write an unescaped "," into the log.
   static const LogSeparator kNext;
@@ -164,10 +163,10 @@ class Logger : public CodeEventListener {
   void ScriptDetails(Script script);
 
   // ==== Events logged by --log-code. ====
-  V8_EXPORT_PRIVATE void AddCodeEventListener(CodeEventListener* listener);
-  V8_EXPORT_PRIVATE void RemoveCodeEventListener(CodeEventListener* listener);
+  V8_EXPORT_PRIVATE void AddLogEventListener(LogEventListener* listener);
+  V8_EXPORT_PRIVATE void RemoveLogEventListener(LogEventListener* listener);
 
-  // CodeEventListener implementation.
+  // LogEventListener implementation.
   void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
                        const char* name) override;
   void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
@@ -281,8 +280,8 @@ class Logger : public CodeEventListener {
   void LogAllMaps();
 
   // Converts tag to a corresponding NATIVE_... if the script is native.
-  V8_INLINE static CodeEventListener::LogEventsAndTags ToNativeByScript(
-      CodeEventListener::LogEventsAndTags, Script);
+  V8_INLINE static LogEventListener::LogEventsAndTags ToNativeByScript(
+      LogEventListener::LogEventsAndTags, Script);
 
  private:
   void UpdateIsLogging(bool value);
@@ -295,11 +294,11 @@ class Logger : public CodeEventListener {
                              Address entry_point);
 
   // Internal configurable move event.
-  void MoveEventInternal(CodeEventListener::LogEventsAndTags event,
-                         Address from, Address to);
+  void MoveEventInternal(LogEventListener::LogEventsAndTags event, Address from,
+                         Address to);
 
   // Helper method. It resets name_buffer_ and add tag name into it.
-  void InitNameBuffer(CodeEventListener::LogEventsAndTags tag);
+  void InitNameBuffer(LogEventListener::LogEventsAndTags tag);
 
   // Emits a profiler tick event. Used by the profiler thread.
   void TickEvent(TickSample* sample, bool overflow);
@@ -342,8 +341,8 @@ class Logger : public CodeEventListener {
   std::atomic<bool> is_logging_;
   std::unique_ptr<Log> log_;
 #if V8_OS_LINUX
-  std::unique_ptr<PerfBasicLogger> perf_basic_logger_;
-  std::unique_ptr<PerfJitLogger> perf_jit_logger_;
+  std::unique_ptr<LinuxPerfBasicLogger> perf_basic_logger_;
+  std::unique_ptr<LinuxPerfJitLogger> perf_jit_logger_;
 #endif
   std::unique_ptr<LowLevelLogger> ll_logger_;
   std::unique_ptr<JitLogger> jit_logger_;
@@ -402,7 +401,7 @@ class V8_NODISCARD TimerEventScope {
 };
 
 // Abstract
-class V8_EXPORT_PRIVATE CodeEventLogger : public CodeEventListener {
+class V8_EXPORT_PRIVATE CodeEventLogger : public LogEventListener {
  public:
   explicit CodeEventLogger(Isolate* isolate);
   ~CodeEventLogger() override;
@@ -470,10 +469,10 @@ struct CodeEvent {
   uintptr_t previous_code_start_address;
 };
 
-class ExternalCodeEventListener : public CodeEventListener {
+class ExternalLogEventListener : public LogEventListener {
  public:
-  explicit ExternalCodeEventListener(Isolate* isolate);
-  ~ExternalCodeEventListener() override;
+  explicit ExternalLogEventListener(Isolate* isolate);
+  ~ExternalLogEventListener() override;
 
   void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
                        const char* comment) override;

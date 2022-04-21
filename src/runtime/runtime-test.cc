@@ -1547,7 +1547,7 @@ RUNTIME_FUNCTION(Runtime_EnableCodeLoggingForTesting) {
   // The {NoopListener} currently does nothing on any callback, but reports
   // {true} on {is_listening_to_code_events()}. Feel free to add assertions to
   // any method to further test the code logging callbacks.
-  class NoopListener final : public CodeEventListener {
+  class NoopListener final : public LogEventListener {
     void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
                          const char* name) final {}
     void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
@@ -1589,7 +1589,7 @@ RUNTIME_FUNCTION(Runtime_EnableCodeLoggingForTesting) {
 #if V8_ENABLE_WEBASSEMBLY
   wasm::GetWasmEngine()->EnableCodeLogging(isolate);
 #endif  // V8_ENABLE_WEBASSEMBLY
-  isolate->code_event_dispatcher()->AddListener(noop_listener.get());
+  isolate->log_event_dispatcher()->AddListener(noop_listener.get());
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
@@ -1634,94 +1634,6 @@ RUNTIME_FUNCTION(Runtime_IsSharedString) {
   Handle<HeapObject> obj = args.at<HeapObject>(0);
   return isolate->heap()->ToBoolean(obj->IsString() &&
                                     Handle<String>::cast(obj)->IsShared());
-}
-
-RUNTIME_FUNCTION(Runtime_WebSnapshotSerialize) {
-  if (!FLAG_allow_natives_syntax) {
-    return ReadOnlyRoots(isolate).undefined_value();
-  }
-  HandleScope scope(isolate);
-  if (args.length() < 1 || args.length() > 2) {
-    THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kRuntimeWrongNumArgs));
-  }
-  Handle<Object> object = args.at(0);
-  Handle<FixedArray> block_list = isolate->factory()->empty_fixed_array();
-  Handle<JSArray> block_list_js_array;
-  if (args.length() == 2) {
-    if (!args[1].IsJSArray()) {
-      THROW_NEW_ERROR_RETURN_FAILURE(
-          isolate, NewTypeError(MessageTemplate::kInvalidArgument));
-    }
-    block_list_js_array = args.at<JSArray>(1);
-    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-        isolate, block_list,
-        JSReceiver::GetOwnValues(block_list_js_array,
-                                 PropertyFilter::ENUMERABLE_STRINGS));
-  }
-
-  auto snapshot_data = std::make_shared<WebSnapshotData>();
-  WebSnapshotSerializer serializer(isolate);
-  if (!serializer.TakeSnapshot(object, block_list, *snapshot_data)) {
-    DCHECK(isolate->has_pending_exception());
-    return ReadOnlyRoots(isolate).exception();
-  }
-  if (!block_list_js_array.is_null() &&
-      static_cast<uint32_t>(block_list->length()) <
-          serializer.external_objects_count()) {
-    Handle<FixedArray> externals = serializer.GetExternals();
-    Handle<Map> map = JSObject::GetElementsTransitionMap(block_list_js_array,
-                                                         PACKED_ELEMENTS);
-    block_list_js_array->set_elements(*externals);
-    block_list_js_array->set_length(Smi::FromInt(externals->length()));
-    block_list_js_array->set_map(*map);
-  }
-  i::Handle<i::Object> managed_object = Managed<WebSnapshotData>::FromSharedPtr(
-      isolate, snapshot_data->buffer_size, snapshot_data);
-  return *managed_object;
-}
-
-RUNTIME_FUNCTION(Runtime_WebSnapshotDeserialize) {
-  if (!FLAG_allow_natives_syntax) {
-    return ReadOnlyRoots(isolate).undefined_value();
-  }
-  HandleScope scope(isolate);
-  if (args.length() == 0 || args.length() > 2) {
-    THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kRuntimeWrongNumArgs));
-  }
-  if (!args[0].IsForeign()) {
-    THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kInvalidArgument));
-  }
-  Handle<Foreign> foreign_data = args.at<Foreign>(0);
-  Handle<FixedArray> injected_references =
-      isolate->factory()->empty_fixed_array();
-  if (args.length() == 2) {
-    if (!args[1].IsJSArray()) {
-      THROW_NEW_ERROR_RETURN_FAILURE(
-          isolate, NewTypeError(MessageTemplate::kInvalidArgument));
-    }
-    auto js_array = args.at<JSArray>(1);
-    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-        isolate, injected_references,
-        JSReceiver::GetOwnValues(js_array, PropertyFilter::ENUMERABLE_STRINGS));
-  }
-
-  auto data = Managed<WebSnapshotData>::cast(*foreign_data).get();
-  v8::Isolate* v8_isolate = reinterpret_cast<v8::Isolate*>(isolate);
-  WebSnapshotDeserializer deserializer(v8_isolate, data->buffer,
-                                       data->buffer_size);
-  if (!deserializer.Deserialize(injected_references)) {
-    DCHECK(isolate->has_pending_exception());
-    return ReadOnlyRoots(isolate).exception();
-  }
-  Handle<Object> object;
-  if (!deserializer.value().ToHandle(&object)) {
-    THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kWebSnapshotError));
-  }
-  return *object;
 }
 
 RUNTIME_FUNCTION(Runtime_SharedGC) {

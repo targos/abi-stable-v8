@@ -509,6 +509,8 @@ Handle<FeedbackVector> Factory::NewFeedbackVector(
   vector.set_length(length);
   vector.set_invocation_count(0);
   vector.set_profiler_ticks(0);
+  vector.set_placeholder0(0);
+  vector.reset_osr_state();
   vector.reset_flags();
   vector.set_closure_feedback_cell_array(*closure_feedback_cell_array);
 
@@ -1422,7 +1424,8 @@ Handle<Script> Factory::CloneScript(Handle<Script> script) {
   scripts = WeakArrayList::AddToEnd(isolate(), scripts,
                                     MaybeObjectHandle::Weak(new_script_handle));
   heap->set_script_list(*scripts);
-  LOG(isolate(), ScriptEvent(Logger::ScriptEventType::kCreate, script_id));
+  LOG(isolate(),
+      ScriptEvent(V8FileLogger::ScriptEventType::kCreate, script_id));
   return new_script_handle;
 }
 
@@ -2415,7 +2418,8 @@ Handle<BytecodeArray> Factory::CopyBytecodeArray(Handle<BytecodeArray> source) {
   copy.set_handler_table(raw_source.handler_table());
   copy.set_source_position_table(raw_source.source_position_table(kAcquireLoad),
                                  kReleaseStore);
-  copy.set_osr_urgency(raw_source.osr_urgency());
+  copy.set_osr_urgency_and_install_target(
+      raw_source.osr_urgency_and_install_target());
   copy.set_bytecode_age(raw_source.bytecode_age());
   raw_source.CopyBytecodesTo(copy);
   return handle(copy, isolate());

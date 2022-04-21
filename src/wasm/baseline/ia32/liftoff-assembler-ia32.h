@@ -2907,6 +2907,14 @@ void LiftoffAssembler::emit_i8x16_swizzle(LiftoffRegister dst,
                scratch);
 }
 
+void LiftoffAssembler::emit_i8x16_relaxed_swizzle(LiftoffRegister dst,
+                                                  LiftoffRegister lhs,
+                                                  LiftoffRegister rhs) {
+  Register tmp = GetUnusedRegister(RegClass::kGpReg, {}).gp();
+  I8x16Swizzle(dst.fp(), lhs.fp(), rhs.fp(), liftoff::kScratchDoubleReg, tmp,
+               true);
+}
+
 void LiftoffAssembler::emit_i8x16_popcnt(LiftoffRegister dst,
                                          LiftoffRegister src) {
   Register scratch = GetUnusedRegister(RegClass::kGpReg, {}).gp();
@@ -4453,6 +4461,38 @@ void LiftoffAssembler::emit_f64x2_replace_lane(LiftoffRegister dst,
                                                LiftoffRegister src2,
                                                uint8_t imm_lane_idx) {
   F64x2ReplaceLane(dst.fp(), src1.fp(), src2.fp(), imm_lane_idx);
+}
+
+void LiftoffAssembler::emit_f32x4_qfma(LiftoffRegister dst,
+                                       LiftoffRegister src1,
+                                       LiftoffRegister src2,
+                                       LiftoffRegister src3) {
+  F32x4Qfma(dst.fp(), src1.fp(), src2.fp(), src3.fp(),
+            liftoff::kScratchDoubleReg);
+}
+
+void LiftoffAssembler::emit_f32x4_qfms(LiftoffRegister dst,
+                                       LiftoffRegister src1,
+                                       LiftoffRegister src2,
+                                       LiftoffRegister src3) {
+  F32x4Qfms(dst.fp(), src1.fp(), src2.fp(), src3.fp(),
+            liftoff::kScratchDoubleReg);
+}
+
+void LiftoffAssembler::emit_f64x2_qfma(LiftoffRegister dst,
+                                       LiftoffRegister src1,
+                                       LiftoffRegister src2,
+                                       LiftoffRegister src3) {
+  F64x2Qfma(dst.fp(), src1.fp(), src2.fp(), src3.fp(),
+            liftoff::kScratchDoubleReg);
+}
+
+void LiftoffAssembler::emit_f64x2_qfms(LiftoffRegister dst,
+                                       LiftoffRegister src1,
+                                       LiftoffRegister src2,
+                                       LiftoffRegister src3) {
+  F64x2Qfms(dst.fp(), src1.fp(), src2.fp(), src3.fp(),
+            liftoff::kScratchDoubleReg);
 }
 
 void LiftoffAssembler::StackCheck(Label* ool_code, Register limit_address) {
