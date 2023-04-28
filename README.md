@@ -5,6 +5,7 @@
 - [V8 9.0 - Node.js 16.x](./versions/9.0.md)
 - [V8 9.5 - Node.js 17.x](./versions/9.5.md)
 - [V8 10.1 - Node.js 18.x](./versions/10.1.md)
+- [V8 11.3 - Node.js 20.x](./versions/11.3.md)
 
 ## Documentation
 
